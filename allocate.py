@@ -1,4 +1,4 @@
-import os, time
+import os, time, logging
 from datetime import datetime, timedelta, date
 import requests
 
@@ -9,8 +9,13 @@ from zoneinfo import ZoneInfo
 USE_FIRESTORE = os.environ.get("USE_FIRESTORE", "true").lower() == "true"
 db = None
 if USE_FIRESTORE:
-    from google.cloud import firestore
-    db = firestore.Client()  # Uses App Engine default credentials
+    try:
+        from google.cloud import firestore
+        db = firestore.Client()  # Uses App Engine default credentials
+    except Exception as e:
+        logging.warning(f"Firestore client init failed in allocate.py: {e}")
+        db = None
+        USE_FIRESTORE = False
 
 
 HUBSPOT_TOKEN = os.environ.get("HUBSPOT_TOKEN")
@@ -42,6 +47,8 @@ def get_employee_leaves_from_firestore(employee_id):
     list_leaves = []
     
     try:
+        if not db:
+            return []
         # Get the collection reference and create the stream
         leaves_ref = db.collection('employees').document(employee_id).collection('leave_requests')
         docs = leaves_ref.stream()
@@ -68,6 +75,8 @@ def get_employee_id_from_firestore(search_email):
         str: The employee ID if found, otherwise None.
     """
     try:
+        if not db:
+            return None
         docs = db.collection('employees').where('company_email', '==', search_email).stream()
         
         # We expect a single result, so we can return the first one found.
@@ -91,13 +100,9 @@ def get_first_monday_current_month(input_date=None, tz_name="Australia/Sydney") 
 
     if input_date is None:
         dt = datetime.now(tz)
-    elif isinstance(input_date, datetime.datetime):
-        dt = (
-            input_date.astimezone(tz)
-            if input_date.tzinfo
-            else input_date.replace(tzinfo=tz)
-        )
-    elif isinstance(input_date, datetime.date):
+    elif isinstance(input_date, datetime):
+        dt = input_date.astimezone(tz) if input_date.tzinfo else input_date.replace(tzinfo=tz)
+    elif isinstance(input_date, date):
         dt = datetime(input_date.year, input_date.month, input_date.day, tzinfo=tz)
     else:
         raise TypeError("input_date must be a datetime, date, or None")
@@ -125,11 +130,15 @@ def get_monday_from_weeks_ago(input_date=None, n=1):
     get monday from n weeks ago of input date or today
     """
 
-    # Define a workweek as 5 days
-    WORKWEEK_DAYS = 5
-
-    if not input_date:
-        # Get the current date
+    # Use provided date or today
+    if input_date:
+        if isinstance(input_date, datetime):
+            today = input_date.date()
+        elif isinstance(input_date, date):
+            today = input_date
+        else:
+            raise TypeError("input_date must be a datetime, date, or None")
+    else:
         today = datetime.now().date()
 
     # Calculate the date for the Monday of the current week
@@ -199,7 +208,10 @@ def get_user_meeting_details(user, timestamp_milliseconds):
         "sorts": [{"propertyName": "hs_meeting_start_time", "direction": "DESCENDING"}],
         "limit": 100,
     }
-    result = requests.post(url, headers=HEADERS, json=payload)
+    if not HUBSPOT_TOKEN:
+        raise RuntimeError("HUBSPOT_TOKEN is not configured")
+    result = requests.post(url, headers=HEADERS, json=payload, timeout=30)
+    result.raise_for_status()
     user["meetings"] = result.json()
     time.sleep(0.005)
 
@@ -271,12 +283,16 @@ def get_user_client_limits(user, tenure_limit=90):
     date_today = date.today()
     user["properties"]["client_limit_monthly"] = 6  # monthly
 
-    start_date_str = user.get("properties").get("adviser_start_date")
-    start_date = datetime.fromisoformat(start_date_str).date()
-    pod_type = user.get("pod_type")
+    start_date_str = (user.get("properties") or {}).get("adviser_start_date")
+    pod_type = (user.get("properties") or {}).get("pod_type")
 
-    if ((date_today - start_date).days < 90) or (pod_type == "Solo Adviser"):
-        user["properties"]["client_limit_monthly"] = 4
+    try:
+        if start_date_str:
+            start_date = datetime.fromisoformat(start_date_str).date()
+            if ((date_today - start_date).days < tenure_limit) or (pod_type == "Solo Adviser"):
+                user["properties"]["client_limit_monthly"] = 4
+    except Exception as e:
+        logging.warning(f"Failed to parse adviser_start_date '{start_date_str}': {e}")
 
     return user
 
@@ -462,7 +478,10 @@ def get_deals_no_clarify(user_email):
         "limit": 100,
     }
 
-    response = requests.post(url, headers=HEADERS, json=data)
+    if not HUBSPOT_TOKEN:
+        raise RuntimeError("HUBSPOT_TOKEN is not configured")
+    response = requests.post(url, headers=HEADERS, json=data, timeout=30)
+    response.raise_for_status()
     # print(response)
     # pprint(response.json())
     return response.json()["results"]
@@ -705,13 +724,17 @@ def display_data(data):
 
 def get_user_ids_adviser(service_package):
     url = "https://api.hubapi.com/crm/v3/objects/users?properties=taking_on_clients,hs_email,hubspot_owner_id,adviser_start_date,pod_type,client_types&limit=100"  # include start date and ooo status
-    response = requests.get(url, headers=HEADERS)
+    if not HUBSPOT_TOKEN:
+        raise RuntimeError("HUBSPOT_TOKEN is not configured")
+    response = requests.get(url, headers=HEADERS, timeout=30)
     response.raise_for_status()
     users = response.json().get("results", [])
     users_list = []
     for user in users:
-        if user.get("properties").get("taking_on_clients") == "True":
-            if service_package in user["properties"]["client_types"]:
+        props = user.get("properties") or {}
+        if props.get("taking_on_clients") == "True":
+            client_types = props.get("client_types") or ""
+            if service_package in client_types:
                 users_list.append(user)
 
     return users_list
@@ -728,7 +751,10 @@ def get_adviser(service_package):
         # get user approved leave requests from EH
         user_email = user["properties"]["hs_email"]
         employee_id = get_employee_id_from_firestore(user_email)
-        employee_leaves = get_employee_leaves_from_firestore(employee_id)
+        if not employee_id:
+            employee_leaves = []
+        else:
+            employee_leaves = get_employee_leaves_from_firestore(employee_id)
         user["leave_requests"] = employee_leaves
 
         # get week number of approved leave requests
@@ -746,7 +772,7 @@ def get_adviser(service_package):
         user = get_user_meeting_details(user, timestamp_milliseconds)
 
         # get clarify meeting counts
-        user_meetings = user["meetings"]["results"]
+        user_meetings = (user.get("meetings") or {}).get("results", [])
         user["meeting_count_list"] = get_meeting_count(user_meetings)
 
         # get deals with no clarify for each user
@@ -769,7 +795,9 @@ def get_adviser(service_package):
         users_list[i] = user
         print(current_week, min_week)
 
-    final_agent = min(users_list, key=lambda user: user["earliest_open_week"])
+    if not users_list:
+        raise RuntimeError("No eligible advisers found for the requested service package")
+    final_agent = min(users_list, key=lambda user: user.get("earliest_open_week", float('inf')))
     for user in users_list:
         print(f"{user['properties']['hs_email']} \t Week: {user['earliest_open_week']}")
     print("\n")

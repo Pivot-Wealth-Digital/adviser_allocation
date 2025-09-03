@@ -1,24 +1,52 @@
-# Google App Engine generated folder
+# Google App Engine
 appengine-generated/
 
-# Python-specific
-*.pyc
+# Python
 __pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.venv/
+venv/
+env/
+pip-wheel-metadata/
 
-# Java-specific
-*.class
-target/
-build/
+# Environment
+.env
+.env.*
+.envrc
 
-# Node.js-specific (if applicable)
-node_modules/
+# Coverage/Reports
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
 
-# IDE-specific files
+# OS / Editor
+.DS_Store
 .idea/
 .vscode/
+.history/
 
-# Log files
+# Builds/Dist
+build/
+dist/
+*.egg-info/
+site/
+
+# Node (if present)
+node_modules/
+
+# Java (if present)
+*.class
+target/
+
+# Logs
 *.log
 
-# config files
-*.yaml
+# Note: Do NOT ignore YAML files globally; keep app.yaml/cron.yaml in git

@@ -8,13 +8,23 @@ import requests
 
 from allocate import get_adviser, get_employee_leaves_from_firestore, get_employee_id_from_firestore
 
+from dotenv import load_dotenv
+
+# Load variables from .env into environment
+load_dotenv()
 
 # Optional: persist tokens in Firestore (recommended on App Engine)
 USE_FIRESTORE = os.environ.get("USE_FIRESTORE", "true").lower() == "true"
 db = None
 if USE_FIRESTORE:
-    from google.cloud import firestore
-    db = firestore.Client()  # Uses App Engine default credentials
+    try:
+        from google.cloud import firestore
+        db = firestore.Client()  # Uses App Engine default credentials
+    except Exception as e:
+        # Fall back gracefully if Firestore is not available/configured
+        logging.warning(f"Firestore client init failed, falling back to session store: {e}")
+        db = None
+        USE_FIRESTORE = False
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SESSION_SECRET", "change-me-please")  # set in app.yaml
@@ -37,9 +47,8 @@ HUBSPOT_HEADERS = {"Authorization": f"Bearer {HUBSPOT_TOKEN}", "Content-Type": "
 
 # ---- Simple token store: Firestore (per session); swap to your user key strategy ----
 def token_key():
-    # In real apps, key by your user’s ID/email. Here we use the Flask session ID.
-    # return session.get("user_key", "default")
-    return "e268304d2ad0444c"
+    # Prefer a per-user/session key; fall back to a fixed dev key
+    return session.get("user_key") or "e268304d2ad0444c"
 
 def save_tokens(tokens: dict):
     tokens = dict(tokens)
@@ -172,6 +181,8 @@ def get_employees():
             'company_email': emp.get('company_email'),
             'account_email': emp.get('account_email')
         }
+        if not db:
+            raise RuntimeError("Firestore is not configured; cannot persist employees.")
         db.collection("employees").document(item['id']).set(item)
         employees.append(item)
     
@@ -211,13 +222,18 @@ def get_leave_requests():
                 "item_per_page": 100,
                 "page_index": page,
             }
-        e = requests.get(f"{API_BASE}/api/v1/organisations/{org_id}/leave_requests", headers=headers, params=params)
+        e = requests.get(
+            f"{API_BASE}/api/v1/organisations/{org_id}/leave_requests",
+            headers=headers,
+            params=params,
+            timeout=30,
+        )
         if e.status_code != 200:
             raise RuntimeError(f"Refresh failed: {e.status_code} {e.text}")
 
         for leave_request in e.json()['data']['items']:
             start_date_obj = datetime.fromisoformat(leave_request['start_date']).date()
-            if (leave_request['status'] == 'Approved') & (start_date_obj > now_date):
+            if (leave_request['status'] == 'Approved') and (start_date_obj > now_date):
                 item = {
                         'leave_request_id': leave_request.get('id'),
                         'employee_id': leave_request.get('employee_id'),  # Using 'full_name' for 'name'
@@ -225,6 +241,8 @@ def get_leave_requests():
                         'end_date': leave_request.get('end_date')
                     }
                 leave_requests.append(item)
+                if not db:
+                    raise RuntimeError("Firestore is not configured; cannot persist leave requests.")
                 db.collection("employees").document(item['employee_id']).collection("leave_requests").document(item['leave_request_id']).set(item)
 
 
@@ -248,6 +266,8 @@ def get_employee_leaves_from_firestore(employee_id):
     
     try:
         # Get the collection reference and create the stream
+        if not db:
+            raise RuntimeError("Firestore is not configured; cannot read leave requests.")
         leaves_ref = db.collection('employees').document(employee_id).collection('leave_requests')
         docs = leaves_ref.stream()
         
@@ -281,16 +301,34 @@ def get_leave_requests_by_email():
     if not email:
         return {"error": "Email parameter is missing"}, 400
 
-    get_employees()  # this part is stupid, fix accordingly — run this part on a regular schedule 
-
+    # Look up in existing data only; populate via /sync endpoints or a scheduler
     employee_id = get_employee_id_from_firestore(email)
     if not employee_id:
-        return {"error": "Employee not found"}, 404
-
-    get_leave_requests()  # this part is stupid, fix accordingly — run this part on a regular schedule outside this function
+        return {"error": "Employee not found in store. Run /sync/employees."}, 404
 
     employee_leaves = get_employee_leaves_from_firestore(employee_id)
     return {"leave_requests": employee_leaves}, 200
+
+
+# Lightweight sync endpoints to be triggered by a scheduler
+@app.route("/sync/employees", methods=["POST", "GET"])
+def sync_employees():
+    try:
+        data, status, headers = get_employees()
+        return jsonify({"synced": len(data)}), status
+    except Exception as e:
+        logging.error(f"Failed to sync employees: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/sync/leave_requests", methods=["POST", "GET"])
+def sync_leave_requests():
+    try:
+        data, status, headers = get_leave_requests()
+        return jsonify({"synced": len(data)}), status
+    except Exception as e:
+        logging.error(f"Failed to sync leave requests: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 # ---- assign adviser to open deal ----
@@ -304,7 +342,7 @@ def handle_webhook():
         return {"message": "Hi, please use POST request."}, 200
 
     # Check for the correct Content-Type
-    if request.headers['Content-Type'] != 'application/json':
+    if not request.is_json:
         logging.error("Invalid Content-Type: Must be application/json")
         return jsonify({'message': 'Invalid Content-Type'}), 415
 
@@ -339,6 +377,8 @@ def handle_webhook():
                 }
 
                 # Make the PATCH request to update the deal
+                if not HUBSPOT_TOKEN:
+                    raise RuntimeError("HUBSPOT_TOKEN is not configured")
                 response = requests.patch(deal_update_url, headers=HUBSPOT_HEADERS, data=json.dumps(payload), timeout=10)
                 response.raise_for_status()
 
@@ -371,7 +411,7 @@ def list_leave_requests():
     access_token = get_access_token()
     headers = {"Authorization": f"Bearer {access_token}"}
     r = requests.get(f"{API_BASE}/api/v1/leave_requests", headers=headers, timeout=30)
-    return (r.json, r.status_code, {"Content-Type": "application/json"})
+    return (r.json(), r.status_code, {"Content-Type": "application/json"})
 
 # Healthcheck
 @app.route("/_ah/warmup")
@@ -379,4 +419,8 @@ def warmup():
     return ("", 200)
 
 if __name__ == "__main__":
+    from dotenv import load_dotenv
+
+    # Load variables from .env into environment
+    load_dotenv()
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "8080")))
