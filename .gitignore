@@ -1,0 +1,24 @@
+# Google App Engine generated folder
+appengine-generated/
+
+# Python-specific
+*.pyc
+__pycache__/
+
+# Java-specific
+*.class
+target/
+build/
+
+# Node.js-specific (if applicable)
+node_modules/
+
+# IDE-specific files
+.idea/
+.vscode/
+
+# Log files
+*.log
+
+# config files
+*.yaml
