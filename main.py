@@ -44,13 +44,29 @@ API_BASE = "https://api.employmenthero.com"  # HR API base
 
 HUBSPOT_TOKEN = os.environ.get("HUBSPOT_TOKEN")
 HUBSPOT_HEADERS = {"Authorization": f"Bearer {HUBSPOT_TOKEN}", "Content-Type": "application/json"}
-
+print('print me')
+print(HUBSPOT_TOKEN)
 # ---- Simple token store: Firestore (per session); swap to your user key strategy ----
 def token_key():
+    """Return the key used to store OAuth tokens.
+
+    Prefers a per-session/user key from Flask session; falls back to a fixed
+    development key when unavailable.
+
+    Returns:
+        str: Token partition key.
+    """
     # Prefer a per-user/session key; fall back to a fixed dev key
     return session.get("user_key") or "e268304d2ad0444c"
 
 def save_tokens(tokens: dict):
+    """Persist OAuth tokens and compute absolute expiry.
+
+    Stores tokens in Firestore when configured, otherwise in Flask session.
+
+    Args:
+        tokens (dict): Token response containing access/refresh and expires_in.
+    """
     tokens = dict(tokens)
     # Track absolute expiry (subtract 60s for clock skew)
     tokens["_expires_at"] = time.time() + max(0, int(tokens.get("expires_in", 0)) - 60)
@@ -66,15 +82,26 @@ def save_tokens(tokens: dict):
 #     return session.get("eh_tokens")
 
 def load_tokens():
+    """Load stored OAuth tokens from Firestore or session.
+
+    Returns:
+        dict | None: Token payload if found, else None.
+    """
     return db.collection("eh_tokens").document(token_key()).get().to_dict() if db else session.get("eh_tokens")
     
 
 def update_tokens(tokens: dict):
+    """Update stored tokens by delegating to save_tokens.
+
+    Args:
+        tokens (dict): New token payload to persist.
+    """
     save_tokens(tokens)  # same logic
 
 # ---- OAuth flow ----
 @app.route("/")
 def index():
+    """Basic index route reporting service status and helpful routes."""
     return jsonify({
         "ok": True,
         "routes": ["/auth/start", "/auth/callback", "/test/organisations"]
@@ -82,6 +109,7 @@ def index():
 
 @app.route("/auth/start")
 def auth_start():
+    """Initiate Employment Hero OAuth and redirect to the authorize URL."""
     # Create CSRF state & a simple user_key
     state = secrets.token_urlsafe(24)
     session["oauth_state"] = state
@@ -99,6 +127,11 @@ def auth_start():
 
 @app.route("/auth/callback")
 def auth_callback():
+    """Handle OAuth callback and exchange authorization code for tokens.
+
+    Returns:
+        flask.Response: JSON payload indicating success or error.
+    """
     # Validate state
     state = request.args.get("state")
     if not state or state != session.get("oauth_state"):
@@ -126,6 +159,14 @@ def auth_callback():
 
 # ---- Token helper: always return a fresh access token ----
 def get_access_token():
+    """Return a valid Employment Hero access token, refreshing if needed.
+
+    Raises:
+        RuntimeError: If tokens are missing or refresh fails.
+
+    Returns:
+        str: Bearer access token.
+    """
     tok = load_tokens()
     if not tok:
         raise RuntimeError("No tokens found. Start at /auth/start")
@@ -154,6 +195,14 @@ def get_access_token():
 
 # ---- Get Employee ID and email then store firestore ----
 def get_org_id(headers):
+    """Fetch the first organisation ID from Employment Hero.
+
+    Args:
+        headers (dict): HTTP headers including Authorization bearer token.
+
+    Returns:
+        str: Organisation ID.
+    """
     r = requests.get(f"{API_BASE}/api/v1/organisations", headers=headers, timeout=30)
     if r.status_code != 200:
             raise RuntimeError(f"Refresh failed: {r.status_code} {r.text}")
@@ -161,6 +210,11 @@ def get_org_id(headers):
 
 @app.route("/get/employees")
 def get_employees():
+    """Fetch employees for the organisation and persist to Firestore.
+
+    Returns:
+        tuple: (list of employee dicts, HTTP status, headers)
+    """
     access_token = get_access_token()
     headers = {"Authorization": f"Bearer {access_token}"}
     params = {
@@ -191,6 +245,14 @@ def get_employees():
 
 @app.route("/get/employee_id")
 def get_employee_id():
+    """HTTP endpoint to retrieve an employee ID by email.
+
+    Query Param:
+        email (str): The employee's company email.
+
+    Returns:
+        tuple: JSON payload and HTTP status code.
+    """
     search_email = request.args.get('email')
     
     if not search_email:
@@ -206,6 +268,11 @@ def get_employee_id():
 
 @app.route("/get/leave_requests")
 def get_leave_requests():
+    """Fetch future approved leave requests and persist under each employee.
+
+    Returns:
+        tuple: (list of leave requests, HTTP status, headers)
+    """
     access_token = get_access_token()
     headers = {"Authorization": f"Bearer {access_token}"}
 
@@ -284,6 +351,14 @@ def get_employee_leaves_from_firestore(employee_id):
     
 @app.route("/get/employee_leave_requests")
 def get_employee_leave_requests():
+    """HTTP endpoint to list leave requests by employee ID from Firestore.
+
+    Query Param:
+        employee_id (str): The employee document ID.
+
+    Returns:
+        tuple: JSON payload and HTTP status code.
+    """
     employee_id = request.args.get('employee_id')
     
     if not employee_id:
@@ -297,6 +372,10 @@ def get_employee_leave_requests():
 
 @app.route("/get/leave_requests_by_email")
 def get_leave_requests_by_email():
+    """HTTP endpoint to list leave requests by employee email.
+
+    Uses existing Firestore data; does not trigger sync work.
+    """
     email = request.args.get('email')
     if not email:
         return {"error": "Email parameter is missing"}, 400
@@ -313,6 +392,7 @@ def get_leave_requests_by_email():
 # Lightweight sync endpoints to be triggered by a scheduler
 @app.route("/sync/employees", methods=["POST", "GET"])
 def sync_employees():
+    """Trigger an on-demand employee sync (suitable for schedulers)."""
     try:
         data, status, headers = get_employees()
         return jsonify({"synced": len(data)}), status
@@ -323,6 +403,7 @@ def sync_employees():
 
 @app.route("/sync/leave_requests", methods=["POST", "GET"])
 def sync_leave_requests():
+    """Trigger an on-demand leave requests sync (suitable for schedulers)."""
     try:
         data, status, headers = get_leave_requests()
         return jsonify({"synced": len(data)}), status
@@ -401,6 +482,7 @@ def handle_webhook():
 # ---- Example API call ----
 @app.route("/test/organisations")
 def list_orgs():
+    """List Employment Hero organisations for the connected account."""
     access_token = get_access_token()
     headers = {"Authorization": f"Bearer {access_token}"}
     r = requests.get(f"{API_BASE}/api/v1/organisations", headers=headers, timeout=30)
@@ -408,6 +490,7 @@ def list_orgs():
 
 @app.route("/get/leave_requests_list")
 def list_leave_requests():
+    """List raw Employment Hero leave requests for the account."""
     access_token = get_access_token()
     headers = {"Authorization": f"Bearer {access_token}"}
     r = requests.get(f"{API_BASE}/api/v1/leave_requests", headers=headers, timeout=30)
@@ -416,6 +499,7 @@ def list_leave_requests():
 # Healthcheck
 @app.route("/_ah/warmup")
 def warmup():
+    """Healthcheck endpoint for platform warmup probes."""
     return ("", 200)
 
 if __name__ == "__main__":
@@ -423,4 +507,4 @@ if __name__ == "__main__":
 
     # Load variables from .env into environment
     load_dotenv()
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "8080")))
+    app.run(host="0.0.0.0", debug=True, port=int(os.environ.get("PORT", "8080")))

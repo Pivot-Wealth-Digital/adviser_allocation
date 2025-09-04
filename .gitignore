@@ -49,4 +49,5 @@ target/
 # Logs
 *.log
 
-# Note: Do NOT ignore YAML files globally; keep app.yaml/cron.yaml in git
+# # client secrets and tokens
+# app.yaml
