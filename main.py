@@ -96,7 +96,8 @@ def token_key():
         str: Token partition key.
     """
     # Prefer a per-user/session key; fall back to a fixed dev key
-    return session.get("user_key") or "e268304d2ad0444c"
+    # ideally session.get("user_key") or "e268304d2ad0444c"
+    return "e268304d2ad0444c"
 
 def save_tokens(tokens: dict):
     """Persist OAuth tokens and compute absolute expiry.
