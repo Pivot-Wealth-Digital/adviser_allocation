@@ -37,20 +37,24 @@ def get_secret(secret_name):
     """
     if not secret_manager_client:
         # Fallback for local development or if the client failed to initialize
-        print(f"Secret Manager client not available. Using environment variable for {secret_name}.")
+        # Use raw environment variable value.
         return os.environ.get(secret_name)
     
     try:
-        # Access the secret using the full resource path from the environment variable
-        secret_path = os.environ.get(secret_name)
-        if not secret_path:
+        # Read env var; if it looks like a Secret Manager resource path, fetch it,
+        # otherwise treat the env var content as the raw secret value.
+        secret_hint = os.environ.get(secret_name)
+        if not secret_hint:
             raise ValueError(f"Environment variable for secret '{secret_name}' not found.")
-            
-        response = secret_manager_client.access_secret_version(request={"name": secret_path})
-        return response.payload.data.decode("UTF-8")
+
+        if isinstance(secret_hint, str) and secret_hint.startswith("projects/"):
+            response = secret_manager_client.access_secret_version(request={"name": secret_hint})
+            return response.payload.data.decode("UTF-8")
+        # Not a resource path; assume it's the secret value
+        return secret_hint
     except Exception as e:
-        print(f"Failed to access secret '{secret_name}': {e}")
-        return None
+        logging.error(f"Failed to access secret '{secret_name}': {e}")
+        return os.environ.get(secret_name)
     
 
 # Optional: persist tokens in Firestore (recommended on App Engine)
@@ -67,7 +71,7 @@ if USE_FIRESTORE:
         USE_FIRESTORE = False
 
 app = Flask(__name__)
-app.secret_key = get_secret("SESSION_SECRET")  # set in app.yaml
+app.secret_key = get_secret("SESSION_SECRET") or "change-me-please"  # set in app.yaml or .env
 
 # ---- Employment Hero (HR) OAuth config ----
 EH_AUTHORIZE_URL = os.environ.get("EH_AUTHORIZE_URL", "https://oauth.employmenthero.com/oauth2/authorize")
@@ -77,13 +81,36 @@ EH_CLIENT_SECRET = get_secret("EH_CLIENT_SECRET")
 EH_SCOPES        = os.environ.get("EH_SCOPES", "urn:mainapp:organisations:read urn:mainapp:employees:read urn:mainapp:leave_requests:read")
 
 # Your app’s public callback URL, e.g. https://<PROJECT-ID>.appspot.com/auth/callback
-REDIRECT_URI     = os.environ["REDIRECT_URI"]
+REDIRECT_URI     = os.environ.get("REDIRECT_URI")
 
 API_BASE = "https://api.employmenthero.com"  # HR API base
 # For Payroll classic (KeyPay), swap the token URL and API base accordingly.
 
 HUBSPOT_TOKEN = get_secret("HUBSPOT_TOKEN")
 HUBSPOT_HEADERS = {"Authorization": f"Bearer {HUBSPOT_TOKEN}", "Content-Type": "application/json"}
+
+def ensure_eh_config():
+    """Ensure EH OAuth config is present for current environment.
+
+    Works with App Engine (env variables + Secret Manager) and local .env.
+
+    Raises:
+        RuntimeError: If any required variable is missing.
+    """
+    missing = []
+    if not EH_CLIENT_ID:
+        missing.append("EH_CLIENT_ID")
+    if not EH_CLIENT_SECRET:
+        missing.append("EH_CLIENT_SECRET")
+    if not REDIRECT_URI:
+        missing.append("REDIRECT_URI")
+    if missing:
+        raise RuntimeError(
+            "Missing required Employment Hero OAuth config: "
+            + ", ".join(missing)
+            + ". In production, set env_variables in app.yaml (use Secret Manager resource paths for secrets). "
+              "Locally, set values in .env."
+        )
 
 # ---- Simple token store: Firestore (per session); swap to your user key strategy ----
 def token_key():
@@ -149,6 +176,7 @@ def index():
 @app.route("/auth/start")
 def auth_start():
     """Initiate Employment Hero OAuth and redirect to the authorize URL."""
+    ensure_eh_config()
     # Create CSRF state & a simple user_key
     state = secrets.token_urlsafe(24)
     session["oauth_state"] = state
@@ -171,6 +199,7 @@ def auth_callback():
     Returns:
         flask.Response: JSON payload indicating success or error.
     """
+    ensure_eh_config()
     # Validate state
     state = request.args.get("state")
     if not state or state != session.get("oauth_state"):
@@ -206,6 +235,7 @@ def get_access_token():
     Returns:
         str: Bearer access token.
     """
+    ensure_eh_config()
     tok = load_tokens()
     if not tok:
         raise RuntimeError("No tokens found. Start at /auth/start")
