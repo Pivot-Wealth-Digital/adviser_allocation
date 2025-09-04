@@ -6,12 +6,52 @@ from urllib.parse import urlencode
 from flask import Flask, redirect, request, session, jsonify
 import requests
 
+import google.auth
+from google.cloud import secretmanager
+
 from allocate import get_adviser, get_employee_leaves_from_firestore, get_employee_id_from_firestore
 
 from dotenv import load_dotenv
 
 # Load variables from .env into environment
 load_dotenv()
+
+
+
+try:
+    # Use the default credentials for App Engine
+    credentials, project_id = google.auth.default()
+    secret_manager_client = secretmanager.SecretManagerServiceClient(credentials=credentials)
+except Exception as e:
+    # Handle the case where credentials might not be found locally.
+    # This is fine, as it will work in the App Engine environment.
+    print(f"Could not initialize Secret Manager client: {e}")
+    secret_manager_client = None
+
+
+def get_secret(secret_name):
+    """
+    Retrieves a secret from Google Cloud Secret Manager.
+    The secret_name should be the full resource path, e.g.,
+    'projects/PROJECT_ID/secrets/SECRET_NAME/versions/latest'
+    """
+    if not secret_manager_client:
+        # Fallback for local development or if the client failed to initialize
+        print(f"Secret Manager client not available. Using environment variable for {secret_name}.")
+        return os.environ.get(secret_name)
+    
+    try:
+        # Access the secret using the full resource path from the environment variable
+        secret_path = os.environ.get(secret_name)
+        if not secret_path:
+            raise ValueError(f"Environment variable for secret '{secret_name}' not found.")
+            
+        response = secret_manager_client.access_secret_version(request={"name": secret_path})
+        return response.payload.data.decode("UTF-8")
+    except Exception as e:
+        print(f"Failed to access secret '{secret_name}': {e}")
+        return None
+    
 
 # Optional: persist tokens in Firestore (recommended on App Engine)
 USE_FIRESTORE = os.environ.get("USE_FIRESTORE", "true").lower() == "true"
@@ -27,13 +67,13 @@ if USE_FIRESTORE:
         USE_FIRESTORE = False
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SESSION_SECRET", "change-me-please")  # set in app.yaml
+app.secret_key = get_secret("SESSION_SECRET")  # set in app.yaml
 
 # ---- Employment Hero (HR) OAuth config ----
 EH_AUTHORIZE_URL = os.environ.get("EH_AUTHORIZE_URL", "https://oauth.employmenthero.com/oauth2/authorize")
 EH_TOKEN_URL     = os.environ.get("EH_TOKEN_URL",     "https://oauth.employmenthero.com/oauth2/token")
-EH_CLIENT_ID     = os.environ["EH_CLIENT_ID"]
-EH_CLIENT_SECRET = os.environ["EH_CLIENT_SECRET"]
+EH_CLIENT_ID     = get_secret("EH_CLIENT_ID")
+EH_CLIENT_SECRET = get_secret("EH_CLIENT_SECRET")
 EH_SCOPES        = os.environ.get("EH_SCOPES", "urn:mainapp:organisations:read urn:mainapp:employees:read urn:mainapp:leave_requests:read")
 
 # Your app’s public callback URL, e.g. https://<PROJECT-ID>.appspot.com/auth/callback
@@ -42,10 +82,9 @@ REDIRECT_URI     = os.environ["REDIRECT_URI"]
 API_BASE = "https://api.employmenthero.com"  # HR API base
 # For Payroll classic (KeyPay), swap the token URL and API base accordingly.
 
-HUBSPOT_TOKEN = os.environ.get("HUBSPOT_TOKEN")
+HUBSPOT_TOKEN = get_secret("HUBSPOT_TOKEN")
 HUBSPOT_HEADERS = {"Authorization": f"Bearer {HUBSPOT_TOKEN}", "Content-Type": "application/json"}
-print('print me')
-print(HUBSPOT_TOKEN)
+
 # ---- Simple token store: Firestore (per session); swap to your user key strategy ----
 def token_key():
     """Return the key used to store OAuth tokens.
