@@ -236,7 +236,7 @@ def get_meeting_count(user_meetings, display_table=False):
 
         # Get the ISO week number (1 to 52 or 53)
         # isocalendar() returns a tuple (year, week, weekday)
-        week_number = meeting_datetime.isocalendar()[1]
+        week_number = week_monday_ordinal(meeting_datetime.date())
 
         # Check if the activity type is 'Kick Off' and increment its specific count
         if meeting["properties"]["hs_activity_type"] == "Kick Off":
@@ -258,11 +258,11 @@ def get_meeting_count(user_meetings, display_table=False):
         list(set(weekly_clarify_counts.keys()).union(weekly_kickoff_counts.keys()))
     )
 
-    table_data = [["Week Number", "Clarify Meetings", "Kick Off Meetings"]]
+    table_data = [["Week", "Clarify Meetings", "Kick Off Meetings"]]
     for week in all_weeks:
         total_count = weekly_clarify_counts.get(week, 0)
         kickoff_count = weekly_kickoff_counts.get(week, 0)
-        table_data.append([week, total_count, kickoff_count])
+        table_data.append([week_label_from_ordinal(week), total_count, kickoff_count])
 
     # Print the table
     if display_table:
@@ -337,15 +337,15 @@ def classify_leave_weeks(leave_requests):
 
         while current_date <= end:
             if 0 <= current_date.weekday() <= 4:
-                week_number = current_date.isocalendar()[1]
-                weeks_activity[week_number] = weeks_activity.get(week_number, 0) + 1
+                week_key = week_monday_ordinal(current_date)
+                weeks_activity[week_key] = weeks_activity.get(week_key, 0) + 1
 
             current_date += timedelta(days=1)
 
         # Classify each week and append to the main list
-        for week_num, days_count in weeks_activity.items():
+        for week_key, days_count in weeks_activity.items():
             classification = "Full" if days_count == 5 else f"Partial: {days_count}"
-            all_classified_weeks.append([week_num, classification])
+            all_classified_weeks.append([week_key, classification])
 
     return all_classified_weeks
 
@@ -398,22 +398,21 @@ def get_merged_schedule(user):
 
 def process_weekly_data(data):
     """
-    Calculates the sum of all values for keys less than the current week,
-    adds this sum to the dictionary with a key of (current_week - 1),
-    and then removes the old keys.
+    Rolls up values for all weeks prior to the current week into a single
+    entry at key (current_week_monday_ordinal - 7), then removes the older keys.
     """
     sum_of_values = 0
     keys_to_remove = []
-    current_week = date.today().isocalendar()[1]
+    current_week_key = week_monday_ordinal(date.today())
 
     # Iterate through the dictionary to find keys to remove and sum their values
     for key, value_list in data.items():
-        if key < current_week:
+        if key < current_week_key:
             sum_of_values += sum(value_list)
             keys_to_remove.append(key)
 
     # Add the new key-value pair to the dictionary
-    data[current_week - 1] = [sum_of_values]
+    data[current_week_key - 7] = [sum_of_values]
 
     # Remove the summed keys from the dictionary
     for key in keys_to_remove:
@@ -499,7 +498,7 @@ def classify_deals_list(data):
         if date_str:
             # Parse the date string and get the ISO week number
             date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
-            week_number = date_obj.isocalendar()[1]
+            week_number = week_monday_ordinal(date_obj)
 
             # Increment the count for the corresponding week
             week_counts[week_number] = week_counts.get(week_number, 0) + 1
@@ -520,12 +519,12 @@ def compute_capacity(user, min_week):
 
     limit = int(user["properties"]["client_limit_monthly"] / 2)
 
-    # --- Step 1: Fill in missing week numbers and create a complete dictionary ---
-    # min_week = min(data_dict.keys())
+    # --- Step 1: Fill in missing week keys and create a complete dictionary ---
+    # Keys are Monday ordinals; step by 7 days
     max_week = max(data_dict.keys())
     complete_data_dict = {}
 
-    for week_num in range(min_week, max_week + 1):
+    for week_num in range(min_week, max_week + 1, 7):
         if week_num in data_dict:
             complete_data_dict[week_num] = data_dict[week_num].copy()
         else:
@@ -541,7 +540,7 @@ def compute_capacity(user, min_week):
     complete_data_dict[first_week].append(int(limit))
 
     for week in sorted_weeks[1:]:
-        prev_week = week - 1
+        prev_week = week - 7
 
         # Pull statuses once
         curr_status = complete_data_dict[week][2]
@@ -576,14 +575,18 @@ def compute_capacity(user, min_week):
             complete_data_dict[week_num].append(0)
         else:
             value_from_first_column = complete_data_dict[week_num][0]
-            prev_week = week_num - 1
+            prev_week = week_num - 7
 
-            while complete_data_dict[prev_week][2] == "Full":
-                prev_week -= 1
+            # Walk back until we find a non-Full week or run out
+            while prev_week in complete_data_dict and complete_data_dict[prev_week][2] == "Full":
+                prev_week -= 7
 
-            cumulative_sum_count = (
-                value_from_first_column + complete_data_dict[prev_week][0]
-            )
+            if prev_week in complete_data_dict:
+                cumulative_sum_count = (
+                    value_from_first_column + complete_data_dict[prev_week][0]
+                )
+            else:
+                cumulative_sum_count = value_from_first_column
 
             complete_data_dict[week_num].append(cumulative_sum_count)
 
@@ -599,9 +602,9 @@ def compute_capacity(user, min_week):
 
 def find_earliest_week(user, min_week):
     print(f"{user['properties']['hs_email']}")
-    now_week = date.today().isocalendar()[1]
+    now_week = week_monday_ordinal(date.today())
     if min_week == now_week:
-        starting_week = min_week + 2
+        starting_week = min_week + 14  # skip 2 weeks
     else:
         starting_week = min_week
     found_first_negative_week = None
@@ -623,11 +626,11 @@ def find_earliest_week(user, min_week):
     # Iterate from the starting week to check for consecutive negative values
     for i, week in enumerate(sorted_weeks[starting_index:]):
         current_week = week
-        previous_week = week - 1
+        previous_week = week - 7
 
         # The 'Difference' value is the last element in the list
         current_diff = data[current_week][-1]
-        previous_diff = data[previous_week][-1]
+        previous_diff = data.get(previous_week, [0, 0, "No", 0, 0, 0, 0])[-1]
         # Check if both values are negative
         if current_diff < 0 and previous_diff < 0:
             found_first_negative_week = previous_week
@@ -640,7 +643,7 @@ def find_earliest_week(user, min_week):
     clarify_count = sum(
         v[DEALS_NO_CLARIFY_COL]
         for k, v in data.items()
-        if k <= (found_first_negative_week - 2)
+        if k <= (found_first_negative_week - 14)
     )
     final_week = found_first_negative_week
     print(
@@ -649,24 +652,25 @@ def find_earliest_week(user, min_week):
     while clarify_count > 0:
         print(final_week, clarify_count, data[final_week][-1])
         clarify_count += data[final_week][-1]  # get diff column and subtract
-        final_week += 1
+        final_week += 7
         if final_week not in sorted_weeks:
             print(f"oops {final_week} no in {sorted_weeks}")
-            final_week += int(ceil_div(clarify_count, 1.5))
+            final_week += 7 * int(ceil_div(clarify_count, 1.5))
             print(
                 f"clarify count of {clarify_count} adds {ceil_div(clarify_count, 1.5)} weeks"
             )
             break
-        data[final_week][-1] -= data[final_week - 1][-1]  # update diff next week
+        data[final_week][-1] -= data.get(final_week - 7, [0, 0, "No", 0, 0, 0, 0])[-1]  # update diff next week
 
     print(f"current_open_week {final_week}")
     clarify_count = sum(
         v[DEALS_NO_CLARIFY_COL]
         for k, v in data.items()
-        if (found_first_negative_week - 1) <= k <= (final_week - 2)
+        if (found_first_negative_week - 7) <= k <= (final_week - 14)
     )
     print(
-        f"after initial iteration: {found_first_negative_week - 1}, {final_week - 2} {clarify_count}"
+        f"after initial iteration: {week_label_from_ordinal(found_first_negative_week - 7)}, "
+        f"{week_label_from_ordinal(final_week - 14)} {clarify_count}"
     )
 
     if clarify_count < 1:
@@ -682,7 +686,7 @@ def find_earliest_week(user, min_week):
 def display_data(data):
     # Define the table headers
     headers = [
-        "Week Number",
+        "Week",
         "Clarify Count",
         "Kick Off Count",
         "OOO",
@@ -698,7 +702,7 @@ def display_data(data):
     # Determine column widths for consistent formatting
     column_widths = [len(header) for header in headers]
     for week in sorted_weeks:
-        row_data = [str(week)] + [str(item) for item in data[week]]
+        row_data = [week_label_from_ordinal(week)] + [str(item) for item in data[week]]
         for i, item in enumerate(row_data):
             if len(item) > column_widths[i]:
                 column_widths[i] = len(item)
@@ -715,7 +719,7 @@ def display_data(data):
 
     # Print each data row with dynamic spacing
     for week in sorted_weeks:
-        row_data = [str(week)] + [str(item) for item in data[week]]
+        row_data = [week_label_from_ordinal(week)] + [str(item) for item in data[week]]
         data_row = " | ".join(
             item.ljust(width) for item, width in zip(row_data, column_widths)
         )
@@ -765,9 +769,9 @@ def get_adviser(service_package):
 
         # get meeting details
         timestamp_milliseconds = get_monday_from_weeks_ago(n=1)
-        min_week = datetime.fromtimestamp(
-            (timestamp_milliseconds / 1000)
-        ).isocalendar()[1]
+        min_week = week_monday_ordinal(
+            datetime.fromtimestamp((timestamp_milliseconds / 1000)).date()
+        )
 
         user = get_user_meeting_details(user, timestamp_milliseconds)
 
@@ -785,7 +789,7 @@ def get_adviser(service_package):
         user = get_merged_schedule(user)
 
         # allocate deal to most suitable adviser
-        current_week = date.today().isocalendar()[1]
+        current_week = week_monday_ordinal(date.today())
         user = compute_capacity(user, min_week)
 
         display_data(user["capacity"])
@@ -804,3 +808,18 @@ def get_adviser(service_package):
     print(f"Earliest open agent: {final_agent['properties']['hs_email']}")
 
     return final_agent
+def week_monday_ordinal(d: date) -> int:
+    """Return the ordinal of the Monday for the week containing date ``d``.
+
+    Using Monday's ordinal as the week key avoids ISO week rollover issues
+    across year boundaries.
+    """
+    monday = d - timedelta(days=d.weekday())
+    return monday.toordinal()
+
+
+def week_label_from_ordinal(wk: int) -> str:
+    """Human-readable label for a week ordinal (YYYY-Www)."""
+    monday = date.fromordinal(wk)
+    iso_year, iso_week, _ = monday.isocalendar()
+    return f"{iso_year}-W{iso_week:02d}"
