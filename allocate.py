@@ -4,6 +4,9 @@ import requests
 
 from zoneinfo import ZoneInfo
 
+# Weeks before an adviser's start date when they can begin receiving allocations
+PRESTART_WEEKS = int(os.environ.get("PRESTART_WEEKS", "3"))
+
 
 # Optional: persist tokens in Firestore (recommended on App Engine)
 USE_FIRESTORE = os.environ.get("USE_FIRESTORE", "true").lower() == "true"
@@ -18,7 +21,9 @@ if USE_FIRESTORE:
         USE_FIRESTORE = False
 
 
-HUBSPOT_TOKEN = os.environ.get("HUBSPOT_TOKEN")
+from utils.secrets import get_secret
+
+HUBSPOT_TOKEN = get_secret("HUBSPOT_TOKEN")
 HEADERS = {"Authorization": f"Bearer {HUBSPOT_TOKEN}", "Content-Type": "application/json"}
 
 
@@ -289,10 +294,19 @@ def get_user_client_limits(user, tenure_limit=90):
     try:
         if start_date_str:
             start_date = datetime.fromisoformat(start_date_str).date()
+            # Adjust capacity for tenure/pod type
             if ((date_today - start_date).days < tenure_limit) or (pod_type == "Solo Adviser"):
                 user["properties"]["client_limit_monthly"] = 4
+
+            # Compute earliest allocation week for future starters
+            if start_date > date_today:
+                availability_date = start_date - timedelta(weeks=PRESTART_WEEKS)
+                user["availability_start_week"] = week_monday_ordinal(availability_date)
+            else:
+                user["availability_start_week"] = None
     except Exception as e:
         logging.warning(f"Failed to parse adviser_start_date '{start_date_str}': {e}")
+        user["availability_start_week"] = None
 
     return user
 
@@ -790,11 +804,14 @@ def get_adviser(service_package):
 
         # allocate deal to most suitable adviser
         current_week = week_monday_ordinal(date.today())
-        user = compute_capacity(user, min_week)
+        # Respect future start: allow allocation starting PRESTART_WEEKS before start date
+        availability_week = user.get("availability_start_week")
+        effective_min_week = max(min_week, availability_week) if availability_week else min_week
+        user = compute_capacity(user, effective_min_week)
 
         display_data(user["capacity"])
         print("\n")
-        user = find_earliest_week(user, current_week)
+        user = find_earliest_week(user, effective_min_week)
 
         users_list[i] = user
         print(current_week, min_week)

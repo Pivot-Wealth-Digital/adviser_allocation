@@ -6,9 +6,6 @@ from urllib.parse import urlencode
 from flask import Flask, redirect, request, session, jsonify
 import requests
 
-import google.auth
-from google.cloud import secretmanager
-
 from allocate import get_adviser, get_employee_leaves_from_firestore, get_employee_id_from_firestore
 
 from dotenv import load_dotenv
@@ -16,45 +13,7 @@ from dotenv import load_dotenv
 # Load variables from .env into environment
 load_dotenv()
 
-
-
-try:
-    # Use the default credentials for App Engine
-    credentials, project_id = google.auth.default()
-    secret_manager_client = secretmanager.SecretManagerServiceClient(credentials=credentials)
-except Exception as e:
-    # Handle the case where credentials might not be found locally.
-    # This is fine, as it will work in the App Engine environment.
-    print(f"Could not initialize Secret Manager client: {e}")
-    secret_manager_client = None
-
-
-def get_secret(secret_name):
-    """
-    Retrieves a secret from Google Cloud Secret Manager.
-    The secret_name should be the full resource path, e.g.,
-    'projects/PROJECT_ID/secrets/SECRET_NAME/versions/latest'
-    """
-    if not secret_manager_client:
-        # Fallback for local development or if the client failed to initialize
-        # Use raw environment variable value.
-        return os.environ.get(secret_name)
-    
-    try:
-        # Read env var; if it looks like a Secret Manager resource path, fetch it,
-        # otherwise treat the env var content as the raw secret value.
-        secret_hint = os.environ.get(secret_name)
-        if not secret_hint:
-            raise ValueError(f"Environment variable for secret '{secret_name}' not found.")
-
-        if isinstance(secret_hint, str) and secret_hint.startswith("projects/"):
-            response = secret_manager_client.access_secret_version(request={"name": secret_hint})
-            return response.payload.data.decode("UTF-8")
-        # Not a resource path; assume it's the secret value
-        return secret_hint
-    except Exception as e:
-        logging.error(f"Failed to access secret '{secret_name}': {e}")
-        return os.environ.get(secret_name)
+from utils.secrets import get_secret
     
 
 # Optional: persist tokens in Firestore (recommended on App Engine)
