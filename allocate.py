@@ -653,28 +653,43 @@ def find_earliest_week(user, min_week):
         v[DEALS_NO_CLARIFY_COL] for k, v in data.items() if k < baseline_week
     )
 
-    # Walk forward week by week, consuming backlog by weekly target and adding new deals
+    # Walk forward in non-overlapping fortnights: accumulate new deals for two weeks,
+    # then consume using fortnight spare (target - clarifies(prev+curr)).
     fortnight_target = int((user.get("properties", {}).get("client_limit_monthly") or 0) // 2)
     if fortnight_target <= 0:
         fortnight_target = 1
 
-    for wk in sorted_weeks[starting_index:]:
-        weekly_target = int(data[wk][TARGET_CAPACITY_COL]) if len(data[wk]) > TARGET_CAPACITY_COL else 0
+    pending_deals_block = 0
+    for idx, wk in enumerate(sorted_weeks[starting_index:]):
+        # Add new deals for this week into the pending fortnight block
         new_deals = int(data[wk][DEALS_NO_CLARIFY_COL]) if len(data[wk]) > DEALS_NO_CLARIFY_COL else 0
+        pending_deals_block += new_deals
 
-        # consume previous backlog with this week's target capacity
-        remaining_backlog = max(0, remaining_backlog - weekly_target)
-        # add this week's new backlog
-        remaining_backlog += new_deals
+        # Only evaluate consumption at the end of each 2-week block
+        if idx % 2 == 1:
+            prev_wk = wk - 7
+            clarify_curr = int(data[wk][CLARIFY_COL]) if len(data[wk]) > CLARIFY_COL else 0
+            clarify_prev = int(data.get(prev_wk, [0])[CLARIFY_COL]) if len(data.get(prev_wk, [])) > CLARIFY_COL else 0
 
-        # If no backlog remains, this week is available
-        if remaining_backlog <= 0:
-            candidate = max(wk, min_allowed_week)
-            user["earliest_open_week"] = candidate
-            print(f"Week: {week_label_from_ordinal(candidate)}")
-            return user
+            # Use the current week's target as the fortnight target reference (matches how 'difference' is computed)
+            block_target = int(data[wk][TARGET_CAPACITY_COL]) if len(data[wk]) > TARGET_CAPACITY_COL else fortnight_target
 
-    # If backlog still remains after projected weeks, estimate additional fortnights needed
+            fortnight_spare = max(0, block_target - (clarify_prev + clarify_curr))
+
+            # First add the pending deals for this block to the backlog, then consume
+            remaining_backlog += pending_deals_block
+            pending_deals_block = 0
+
+            remaining_backlog = max(0, remaining_backlog - fortnight_spare)
+
+            if remaining_backlog <= 0:
+                candidate = max(wk, min_allowed_week)
+                user["earliest_open_week"] = candidate
+                print(f"Week: {week_label_from_ordinal(candidate)}")
+                return user
+
+    # If backlog still remains after projected weeks, include any pending block deals
+    remaining_backlog += pending_deals_block
     last_week = sorted_weeks[-1]
     fortnights_needed = int(ceil_div(max(remaining_backlog, 0), fortnight_target))
     final_week = last_week + 14 * fortnights_needed
