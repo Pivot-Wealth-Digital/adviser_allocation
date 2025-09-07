@@ -536,9 +536,12 @@ def compute_capacity(user, min_week):
     # --- Step 1: Fill in missing week keys and create a complete dictionary ---
     # Keys are Monday ordinals; step by 7 days
     max_week = max(data_dict.keys())
+    # Ensure we have a forward projection horizon to avoid premature termination
+    # when searching for earliest week (e.g., project 52 weeks ahead of min_week)
+    desired_max_week = max(max_week, min_week + 52 * 7)
     complete_data_dict = {}
 
-    for week_num in range(min_week, max_week + 1, 7):
+    for week_num in range(min_week, desired_max_week + 1, 7):
         if week_num in data_dict:
             complete_data_dict[week_num] = data_dict[week_num].copy()
         else:
@@ -617,84 +620,68 @@ def compute_capacity(user, min_week):
 def find_earliest_week(user, min_week):
     print(f"{user['properties']['hs_email']}")
     now_week = week_monday_ordinal(date.today())
-    if min_week == now_week:
-        starting_week = min_week + 14  # skip 2 weeks
-    else:
-        starting_week = min_week
-    found_first_negative_week = None
+    min_allowed_week = now_week + 14  # must be at least 2 weeks out
+    # Always start searching at or after the minimum allowed week
+    starting_week = max(min_week, min_allowed_week)
 
     data = user["capacity"]
-
-    # Get a sorted list of week numbers
     sorted_weeks = sorted(data.keys())
-    starting_index = (
-        sorted_weeks.index(starting_week) if starting_week in sorted_weeks else 0
-    )
 
-    # Find the index of min_week to start the search
-    # start_index = sorted_weeks.index(min_week) if starting_week in sorted_weeks else 0
-    if (len(sorted_weeks[starting_index:]) < 2) or (starting_index == 0):
-        user["earliest_open_week"] = min_week
-        return user
-
-    # Iterate from the starting week to check for consecutive negative values
-    for i, week in enumerate(sorted_weeks[starting_index:]):
-        current_week = week
-        previous_week = week - 7
-
-        # The 'Difference' value is the last element in the list
-        current_diff = data[current_week][-1]
-        previous_diff = data.get(previous_week, [0, 0, "No", 0, 0, 0, 0])[-1]
-        # Check if both values are negative
-        if current_diff < 0 and previous_diff < 0:
-            found_first_negative_week = previous_week
+    # Choose the first week >= starting_week to begin evaluation
+    starting_index = None
+    for idx, wk in enumerate(sorted_weeks):
+        if wk >= starting_week:
+            starting_index = idx
             break
 
-    if not found_first_negative_week:
-        found_first_negative_week = current_week
-
-    # allocate deal_no_clarify
-    clarify_count = sum(
-        v[DEALS_NO_CLARIFY_COL]
-        for k, v in data.items()
-        if k <= (found_first_negative_week - 14)
-    )
-    final_week = found_first_negative_week
-    print(
-        f"first_open_week {final_week}, clar_count_upto_date {found_first_negative_week - 2} clarify count {clarify_count}"
-    )
-    while clarify_count > 0:
-        print(final_week, clarify_count, data[final_week][-1])
-        clarify_count += data[final_week][-1]  # get diff column and subtract
-        final_week += 7
-        if final_week not in sorted_weeks:
-            print(f"oops {final_week} no in {sorted_weeks}")
-            final_week += 7 * int(ceil_div(clarify_count, 1.5))
-            print(
-                f"clarify count of {clarify_count} adds {ceil_div(clarify_count, 1.5)} weeks"
-            )
-            break
-        data[final_week][-1] -= data.get(final_week - 7, [0, 0, "No", 0, 0, 0, 0])[-1]  # update diff next week
-
-    print(f"current_open_week {final_week}")
-    clarify_count = sum(
-        v[DEALS_NO_CLARIFY_COL]
-        for k, v in data.items()
-        if (found_first_negative_week - 7) <= k <= (final_week - 14)
-    )
-    print(
-        f"after initial iteration: {week_label_from_ordinal(found_first_negative_week - 7)}, "
-        f"{week_label_from_ordinal(final_week - 14)} {clarify_count}"
-    )
-
-    if clarify_count < 1:
-        print(f"Week: {final_week}")
-        user["earliest_open_week"] = final_week
+    # If there is no capacity data at or after the starting week
+    if starting_index is None:
+        if not sorted_weeks:
+            user["earliest_open_week"] = starting_week
+            return user
+        # fall back to the last projected week and extend using fortnightly target
+        last_week = sorted_weeks[-1]
+        fortnight_target = int((user.get("properties", {}).get("client_limit_monthly") or 0) // 2) or 1
+        # assume at least one fortnight needed
+        user["earliest_open_week"] = max(last_week + 14, starting_week)
         return user
-    else:
-        print(f"recursion: {final_week}")
-        min_week = final_week + 1
-        return find_earliest_week(user, min_week)
+
+    baseline_week = sorted_weeks[starting_index]
+
+    # Backlog before baseline: deals without clarify from weeks before the baseline week
+    remaining_backlog = sum(
+        v[DEALS_NO_CLARIFY_COL] for k, v in data.items() if k < baseline_week
+    )
+
+    # Walk forward week by week, consuming backlog by weekly target and adding new deals
+    fortnight_target = int((user.get("properties", {}).get("client_limit_monthly") or 0) // 2)
+    if fortnight_target <= 0:
+        fortnight_target = 1
+
+    for wk in sorted_weeks[starting_index:]:
+        weekly_target = int(data[wk][TARGET_CAPACITY_COL]) if len(data[wk]) > TARGET_CAPACITY_COL else 0
+        new_deals = int(data[wk][DEALS_NO_CLARIFY_COL]) if len(data[wk]) > DEALS_NO_CLARIFY_COL else 0
+
+        # consume previous backlog with this week's target capacity
+        remaining_backlog = max(0, remaining_backlog - weekly_target)
+        # add this week's new backlog
+        remaining_backlog += new_deals
+
+        # If no backlog remains, this week is available
+        if remaining_backlog <= 0:
+            candidate = max(wk, min_allowed_week)
+            user["earliest_open_week"] = candidate
+            print(f"Week: {week_label_from_ordinal(candidate)}")
+            return user
+
+    # If backlog still remains after projected weeks, estimate additional fortnights needed
+    last_week = sorted_weeks[-1]
+    fortnights_needed = int(ceil_div(max(remaining_backlog, 0), fortnight_target))
+    final_week = last_week + 14 * fortnights_needed
+    final_week = max(final_week, min_allowed_week)
+    print(f"Week: {week_label_from_ordinal(final_week)}")
+    user["earliest_open_week"] = final_week
+    return user
 
 
 def display_data(data):
@@ -814,13 +801,19 @@ def get_adviser(service_package):
         user = find_earliest_week(user, effective_min_week)
 
         users_list[i] = user
-        print(current_week, min_week)
+        # Show current and minimum week in YYYY-Www format for clarity
+        print(
+            week_label_from_ordinal(current_week),
+            week_label_from_ordinal(min_week),
+        )
 
     if not users_list:
         raise RuntimeError("No eligible advisers found for the requested service package")
     final_agent = min(users_list, key=lambda user: user.get("earliest_open_week", float('inf')))
     for user in users_list:
-        print(f"{user['properties']['hs_email']} \t Week: {user['earliest_open_week']}")
+        wk = user.get('earliest_open_week')
+        wk_label = week_label_from_ordinal(wk) if isinstance(wk, int) else str(wk)
+        print(f"{user['properties']['hs_email']} \t Week: {wk_label}")
     print("\n")
     print(f"Earliest open agent: {final_agent['properties']['hs_email']}")
 
