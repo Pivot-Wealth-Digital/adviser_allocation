@@ -41,6 +41,7 @@ pip install -r requirements.txt
 - `REDIRECT_URI`: Public callback URL for OAuth (e.g., `https://<PROJECT-ID>.appspot.com/auth/callback` or local tunnel)
 - `HUBSPOT_TOKEN`: HubSpot Private App token (Bearer token)
 - `PORT`: Optional port (default `8080`)
+- `PRESTART_WEEKS`: Weeks before an adviser's `adviser_start_date` that they can receive allocations (default `3`).
 
 Place them in `.env` for local dev.
 
@@ -93,8 +94,25 @@ Lookup endpoints:
 - Expected payload: HubSpot workflow webhook for a Deal that includes `fields.service_package` and `fields.hs_deal_record_id`.
 - Behavior:
   - Finds eligible advisers (HubSpot Users) taking on clients for the given `service_package`.
-  - Pulls each adviser’s meetings since last Monday, their deals missing a Clarify, and their EH leave, then computes capacity.
-  - Assigns the Deal to the adviser with the earliest open week (`properties.advisor` set via CRM v3 PATCH).
+  - Pulls each adviser’s recent meetings, deals that have no Clarify booked, and EH leave; then computes capacity and earliest availability.
+  - Assigns the Deal to the adviser with the earliest open week (sets HubSpot owner on the Deal).
+
+### Allocation Logic (Summary)
+
+- Weeks are keyed by Monday ordinal and printed as `YYYY-Www` (ISO week) for clarity.
+- Earliest week never occurs within 2 weeks of “now” (buffer enforced).
+- Future starters can receive allocations up to `PRESTART_WEEKS` before their start date.
+- Capacity projection covers at least 52 weeks ahead to avoid premature cutoffs.
+- Deals without a Clarify are allocated before picking the earliest week:
+  - Initialize backlog with all such deals prior to the baseline week.
+  - Walk forward in non-overlapping fortnights. For each 2-week block:
+    - Add new deals from the block to the backlog.
+    - Compute spare capacity = fortnight target − clarifies(block).
+    - Consume the backlog by the spare (no double counting).
+  - The earliest available week is the first block where backlog falls to zero (clamped to the 2‑week buffer).
+- Fortnight target is derived from `client_limit_monthly / 2` (new advisers or solo pods may have a lower limit).
+
+This approach prevents double counting and keeps allocations within target per fortnight.
 
 Example cURL (replace placeholders):
 
@@ -151,6 +169,11 @@ Logs to watch:
 - Allocation steps (per adviser) and capacity table output in the server logs.
 - Firestore init warnings (fall back to session when Firestore isn’t available).
 
+Common allocation questions:
+- “Earliest week is too soon”: The 2‑week buffer clamps earliest possible week; ensure system time and timezone are correct.
+- “Earliest week is far in the future”: Usually reflects backlog vs. target. Verify deals-without-clarify volume and adviser target; the system projects at least 52 weeks ahead and consumes backlog per fortnight target.
+- “All advisers show the same week”: Ensure inputs differ (meetings, leaves, deals). The search starts from the first capacity key on/after the buffered week, not index 0.
+
 
 ## Notes And Future Work
 
@@ -163,4 +186,3 @@ Logs to watch:
 ## License
 
 Internal project. No license specified.
-
