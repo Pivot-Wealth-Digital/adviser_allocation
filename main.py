@@ -543,14 +543,16 @@ def availability_earliest():
 
         # Build simple HTML table
         rows = []
-        rows.append("<tr><th>Email</th><th>Service Packages</th><th>Pod Type</th><th>Client Monthly Limit</th><th>Earliest Open Week</th></tr>")
+        rows.append("<tr><th>Email</th><th>Service Packages</th><th>Pod Type</th><th>Client Monthly Limit</th><th>Earliest Open Week</th><th>Monday Date</th></tr>")
         for item in results:
+            earliest_wk_ordinal = item.get("earliest_open_week")
+            monday_str = date.fromordinal(earliest_wk_ordinal).isoformat() if isinstance(earliest_wk_ordinal, int) else ""
             email = item.get("email") or ""
             svc = item.get("service_packages") or ""
             pod = item.get("pod_type") or ""
             limit = item.get("client_limit_monthly") or ""
             wk = item.get("earliest_open_week_label") or (item.get("error") or "")
-            rows.append(f"<tr><td>{email}</td><td>{svc}</td><td>{pod}</td><td>{limit}</td><td>{wk}</td></tr>")
+            rows.append(f"<tr><td>{email}</td><td>{svc}</td><td>{pod}</td><td>{limit}</td><td>{wk}</td><td>{monday_str}</td></tr>")
 
         html = (
             "<html><head><title>Earliest Availability</title>"
