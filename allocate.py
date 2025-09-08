@@ -833,6 +833,95 @@ def get_adviser(service_package):
     print(f"Earliest open agent: {final_agent['properties']['hs_email']}")
 
     return final_agent
+
+
+def get_users_taking_on_clients():
+    """Return all HubSpot users with taking_on_clients == True.
+
+    Includes properties: hs_email, hubspot_owner_id, adviser_start_date, pod_type, client_types.
+    """
+    url = "https://api.hubapi.com/crm/v3/objects/users?properties=taking_on_clients,hs_email,hubspot_owner_id,adviser_start_date,pod_type,client_types&limit=100"
+    if not HUBSPOT_TOKEN:
+        raise RuntimeError("HUBSPOT_TOKEN is not configured")
+    response = requests.get(url, headers=HEADERS, timeout=30)
+    response.raise_for_status()
+    users = response.json().get("results", [])
+    users_list = []
+    for user in users:
+        props = user.get("properties") or {}
+        if props.get("taking_on_clients") == "True":
+            users_list.append(user)
+    return users_list
+
+
+def get_users_earliest_availability():
+    """
+    Compute earliest available week for all advisers taking on clients.
+
+    Returns a list of concise dicts per user suitable for API output.
+    """
+    users_list = get_users_taking_on_clients()
+    results = []
+
+    # Establish baseline week (1 week ago Monday) similar to allocation logic
+    timestamp_milliseconds = get_monday_from_weeks_ago(n=1)
+    min_week = week_monday_ordinal(
+        datetime.fromtimestamp((timestamp_milliseconds / 1000)).date()
+    )
+
+    for user in users_list:
+        try:
+            # Pull EH leave (from Firestore cache if available)
+            user_email = user["properties"].get("hs_email")
+            employee_id = get_employee_id_from_firestore(user_email)
+            employee_leaves = get_employee_leaves_from_firestore(employee_id) if employee_id else []
+            user["leave_requests"] = employee_leaves
+
+            # Classify leave weeks
+            user["leave_requests_list"] = classify_leave_weeks(user["leave_requests"])
+
+            # Limits and availability window (pre-start weeks)
+            user = get_user_client_limits(user)
+
+            # Meetings since baseline
+            user = get_user_meeting_details(user, timestamp_milliseconds)
+            user_meetings = (user.get("meetings") or {}).get("results", [])
+            user["meeting_count_list"] = get_meeting_count(user_meetings)
+
+            # Deals without Clarify
+            user["deals_no_clarify"] = get_deals_no_clarify(user_email)
+            user["deals_no_clarify_list"] = classify_deals_list(user["deals_no_clarify"])
+
+            # Merge into schedule and compute capacity
+            user = get_merged_schedule(user)
+
+            availability_week = user.get("availability_start_week")
+            effective_min_week = max(min_week, availability_week) if availability_week else min_week
+            user = compute_capacity(user, effective_min_week)
+            user = find_earliest_week(user, effective_min_week)
+
+            earliest_wk = user.get("earliest_open_week")
+            results.append({
+                "email": user["properties"].get("hs_email"),
+                "pod_type": user["properties"].get("pod_type"),
+                "service_packages": (user["properties"].get("client_types") or ""),
+                "hubspot_owner_id": user["properties"].get("hubspot_owner_id"),
+                "client_limit_monthly": user["properties"].get("client_limit_monthly"),
+                "availability_start_week": user.get("availability_start_week"),
+                "earliest_open_week": earliest_wk,
+                "earliest_open_week_label": week_label_from_ordinal(earliest_wk) if isinstance(earliest_wk, int) else None,
+            })
+        except Exception as e:
+            # Collect error per user but continue with others
+            results.append({
+                "email": user.get("properties", {}).get("hs_email"),
+                "service_packages": (user.get("properties", {}).get("client_types") or ""),
+                "pod_type": user.get("properties", {}).get("pod_type"),
+                "hubspot_owner_id": user.get("properties", {}).get("hubspot_owner_id"),
+                "error": str(e),
+            })
+
+    return results
 def week_monday_ordinal(d: date) -> int:
     """Return the ordinal of the Monday for the week containing date ``d``.
 

@@ -134,6 +134,7 @@ curl -X POST http://localhost:8080/post/allocate \
 - `GET /` → Basic status and route list
 - `GET /test/organisations` → EH organisations (requires OAuth)
 - `GET /get/leave_requests_list` → Raw EH leave requests listing
+- `GET /availability/earliest` → HTML table of earliest week availability for all advisers taking on clients. Columns: Email, Service Packages, Pod Type, Client Monthly Limit, Earliest Open Week.
 - `GET /_ah/warmup` → Healthcheck
 
 

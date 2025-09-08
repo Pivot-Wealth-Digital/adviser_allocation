@@ -6,7 +6,12 @@ from urllib.parse import urlencode
 from flask import Flask, redirect, request, session, jsonify
 import requests
 
-from allocate import get_adviser, get_employee_leaves_from_firestore, get_employee_id_from_firestore
+from allocate import (
+    get_adviser,
+    get_employee_leaves_from_firestore,
+    get_employee_id_from_firestore,
+    get_users_earliest_availability,
+)
 
 from dotenv import load_dotenv
 
@@ -524,6 +529,41 @@ def list_leave_requests():
     headers = {"Authorization": f"Bearer {access_token}"}
     r = requests.get(f"{API_BASE}/api/v1/leave_requests", headers=headers, timeout=30)
     return (r.json(), r.status_code, {"Content-Type": "application/json"})
+
+
+# ---- Availability ----
+@app.route("/availability/earliest")
+def availability_earliest():
+    """Display earliest available week per adviser as an HTML table.
+
+    Columns: Email | Service Packages | Earliest Open Week
+    """
+    try:
+        results = get_users_earliest_availability()
+
+        # Build simple HTML table
+        rows = []
+        rows.append("<tr><th>Email</th><th>Service Packages</th><th>Pod Type</th><th>Client Monthly Limit</th><th>Earliest Open Week</th></tr>")
+        for item in results:
+            email = item.get("email") or ""
+            svc = item.get("service_packages") or ""
+            pod = item.get("pod_type") or ""
+            limit = item.get("client_limit_monthly") or ""
+            wk = item.get("earliest_open_week_label") or (item.get("error") or "")
+            rows.append(f"<tr><td>{email}</td><td>{svc}</td><td>{pod}</td><td>{limit}</td><td>{wk}</td></tr>")
+
+        html = (
+            "<html><head><title>Earliest Availability</title>"
+            "<style>table{border-collapse:collapse}td,th{border:1px solid #ccc;padding:6px 10px;text-align:left;font-family:sans-serif}</style>"
+            "</head><body>"
+            "<h3>Adviser Earliest Availability</h3>"
+            "<table>" + "".join(rows) + "</table>"
+            "</body></html>"
+        )
+        return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+    except Exception as e:
+        logging.error(f"Failed to compute earliest availability: {e}")
+        return jsonify({"error": str(e)}), 500
 
 # Healthcheck
 @app.route("/_ah/warmup")
