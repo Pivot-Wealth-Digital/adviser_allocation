@@ -540,10 +540,21 @@ def availability_earliest():
     """
     try:
         results = get_users_earliest_availability()
+        # Sort by email alphabetically (case-insensitive)
+        results = sorted(results, key=lambda r: (r.get("email") or "").lower())
 
-        # Build simple HTML table
-        rows = []
-        rows.append("<tr><th>Email</th><th>Service Packages</th><th>Pod Type</th><th>Client Monthly Limit</th><th>Earliest Open Week</th><th>Monday Date</th></tr>")
+        # Build simple HTML table with sortable headers
+        header_row = (
+            "<tr>"
+            "<th class=\"sortable\" data-col=\"0\" data-type=\"string\">Email <span class=\"indicator\">⇅</span></th>"
+            "<th class=\"sortable\" data-col=\"1\" data-type=\"string\">Service Packages <span class=\"indicator\">⇅</span></th>"
+            "<th class=\"sortable\" data-col=\"2\" data-type=\"string\">Pod Type <span class=\"indicator\">⇅</span></th>"
+            "<th class=\"sortable\" data-col=\"3\" data-type=\"number\">Client Monthly Limit <span class=\"indicator\">⇅</span></th>"
+            "<th class=\"sortable\" data-col=\"4\" data-type=\"string\">Earliest Open Week <span class=\"indicator\">⇅</span></th>"
+            "<th class=\"sortable\" data-col=\"5\" data-type=\"date\">Monday Date <span class=\"indicator\">⇅</span></th>"
+            "</tr>"
+        )
+        body_rows = []
         for item in results:
             earliest_wk_ordinal = item.get("earliest_open_week")
             monday_str = date.fromordinal(earliest_wk_ordinal).isoformat() if isinstance(earliest_wk_ordinal, int) else ""
@@ -552,14 +563,15 @@ def availability_earliest():
             pod = item.get("pod_type") or ""
             limit = item.get("client_limit_monthly") or ""
             wk = item.get("earliest_open_week_label") or (item.get("error") or "")
-            rows.append(f"<tr><td>{email}</td><td>{svc}</td><td>{pod}</td><td>{limit}</td><td>{wk}</td><td>{monday_str}</td></tr>")
+            body_rows.append(f"<tr><td>{email}</td><td>{svc}</td><td>{pod}</td><td>{limit}</td><td>{wk}</td><td>{monday_str}</td></tr>")
 
         html = (
             "<html><head><title>Earliest Availability</title>"
-            "<style>table{border-collapse:collapse}td,th{border:1px solid #ccc;padding:6px 10px;text-align:left;font-family:sans-serif}</style>"
+            "<style>table{border-collapse:collapse}td,th{border:1px solid #ccc;padding:6px 10px;text-align:left;font-family:sans-serif}th.sortable{cursor:pointer;user-select:none}th.sortable:hover{background:#f5f5f5}th.sorted{background:#eef}th .indicator{margin-left:6px;opacity:.7;font-size:.9em}</style>"
             "</head><body>"
             "<h3>Adviser Earliest Availability</h3>"
-            "<table>" + "".join(rows) + "</table>"
+            "<table id=\"avail-table\"><thead>" + header_row + "</thead><tbody>" + "".join(body_rows) + "</tbody></table>"
+            "<script>(function(){const table=document.getElementById('avail-table');function getCell(tr,i){return tr.children[i]?.innerText||tr.children[i]?.textContent||''}function cmp(i,type,asc){return function(a,b){const v1=getCell(asc?a:b,i),v2=getCell(asc?b:a,i);if(type==='number'){return (parseFloat(v1)||0)-(parseFloat(v2)||0)}if(type==='date'){return new Date(v1)-new Date(v2)}return v1.localeCompare(v2)}}const headers=Array.from(document.querySelectorAll('#avail-table th.sortable'));function resetHeaders(active){headers.forEach(h=>{h.classList.remove('sorted');const ind=h.querySelector('.indicator');if(ind){ind.textContent='⇅';}if(h!==active){h.removeAttribute('data-asc');}});}headers.forEach(th=>{th.addEventListener('click',()=>{const i=parseInt(th.dataset.col||'0',10);const type=th.dataset.type||'string';const asc=th.dataset.asc!=='true';th.dataset.asc=asc?'true':'false';const tbody=table.tBodies[0];Array.from(tbody.querySelectorAll('tr')).sort(cmp(i,type,asc)).forEach(tr=>tbody.appendChild(tr));resetHeaders(th);th.classList.add('sorted');const ind=th.querySelector('.indicator');if(ind){ind.textContent=asc?'▲':'▼';}});});})();</script>"
             "</body></html>"
         )
         return html, 200, {"Content-Type": "text/html; charset=utf-8"}
