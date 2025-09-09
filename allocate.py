@@ -33,6 +33,7 @@ LEAVE_COL = 2
 DEALS_NO_CLARIFY_COL = 3
 TARGET_CAPACITY_COL = 4
 ACTUAL_CAPACITY_COL = 5
+DIFFERENCE_COL = 6
 
 
 def ceil_div(a, b):
@@ -734,19 +735,40 @@ def find_earliest_week(user, min_week):
             remaining_backlog = max(0, remaining_backlog - fortnight_spare)
 
             if remaining_backlog <= 0:
-                candidate = max(wk, min_allowed_week)
-                user["earliest_open_week"] = candidate
-                print(f"Week: {week_label_from_ordinal(candidate)}")
-                return user
+                # Enforce condition: two consecutive negative differences (prev and curr)
+                diff_curr = int(data[wk][DIFFERENCE_COL]) if len(data[wk]) > DIFFERENCE_COL else 0
+                diff_prev = int(data.get(prev_wk, [0])[DIFFERENCE_COL]) if len(data.get(prev_wk, [])) > DIFFERENCE_COL else 0
+                if diff_prev < 0 and diff_curr < 0:
+                    candidate = max(wk, min_allowed_week)
+                    user["earliest_open_week"] = candidate
+                    print(f"Week: {week_label_from_ordinal(candidate)}")
+                    return user
+                # Otherwise continue scanning subsequent blocks until the condition is met
 
     # If backlog still remains after projected weeks, include any pending block deals
     remaining_backlog += pending_deals_block
     last_week = sorted_weeks[-1]
     fortnights_needed = int(ceil_div(max(remaining_backlog, 0), fortnight_target))
-    final_week = last_week + 14 * fortnights_needed
-    final_week = max(final_week, min_allowed_week)
-    print(f"Week: {week_label_from_ordinal(final_week)}")
-    user["earliest_open_week"] = final_week
+    final_week = max(last_week + 14 * fortnights_needed, min_allowed_week)
+    # Try to find the first 2-week pair with negative differences at/after final_week
+    sorted_weeks = sorted(data.keys())
+    # Ensure we have the exact indices for searching pairs
+    try:
+        start_idx = next(i for i, w in enumerate(sorted_weeks) if w >= final_week)
+    except StopIteration:
+        start_idx = None
+    chosen = None
+    if start_idx is not None:
+        for i in range(start_idx, len(sorted_weeks)):
+            wk = sorted_weeks[i]
+            prev_wk = wk - 7
+            diff_curr = int(data[wk][DIFFERENCE_COL]) if len(data[wk]) > DIFFERENCE_COL else 0
+            diff_prev = int(data.get(prev_wk, [0])[DIFFERENCE_COL]) if len(data.get(prev_wk, [])) > DIFFERENCE_COL else 0
+            if diff_prev < 0 and diff_curr < 0:
+                chosen = wk
+                break
+    user["earliest_open_week"] = chosen if chosen else final_week
+    print(f"Week: {week_label_from_ordinal(user['earliest_open_week'])}")
     return user
 
 
