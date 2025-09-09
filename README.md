@@ -87,6 +87,27 @@ Lookup endpoints:
 - `GET /get/employee_leave_requests?employee_id=<id>` → `{ leave_requests: [...] }`
 - `GET /get/leave_requests_by_email?email=<email>` → reads from Firestore only; instructs to run sync if missing.
 
+### Global Holidays / Office Closures
+
+To block weeks for everyone (e.g., Christmas shutdown), add documents to the Firestore collection `office_closures` with fields:
+
+- `start_date`: ISO date `YYYY-MM-DD`
+- `end_date`: ISO date `YYYY-MM-DD` (optional; defaults to `start_date`)
+
+The system classifies each affected week as `Full` (5 business days) or `Partial: N` and folds this into adviser availability the same way personal leave is handled. Weeks classified as `Full` set target capacity to 0 for all advisers.
+
+Endpoints to manage closures:
+- `GET /closures` → List current closures from `office_closures`.
+- `POST /closures` (JSON) → Add a closure:
+  - Body: `{ "start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD" }` (`end_date` optional)
+- `GET /closures/ui` → Simple UI to add closures via a form and view existing ones.
+
+Admin authentication:
+- Set `ADMIN_USERNAME` and `ADMIN_PASSWORD` (env or Secret Manager) to enable admin login.
+- `GET/POST /admin/login` → Sign in to manage closures.
+- `GET /admin/logout` → Sign out.
+- The UI (`/closures/ui`) and modifying endpoints (`POST /closures`, `PUT/DELETE /closures/<id>`) require admin.
+
 
 ## HubSpot Allocation Webhook
 
@@ -135,6 +156,7 @@ curl -X POST http://localhost:8080/post/allocate \
 - `GET /test/organisations` → EH organisations (requires OAuth)
 - `GET /get/leave_requests_list` → Raw EH leave requests listing
 - `GET /availability/earliest` → HTML table of earliest week availability for all advisers taking on clients. Columns: Email, Service Packages, Pod Type, Client Monthly Limit, Earliest Open Week.
+- `GET /availability/schedule` → UI to pick an adviser by email and view a weekly schedule table (Week label, Monday Date, Clarify Count, OOO, Deal No Clarify, Target, Actual). Highlights the earliest available week.
 - `GET /_ah/warmup` → Healthcheck
 
 

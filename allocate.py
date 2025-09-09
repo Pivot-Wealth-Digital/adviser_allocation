@@ -69,6 +69,31 @@ def get_employee_leaves_from_firestore(employee_id):
     return list_leaves
 
 
+def get_global_closures_from_firestore():
+    """
+    Fetch global holidays/office closures from Firestore.
+
+    Expected collection: 'office_closures' with documents containing
+    at least 'start_date' and 'end_date' as ISO dates (YYYY-MM-DD).
+
+    Returns a list of dicts compatible with classify_leave_weeks.
+    """
+    items = []
+    try:
+        if not db:
+            return []
+        docs = db.collection('office_closures').stream()
+        for doc in docs:
+            data = doc.to_dict() or {}
+            start_date = data.get('start_date')
+            end_date = data.get('end_date') or start_date
+            if start_date:
+                items.append({"start_date": start_date, "end_date": end_date})
+    except Exception as e:
+        logging.warning(f"Failed to load office closures: {e}")
+    return items
+
+
 def get_employee_id_from_firestore(search_email):
     """
     Queries Firestore to find an employee ID by their company email.
@@ -370,24 +395,50 @@ def get_merged_schedule(user):
     filling in missing week numbers with default values.
     """
     classified_weeks = user["leave_requests_list"]
+    global_weeks = user.get("global_closure_weeks", [])
     classified_deals = user["deals_no_clarify_list"]
     data_dict = user["meeting_count_list"]
 
-    # Create a map for fast lookup of classified weeks
-    classified_weeks_map = {
-        week_num: classification for week_num, classification in classified_weeks
-    }
+    # Create maps for fast lookup of classified weeks
+    classified_weeks_map = {week_num: classification for week_num, classification in classified_weeks}
+    global_weeks_map = {week_num: classification for week_num, classification in global_weeks}
+
+    def classification_days(c: str) -> int:
+        if c == "Full":
+            return 5
+        if not c or c == "No":
+            return 0
+        try:
+            # Expect format 'Partial: N'
+            return int(str(c).split(":")[1].strip())
+        except Exception:
+            return 0
+
+    def combine_classification(a: str, b: str) -> str:
+        days = max(classification_days(a), classification_days(b))
+        if days >= 5:
+            return "Full"
+        if days > 0:
+            return f"Partial: {days}"
+        return "No"
 
     # Step 1: Merge classified leave weeks into data_dict
     for week_num, values in data_dict.items():
-        classification = classified_weeks_map.get(week_num, "No")
+        base_cls = classified_weeks_map.get(week_num, "No")
+        glob_cls = global_weeks_map.get(week_num, "No")
+        classification = combine_classification(base_cls, glob_cls)
         data_dict[week_num].append(classification)
 
     # Step 2: Add new entries for weeks that are in classified_weeks but not in data_dict
     for week_num, classification in classified_weeks_map.items():
         if week_num not in data_dict:
             # We add a 'No' for the deals classification as it's not available here
-            data_dict[week_num] = [0, 0, classification]
+            glob_cls = global_weeks_map.get(week_num, "No")
+            data_dict[week_num] = [0, 0, combine_classification(classification, glob_cls)]
+    # Also add entries for global-only weeks
+    for week_num, gclassification in global_weeks_map.items():
+        if week_num not in data_dict:
+            data_dict[week_num] = [0, 0, combine_classification("No", gclassification)]
             # Since classified_deals is now a dictionary, it's simpler to handle the merge separately below.
 
     # Step 3: Merge classified deals (now a dictionary of counts) into the data_dict
@@ -766,6 +817,9 @@ def get_adviser(service_package):
     print("Getting USER IDs taking on client")
     users_list = get_user_ids_adviser(service_package)
 
+    # Load global closures once
+    global_closures = classify_leave_weeks(get_global_closures_from_firestore())
+
     for i, user in enumerate(users_list):
         print(f"user {i}")
         # get user approved leave requests from EH
@@ -801,7 +855,8 @@ def get_adviser(service_package):
         # classify deals with no clarify (get week numbers)
         user["deals_no_clarify_list"] = classify_deals_list(user["deals_no_clarify"])
 
-        # merge meeting counts and leave requests
+        # merge meeting counts, leave requests, and global closures
+        user["global_closure_weeks"] = global_closures
         user = get_merged_schedule(user)
 
         # allocate deal to most suitable adviser
@@ -869,6 +924,9 @@ def get_users_earliest_availability():
         datetime.fromtimestamp((timestamp_milliseconds / 1000)).date()
     )
 
+    # Load global closures once for this computation
+    global_closures = classify_leave_weeks(get_global_closures_from_firestore())
+
     for user in users_list:
         try:
             # Pull EH leave (from Firestore cache if available)
@@ -892,7 +950,8 @@ def get_users_earliest_availability():
             user["deals_no_clarify"] = get_deals_no_clarify(user_email)
             user["deals_no_clarify_list"] = classify_deals_list(user["deals_no_clarify"])
 
-            # Merge into schedule and compute capacity
+            # Merge into schedule (include global closures) and compute capacity
+            user["global_closure_weeks"] = global_closures
             user = get_merged_schedule(user)
 
             availability_week = user.get("availability_start_week")
@@ -922,6 +981,68 @@ def get_users_earliest_availability():
             })
 
     return results
+
+
+def get_user_by_email(user_email: str):
+    """Return HubSpot user object for the given email among those taking on clients."""
+    users = get_users_taking_on_clients()
+    for u in users:
+        if (u.get("properties") or {}).get("hs_email") == user_email:
+            return u
+    return None
+
+
+def compute_user_schedule_by_email(user_email: str):
+    """Build and return an adviser's weekly capacity table and earliest week.
+
+    Returns a dict with keys: 'capacity' (dict keyed by Monday ordinal),
+    'earliest_open_week' (int), and 'min_week' (int baseline used).
+    """
+    user = get_user_by_email(user_email)
+    if not user:
+        raise ValueError("User not found or not taking on clients")
+
+    # Load EH leave
+    employee_id = get_employee_id_from_firestore(user_email)
+    employee_leaves = get_employee_leaves_from_firestore(employee_id) if employee_id else []
+    user["leave_requests"] = employee_leaves
+
+    # Classify leave weeks
+    user["leave_requests_list"] = classify_leave_weeks(user["leave_requests"])
+
+    # Limits and availability window
+    user = get_user_client_limits(user)
+
+    # Meetings since baseline (1 week ago Monday)
+    timestamp_milliseconds = get_monday_from_weeks_ago(n=1)
+    min_week = week_monday_ordinal(
+        datetime.fromtimestamp((timestamp_milliseconds / 1000)).date()
+    )
+    user = get_user_meeting_details(user, timestamp_milliseconds)
+    user_meetings = (user.get("meetings") or {}).get("results", [])
+    user["meeting_count_list"] = get_meeting_count(user_meetings)
+
+    # Deals without Clarify
+    user["deals_no_clarify"] = get_deals_no_clarify(user_email)
+    user["deals_no_clarify_list"] = classify_deals_list(user["deals_no_clarify"])
+
+    # Global closures
+    user["global_closure_weeks"] = classify_leave_weeks(get_global_closures_from_firestore())
+
+    # Merge + compute capacity
+    user = get_merged_schedule(user)
+
+    availability_week = user.get("availability_start_week")
+    effective_min_week = max(min_week, availability_week) if availability_week else min_week
+    user = compute_capacity(user, effective_min_week)
+    user = find_earliest_week(user, effective_min_week)
+
+    return {
+        "capacity": user.get("capacity", {}),
+        "earliest_open_week": user.get("earliest_open_week"),
+        "min_week": effective_min_week,
+        "email": user_email,
+    }
 def week_monday_ordinal(d: date) -> int:
     """Return the ordinal of the Monday for the week containing date ``d``.
 

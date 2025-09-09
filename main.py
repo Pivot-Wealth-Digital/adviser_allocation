@@ -11,6 +11,9 @@ from allocate import (
     get_employee_leaves_from_firestore,
     get_employee_id_from_firestore,
     get_users_earliest_availability,
+    get_users_taking_on_clients,
+    compute_user_schedule_by_email,
+    week_label_from_ordinal,
 )
 
 from dotenv import load_dotenv
@@ -36,6 +39,26 @@ if USE_FIRESTORE:
 
 app = Flask(__name__)
 app.secret_key = get_secret("SESSION_SECRET") or "change-me-please"  # set in app.yaml or .env
+
+# ---- Admin auth config (for managing closures) ----
+ADMIN_USERNAME = get_secret("ADMIN_USERNAME") or os.environ.get("ADMIN_USERNAME")
+ADMIN_PASSWORD = get_secret("ADMIN_PASSWORD") or os.environ.get("ADMIN_PASSWORD")
+
+def is_admin():
+    return bool(session.get("is_admin"))
+
+def admin_required(view_func):
+    from functools import wraps
+    @wraps(view_func)
+    def wrapper(*args, **kwargs):
+        if not is_admin():
+            # For API calls, return 401; for browser, redirect to login with next
+            if request.accept_mimetypes and "text/html" in request.accept_mimetypes:
+                nxt = request.path
+                return redirect(f"/admin/login?next={nxt}")
+            return jsonify({"error": "Unauthorized"}), 401
+        return view_func(*args, **kwargs)
+    return wrapper
 
 # ---- Employment Hero (HR) OAuth config ----
 EH_AUTHORIZE_URL = os.environ.get("EH_AUTHORIZE_URL", "https://oauth.employmenthero.com/oauth2/authorize")
@@ -446,6 +469,222 @@ def sync_leave_requests():
         return jsonify({"error": str(e)}), 500
 
 
+# ---- Global Closures (Holidays) ----
+@app.route("/closures", methods=["GET", "POST"])
+def closures():
+    """Manage global office closures/holidays.
+
+    GET: List closures from Firestore collection 'office_closures'.
+    POST: Add a closure. JSON body: { start_date: YYYY-MM-DD, end_date?: YYYY-MM-DD }
+    """
+    if not db:
+        return jsonify({"error": "Firestore is not configured"}), 400
+
+    if request.method == "GET":
+        try:
+            items = []
+            for doc in db.collection("office_closures").stream():
+                d = doc.to_dict() or {}
+                d["id"] = doc.id
+                items.append(d)
+            return jsonify({"count": len(items), "closures": items}), 200
+        except Exception as e:
+            logging.error(f"Failed to list closures: {e}")
+            return jsonify({"error": str(e)}), 500
+
+    # POST (create) requires admin
+    try:
+        if not request.is_json:
+            return jsonify({"error": "Expected application/json"}), 415
+        if not is_admin():
+            return jsonify({"error": "Unauthorized"}), 401
+        payload = request.get_json() or {}
+        start_date = payload.get("start_date")
+        end_date = payload.get("end_date") or start_date
+        if not start_date:
+            return jsonify({"error": "start_date is required (YYYY-MM-DD)"}), 400
+        # Basic format sanity (YYYY-MM-DD)
+        try:
+            datetime.strptime(start_date, "%Y-%m-%d")
+            datetime.strptime(end_date, "%Y-%m-%d")
+        except Exception:
+            return jsonify({"error": "Invalid date format; use YYYY-MM-DD"}), 400
+
+        doc_ref = db.collection("office_closures").document()
+        doc_ref.set({"start_date": start_date, "end_date": end_date})
+        return jsonify({"id": doc_ref.id, "start_date": start_date, "end_date": end_date}), 201
+    except Exception as e:
+        logging.error(f"Failed to create closure: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/closures/<closure_id>", methods=["PUT", "DELETE"])
+def closures_item(closure_id):
+    """Update or delete a specific closure document (admin only)."""
+    if not db:
+        return jsonify({"error": "Firestore is not configured"}), 400
+    if not is_admin():
+        return jsonify({"error": "Unauthorized"}), 401
+
+    if request.method == "DELETE":
+        try:
+            db.collection("office_closures").document(closure_id).delete()
+            return jsonify({"ok": True}), 200
+        except Exception as e:
+            logging.error(f"Failed to delete closure {closure_id}: {e}")
+            return jsonify({"error": str(e)}), 500
+
+    # PUT
+    try:
+        if not request.is_json:
+            return jsonify({"error": "Expected application/json"}), 415
+        payload = request.get_json() or {}
+        start_date = payload.get("start_date")
+        end_date = payload.get("end_date") or start_date
+        if not start_date:
+            return jsonify({"error": "start_date is required (YYYY-MM-DD)"}), 400
+        try:
+            datetime.strptime(start_date, "%Y-%m-%d")
+            datetime.strptime(end_date, "%Y-%m-%d")
+        except Exception:
+            return jsonify({"error": "Invalid date format; use YYYY-MM-DD"}), 400
+        db.collection("office_closures").document(closure_id).set({
+            "start_date": start_date,
+            "end_date": end_date,
+        }, merge=True)
+        return jsonify({"id": closure_id, "start_date": start_date, "end_date": end_date}), 200
+    except Exception as e:
+        logging.error(f"Failed to update closure {closure_id}: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/closures/ui")
+@admin_required
+def closures_ui():
+    """Simple UI to create and list global office closures (holidays)."""
+    if not db:
+        return (
+            "<html><body><p>Firestore is not configured; cannot manage closures.</p></body></html>",
+            400,
+            {"Content-Type": "text/html; charset=utf-8"},
+        )
+
+    # Preload closures for display
+    closures = []
+    try:
+        for doc in db.collection("office_closures").order_by("start_date").stream():
+            d = doc.to_dict() or {}
+            d["id"] = doc.id
+            closures.append(d)
+    except Exception as e:
+        logging.warning(f"Failed to load closures for UI: {e}")
+
+    # Build HTML
+    rows = ["<tr><th>ID</th><th>Start Date</th><th>End Date</th><th>Actions</th></tr>"]
+    for c in closures:
+        rows.append(
+            f"<tr data-id=\"{c.get('id','')}\">"
+            f"<td class=\"id\">{c.get('id','')}</td>"
+            f"<td class=\"start\">{c.get('start_date','')}</td>"
+            f"<td class=\"end\">{c.get('end_date','')}</td>"
+            f"<td>"
+            f"  <button class=\"edit\">Edit</button>"
+            f"  <button class=\"save\" style=\"display:none\">Save</button>"
+            f"  <button class=\"cancel\" style=\"display:none\">Cancel</button>"
+            f"  <button class=\"delete\" style=\"margin-left:6px\">Delete</button>"
+            f"</td>"
+            f"</tr>"
+        )
+
+    html = (
+        "<html><head><title>Manage Office Closures</title>"
+        "<style>body{font-family:sans-serif;max-width:880px;margin:24px auto;padding:0 12px}" 
+        ".card{border:1px solid #ddd;border-radius:8px;padding:16px;margin-bottom:20px}" 
+        "label{display:block;margin:8px 0 4px}input{padding:8px;border:1px solid #ccc;border-radius:4px}" 
+        "button{padding:8px 12px;border:1px solid #0a7;background:#0a7;color:#fff;border-radius:4px;cursor:pointer}" 
+        "table{border-collapse:collapse;width:100%;margin-top:12px}td,th{border:1px solid #ddd;padding:8px;text-align:left}" 
+        ".msg{margin-top:10px} .ok{color:#056} .err{color:#a00} .row{display:flex;gap:12px;align-items:center}"
+        "</style>"
+        "</head><body>"
+        "<h2>Global Holidays / Office Closures</h2>"
+        "<div class=\"card\">"
+        "<h3>Add Closure</h3>"
+        "<div class=\"row\">"
+        "  <div><label>Start Date</label><input type=\"date\" id=\"start\" required></div>"
+        "  <div><label>End Date</label><input type=\"date\" id=\"end\"></div>"
+        "  <div style=\"margin-top:22px\"><button id=\"submit\">Add</button></div>"
+        "</div>"
+        "<div class=\"msg\" id=\"msg\"></div>"
+        "</div>"
+        "<div class=\"card\">"
+        "<h3>Existing Closures</h3>"
+        f"<table id=\"closures-table\"><thead>{rows[0]}</thead><tbody>{''.join(rows[1:])}</tbody></table>"
+        "</div>"
+        "<script>"
+        "(function(){"
+        "const submit=document.getElementById('submit');const s=document.getElementById('start');const e=document.getElementById('end');const msg=document.getElementById('msg');"
+        "function show(type,text){msg.className='msg '+type;msg.textContent=text;}"
+        "submit.addEventListener('click',async()=>{const start=s.value;const end=e.value||start;"
+        " if(!start){show('err','Start date is required');return;}"
+        " try{const res=await fetch('/closures',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({start_date:start,end_date:end})});"
+        " if(res.status===401){location.href='/admin/login?next=/closures/ui';return;}const data=await res.json();if(!res.ok){show('err',data.error||'Failed to create');return;}"
+        " show('ok','Created closure '+(data.id||''));setTimeout(()=>{location.reload();},600);"
+        " }catch(err){show('err','Network error');}"
+        "});"
+        "const table=document.getElementById('closures-table');"
+        "table.addEventListener('click',async(ev)=>{const btn=ev.target;const tr=btn.closest?btn.closest('tr'):null;if(!tr)return;const id=tr.dataset.id;"
+        " if(btn.classList.contains('edit')){const sCell=tr.querySelector('.start');const eCell=tr.querySelector('.end');const sVal=sCell.textContent.trim();const eVal=eCell.textContent.trim();sCell.innerHTML=`<input type=\"date\" value=\"${sVal}\" />`;eCell.innerHTML=`<input type=\"date\" value=\"${eVal}\" />`;tr.querySelector('.edit').style.display='none';tr.querySelector('.delete').style.display='none';tr.querySelector('.save').style.display='inline-block';tr.querySelector('.cancel').style.display='inline-block';return;}"
+        " if(btn.classList.contains('cancel')){location.reload();return;}"
+        " if(btn.classList.contains('save')){const sVal=tr.querySelector('.start input').value;const eVal=tr.querySelector('.end input').value||sVal;try{const res=await fetch('/closures/'+id,{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({start_date:sVal,end_date:eVal})});if(res.status===401){location.href='/admin/login?next=/closures/ui';return;}const data=await res.json();if(!res.ok){alert(data.error||'Failed to update');return;}location.reload();}catch(err){alert('Network error');}return;}"
+        " if(btn.classList.contains('delete')){if(!confirm('Delete this closure?'))return;try{const res=await fetch('/closures/'+id,{method:'DELETE',credentials:'same-origin',headers:{'Accept':'application/json'}});if(res.status===401){location.href='/admin/login?next=/closures/ui';return;}if(!res.ok){alert('Failed to delete');return;}location.reload();}catch(err){alert('Network error');}return;}"
+        "});"
+        "})();"
+        "</script>"
+        "</body></html>"
+    )
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+@app.route("/admin/login", methods=["GET", "POST"])
+def admin_login():
+    """Simple admin login to manage closures."""
+    # If already logged in, go to UI or 'next'
+    nxt = request.args.get("next") or "/closures/ui"
+    if request.method == "POST":
+        username = request.form.get("username") or ""
+        password = request.form.get("password") or ""
+        if not ADMIN_USERNAME or not ADMIN_PASSWORD:
+            return ("<p>Admin credentials not configured. Set ADMIN_USERNAME and ADMIN_PASSWORD.</p>", 500)
+        if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
+            session["is_admin"] = True
+            return redirect(nxt)
+        # invalid
+        error = "Invalid credentials"
+    else:
+        error = ""
+
+    html = (
+        "<html><head><title>Admin Login</title>"
+        "<style>body{font-family:sans-serif;max-width:420px;margin:60px auto;padding:0 12px}.f{display:flex;flex-direction:column;gap:10px}label{font-size:.9em;color:#333}input{padding:8px;border:1px solid #bbb;border-radius:4px}button{padding:8px 12px;border:1px solid #0a7;background:#0a7;color:#fff;border-radius:4px;cursor:pointer}.err{color:#a00;margin-top:8px}</style>"
+        "</head><body>"
+        "<h3>Admin Login</h3>"
+        f"<form class=\"f\" method=\"POST\" action=\"/admin/login?next={nxt}\">"
+        "<div><label>Username</label><input name=\"username\" autocomplete=\"username\"></div>"
+        "<div><label>Password</label><input name=\"password\" type=\"password\" autocomplete=\"current-password\"></div>"
+        "<div><button type=\"submit\">Sign in</button></div>"
+        f"<div class=\"err\">{error}</div>"
+        "</form>"
+        "</body></html>"
+    )
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+@app.route("/admin/logout")
+def admin_logout():
+    session.pop("is_admin", None)
+    return redirect("/admin/login")
+
+
 # ---- assign adviser to open deal ----
 @app.route('/post/allocate', methods=['POST', 'GET'])
 def handle_webhook():
@@ -578,6 +817,64 @@ def availability_earliest():
     except Exception as e:
         logging.error(f"Failed to compute earliest availability: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/availability/schedule")
+def availability_schedule():
+    """UI to view an adviser's weekly schedule table with a dropdown selector."""
+    try:
+        advisers = get_users_taking_on_clients()
+    except Exception as e:
+        return (f"<p>Failed to load advisers: {e}</p>", 500, {"Content-Type": "text/html; charset=utf-8"})
+
+    emails = sorted([(u.get("properties") or {}).get("hs_email") or "" for u in advisers if (u.get("properties") or {}).get("hs_email")])
+    selected = request.args.get("email")
+
+    table_rows = []
+    earliest_week = None
+    if selected:
+        try:
+            res = compute_user_schedule_by_email(selected)
+            capacity = res.get("capacity") or {}
+            earliest_week = res.get("earliest_open_week")
+            for wk in sorted(capacity.keys()):
+                vals = capacity[wk]
+                # Columns by spec
+                label = week_label_from_ordinal(wk)
+                monday = date.fromordinal(wk).isoformat()
+                clarify = str(vals[0]) if len(vals) > 0 else "0"
+                ooo = str(vals[2]) if len(vals) > 2 else "No"
+                deals = str(vals[3]) if len(vals) > 3 else "0"
+                target = str(vals[4]) if len(vals) > 4 else "0"
+                actual = str(vals[5]) if len(vals) > 5 else "0"
+                cls = " class=\"hl\"" if isinstance(earliest_week, int) and wk == earliest_week else ""
+                table_rows.append(f"<tr{cls}><td>{label}</td><td>{monday}</td><td>{clarify}</td><td>{ooo}</td><td>{deals}</td><td>{target}</td><td>{actual}</td></tr>")
+        except Exception as e:
+            return (f"<p>Failed to compute schedule for {selected}: {e}</p>", 500, {"Content-Type": "text/html; charset=utf-8"})
+
+    options = [f"<option value=\"\">-- Select adviser --</option>"] + [
+        f"<option value=\"{e}\"{' selected' if selected==e else ''}>{e}</option>" for e in emails
+    ]
+
+    html = (
+        "<html><head><title>Adviser Schedule</title>"
+        "<style>body{font-family:sans-serif;max-width:1100px;margin:24px auto;padding:0 12px}"
+        ".row{display:flex;gap:12px;align-items:center;margin-bottom:16px}select{padding:6px 8px}"
+        "table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:8px;text-align:left}"
+        "th{background:#fafafa}tr.hl{background:#e8f7e8}caption{margin:8px 0;font-weight:600}"
+        "</style></head><body>"
+        "<h2>Adviser Schedule</h2>"
+        "<div class=\"row\"><label for=\"email\">Adviser:</label>"
+        f"<select id=\"email\" name=\"email\" onchange=\"location='?email='+encodeURIComponent(this.value)\">{''.join(options)}</select>"
+        "</div>"
+        "<table><thead><tr>"
+        "<th>Week</th><th>Monday Date</th><th>Clarify Count</th><th>OOO</th><th>Deal No Clarify</th><th>Target</th><th>Actual</th>"
+        "</tr></thead>"
+        f"<tbody>{''.join(table_rows) if table_rows else '<tr><td colspan=7>Select an adviser to view schedule.</td></tr>'}</tbody>"
+        "</table>"
+        "</body></html>"
+    )
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 # Healthcheck
 @app.route("/_ah/warmup")
