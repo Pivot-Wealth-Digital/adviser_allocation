@@ -847,8 +847,9 @@ def availability_schedule():
                 deals = str(vals[3]) if len(vals) > 3 else "0"
                 target = str(vals[4]) if len(vals) > 4 else "0"
                 actual = str(vals[5]) if len(vals) > 5 else "0"
+                diff = str(vals[6]) if len(vals) > 6 else "0"
                 cls = " class=\"hl\"" if isinstance(earliest_week, int) and wk == earliest_week else ""
-                table_rows.append(f"<tr{cls}><td>{label}</td><td>{monday}</td><td>{clarify}</td><td>{ooo}</td><td>{deals}</td><td>{target}</td><td>{actual}</td></tr>")
+                table_rows.append(f"<tr{cls}><td>{label}</td><td>{monday}</td><td>{clarify}</td><td>{ooo}</td><td>{deals}</td><td>{target}</td><td>{actual}</td><td>{diff}</td></tr>")
         except Exception as e:
             return (f"<p>Failed to compute schedule for {selected}: {e}</p>", 500, {"Content-Type": "text/html; charset=utf-8"})
 
@@ -868,9 +869,9 @@ def availability_schedule():
         f"<select id=\"email\" name=\"email\" onchange=\"location='?email='+encodeURIComponent(this.value)\">{''.join(options)}</select>"
         "</div>"
         "<table><thead><tr>"
-        "<th>Week</th><th>Monday Date</th><th>Clarify Count</th><th>OOO</th><th>Deal No Clarify</th><th>Target</th><th>Actual</th>"
+        "<th>Week</th><th>Monday Date</th><th>Clarify Count</th><th>OOO</th><th>Deal No Clarify</th><th>Target</th><th>Actual</th><th>Difference</th>"
         "</tr></thead>"
-        f"<tbody>{''.join(table_rows) if table_rows else '<tr><td colspan=7>Select an adviser to view schedule.</td></tr>'}</tbody>"
+        f"<tbody>{''.join(table_rows) if table_rows else '<tr><td colspan=8>Select an adviser to view schedule.</td></tr>'}</tbody>"
         "</table>"
         "</body></html>"
     )

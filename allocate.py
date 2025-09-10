@@ -679,6 +679,8 @@ def find_earliest_week(user, min_week):
     data = user["capacity"]
     sorted_weeks = sorted(data.keys())
 
+    deal_no_clarify_delay = 14  # days to add to deal no clarify date before being counted towards backlog
+
     # Choose the first week >= starting_week to begin evaluation
     starting_index = None
     for idx, wk in enumerate(sorted_weeks):
@@ -693,7 +695,7 @@ def find_earliest_week(user, min_week):
             return user
         # fall back to the last projected week and extend using fortnightly target
         last_week = sorted_weeks[-1]
-        fortnight_target = int((user.get("properties", {}).get("client_limit_monthly") or 0) // 2) or 1
+
         # assume at least one fortnight needed
         user["earliest_open_week"] = max(last_week + 14, starting_week)
         return user
@@ -701,54 +703,80 @@ def find_earliest_week(user, min_week):
     baseline_week = sorted_weeks[starting_index]
 
     # Backlog before baseline: deals without clarify from weeks before the baseline week
-    remaining_backlog = sum(
-        v[DEALS_NO_CLARIFY_COL] for k, v in data.items() if k < baseline_week
+    curr_remaining_backlog = sum(
+        v[DEALS_NO_CLARIFY_COL] for k, v in data.items() if k < baseline_week-deal_no_clarify_delay
     )
-
+    print(f"Baseline Week: {week_label_from_ordinal(baseline_week)}, Initial Backlog: {curr_remaining_backlog}")
     # Walk forward in non-overlapping fortnights: accumulate new deals for two weeks,
     # then consume using fortnight spare (target - clarifies(prev+curr)).
     fortnight_target = int((user.get("properties", {}).get("client_limit_monthly") or 0) // 2)
     if fortnight_target <= 0:
         fortnight_target = 1
-
+    capacity_next_week = -fortnight_target
     pending_deals_block = 0
+    prev_slack_debt = 0
+    curr_slack_debt = 0
+
+    prev_fortnight_spare = 0
+    curr_fortnight_spare = 0
+
+    prev_remaining_backlog = 0
+
     for idx, wk in enumerate(sorted_weeks[starting_index:]):
         # Add new deals for this week into the pending fortnight block
-        new_deals = int(data[wk][DEALS_NO_CLARIFY_COL]) if len(data[wk]) > DEALS_NO_CLARIFY_COL else 0
+        new_deals = int(data[wk-deal_no_clarify_delay][DEALS_NO_CLARIFY_COL]) if len(data[wk-deal_no_clarify_delay]) > DEALS_NO_CLARIFY_COL else 0
         pending_deals_block += new_deals
 
         # Only evaluate consumption at the end of each 2-week block
-        if idx % 2 == 1:
-            prev_wk = wk - 7
-            clarify_curr = int(data[wk][CLARIFY_COL]) if len(data[wk]) > CLARIFY_COL else 0
-            clarify_prev = int(data.get(prev_wk, [0])[CLARIFY_COL]) if len(data.get(prev_wk, [])) > CLARIFY_COL else 0
+        # if idx % 2 == 1:
+        prev_wk = wk - 7
+        clarify_curr = int(data[wk][CLARIFY_COL]) if len(data[wk]) > CLARIFY_COL else 0
+        clarify_prev = int(data.get(prev_wk, [0])[CLARIFY_COL]) if len(data.get(prev_wk, [])) > CLARIFY_COL else 0
 
-            # Use the current week's target as the fortnight target reference (matches how 'difference' is computed)
-            block_target = int(data[wk][TARGET_CAPACITY_COL]) if len(data[wk]) > TARGET_CAPACITY_COL else fortnight_target
+        # Use the current week's target as the fortnight target reference (matches how 'difference' is computed)
+        block_target = int(data[wk][TARGET_CAPACITY_COL]) if len(data[wk]) > TARGET_CAPACITY_COL else fortnight_target
 
-            fortnight_spare = max(0, block_target - (clarify_prev + clarify_curr))
+        capacity_next_week = int(data.get(wk + 7, [0])[DIFFERENCE_COL]) if len(data.get(wk + 7, [])) > DIFFERENCE_COL else 0
 
-            # First add the pending deals for this block to the backlog, then consume
-            remaining_backlog += pending_deals_block
-            pending_deals_block = 0
+        # consider the capacity next week as a ceiling on spare capacity this fortnight
+        prev_fortnight_spare = curr_fortnight_spare
+        curr_fortnight_spare = max(min(-capacity_next_week, block_target - (clarify_prev + clarify_curr + curr_slack_debt)), 0)
 
-            remaining_backlog = max(0, remaining_backlog - fortnight_spare)
+        # First add the pending deals for this block to the backlog, then consume
+        prev_remaining_backlog = curr_remaining_backlog
+        curr_remaining_backlog += pending_deals_block
+        pending_deals_block = 0
 
-            if remaining_backlog <= 0:
-                # Enforce condition: two consecutive negative differences (prev and curr)
-                diff_curr = int(data[wk][DIFFERENCE_COL]) if len(data[wk]) > DIFFERENCE_COL else 0
-                diff_prev = int(data.get(prev_wk, [0])[DIFFERENCE_COL]) if len(data.get(prev_wk, [])) > DIFFERENCE_COL else 0
-                if diff_prev < 0 and diff_curr < 0:
-                    candidate = max(wk, min_allowed_week)
-                    user["earliest_open_week"] = candidate
-                    print(f"Week: {week_label_from_ordinal(candidate)}")
-                    return user
-                # Otherwise continue scanning subsequent blocks until the condition is met
+        # slack debt is used to track any used up spare capacity that cannot be applied to backlog
+        prev_slack_debt = curr_slack_debt
+        curr_slack_debt = min(curr_remaining_backlog, curr_fortnight_spare)
+        curr_remaining_backlog = max(0, curr_remaining_backlog - curr_fortnight_spare)
 
+        print(f"Week: {week_label_from_ordinal(wk)}, New Deals: {new_deals}, Clarify Prev: {clarify_prev}, Clarify Curr: {clarify_curr}, Block Target: {block_target}, NWD: {capacity_next_week}, Fortnight Spare: {curr_fortnight_spare}, Remaining Backlog: {curr_remaining_backlog}, Slack Debt: {curr_slack_debt}")
+        if curr_remaining_backlog == 0:
+            # Enforce condition: two consecutive negative differences (prev and curr)
+            diff_curr = int(data[wk][DIFFERENCE_COL]) if len(data[wk]) > DIFFERENCE_COL else 0 + curr_slack_debt
+            diff_prev = (int(data.get(prev_wk, [0])[DIFFERENCE_COL]) if len(data.get(prev_wk, [])) > DIFFERENCE_COL else 0) + prev_slack_debt + curr_slack_debt
+
+            print(f"Week: {week_label_from_ordinal(wk)}, Diff Prev: {diff_prev}, Diff Curr: {diff_curr}")
+            if diff_prev < 0 and diff_curr < 0:
+                if prev_fortnight_spare - prev_slack_debt > 0:
+                    earliest_week = prev_wk
+                else:
+                    earliest_week = wk  # no spare, so only curr week is valid
+
+                candidate = max(earliest_week, min_allowed_week)
+                user["earliest_open_week"] = candidate
+                print(f"Week: {week_label_from_ordinal(candidate)}")
+                return user
+            # Otherwise continue scanning subsequent blocks until the condition is met
+
+            prev_slack_debt = 0  # reset slack debt after use
+    
     # If backlog still remains after projected weeks, include any pending block deals
-    remaining_backlog += pending_deals_block
+    curr_remaining_backlog += pending_deals_block
     last_week = sorted_weeks[-1]
-    fortnights_needed = int(ceil_div(max(remaining_backlog, 0), fortnight_target))
+    fortnights_needed = int(ceil_div(max(curr_remaining_backlog, 0), fortnight_target))
     final_week = max(last_week + 14 * fortnights_needed, min_allowed_week)
     # Try to find the first 2-week pair with negative differences at/after final_week
     sorted_weeks = sorted(data.keys())
