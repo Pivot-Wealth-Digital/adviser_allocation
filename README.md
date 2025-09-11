@@ -93,14 +93,25 @@ To block weeks for everyone (e.g., Christmas shutdown), add documents to the Fir
 
 - `start_date`: ISO date `YYYY-MM-DD`
 - `end_date`: ISO date `YYYY-MM-DD` (optional; defaults to `start_date`)
+- `description`: short text explaining the closure
+- `tags`: optional list of short labels (e.g., `["public", "office"]`), also accepted as a comma-separated string
 
 The system classifies each affected week as `Full` (5 business days) or `Partial: N` and folds this into adviser availability the same way personal leave is handled. Weeks classified as `Full` set target capacity to 0 for all advisers.
 
 Endpoints to manage closures:
 - `GET /closures` → List current closures from `office_closures`.
 - `POST /closures` (JSON) → Add a closure:
-  - Body: `{ "start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD" }` (`end_date` optional)
-- `GET /closures/ui` → Simple UI to add closures via a form and view existing ones.
+  - Body: `{ "start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD", "description": "...", "tags": ["..."] }` (`end_date` optional; `tags` optional)
+- `PUT /closures/<id>` (JSON) → Update a closure. Accepts `description`, `tags`, and dates.
+- `DELETE /closures/<id>` → Delete a closure.
+- `GET /closures/ui` → Admin UI to add and manage closures.
+
+Admin UI highlights:
+- Topbar “Today” picker
+- Add Closure card with live workdays (Mon–Fri) and a Tags input (with quick tag chips) before Description
+- Closures table with:
+  - Columns: `#`, `Description` (shows tags as badges above text), `Start Date`, `End Date`, `Workdays`, `Actions`
+  - Inline edit: edit tags and description in-row
 
 Admin authentication:
 - Set `ADMIN_USERNAME` and `ADMIN_PASSWORD` (env or Secret Manager) to enable admin login.

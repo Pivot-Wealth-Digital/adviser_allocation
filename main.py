@@ -475,7 +475,7 @@ def closures():
     """Manage global office closures/holidays.
 
     GET: List closures from Firestore collection 'office_closures'.
-    POST: Add a closure. JSON body: { start_date: YYYY-MM-DD, end_date?: YYYY-MM-DD }
+    POST: Add a closure. JSON body: { start_date: YYYY-MM-DD, end_date?: YYYY-MM-DD, description?: str, tags?: [str] | str }
     """
     if not db:
         return jsonify({"error": "Firestore is not configured"}), 400
@@ -501,6 +501,17 @@ def closures():
         payload = request.get_json() or {}
         start_date = payload.get("start_date")
         end_date = payload.get("end_date") or start_date
+        # Accept legacy 'reason' but persist as 'description'
+        description = payload.get("description")
+        if description is None:
+            description = payload.get("reason") or ""
+        # Normalize tags: accept array or comma-separated string
+        raw_tags = payload.get("tags")
+        tags = []
+        if isinstance(raw_tags, list):
+            tags = [str(t).strip() for t in raw_tags if str(t).strip()]
+        elif isinstance(raw_tags, str):
+            tags = [t.strip() for t in raw_tags.split(',') if t.strip()]
         if not start_date:
             return jsonify({"error": "start_date is required (YYYY-MM-DD)"}), 400
         # Basic format sanity (YYYY-MM-DD)
@@ -511,8 +522,8 @@ def closures():
             return jsonify({"error": "Invalid date format; use YYYY-MM-DD"}), 400
 
         doc_ref = db.collection("office_closures").document()
-        doc_ref.set({"start_date": start_date, "end_date": end_date})
-        return jsonify({"id": doc_ref.id, "start_date": start_date, "end_date": end_date}), 201
+        doc_ref.set({"start_date": start_date, "end_date": end_date, "description": description, "tags": tags})
+        return jsonify({"id": doc_ref.id, "start_date": start_date, "end_date": end_date, "description": description, "tags": tags}), 201
     except Exception as e:
         logging.error(f"Failed to create closure: {e}")
         return jsonify({"error": str(e)}), 500
@@ -541,6 +552,18 @@ def closures_item(closure_id):
         payload = request.get_json() or {}
         start_date = payload.get("start_date")
         end_date = payload.get("end_date") or start_date
+        # Accept both, prefer 'description'
+        description = payload.get("description")
+        if description is None and "reason" in payload:
+            description = payload.get("reason")
+        # Normalize tags if provided
+        tags = None
+        if "tags" in payload:
+            raw_tags = payload.get("tags")
+            if isinstance(raw_tags, list):
+                tags = [str(t).strip() for t in raw_tags if str(t).strip()]
+            elif isinstance(raw_tags, str):
+                tags = [t.strip() for t in raw_tags.split(',') if t.strip()]
         if not start_date:
             return jsonify({"error": "start_date is required (YYYY-MM-DD)"}), 400
         try:
@@ -548,11 +571,18 @@ def closures_item(closure_id):
             datetime.strptime(end_date, "%Y-%m-%d")
         except Exception:
             return jsonify({"error": "Invalid date format; use YYYY-MM-DD"}), 400
-        db.collection("office_closures").document(closure_id).set({
-            "start_date": start_date,
-            "end_date": end_date,
-        }, merge=True)
-        return jsonify({"id": closure_id, "start_date": start_date, "end_date": end_date}), 200
+        update_doc = {"start_date": start_date, "end_date": end_date}
+        if description is not None:
+            update_doc["description"] = description
+        if tags is not None:
+            update_doc["tags"] = tags
+        db.collection("office_closures").document(closure_id).set(update_doc, merge=True)
+        resp = {"id": closure_id, "start_date": start_date, "end_date": end_date}
+        if description is not None:
+            resp["description"] = description
+        if tags is not None:
+            resp["tags"] = tags
+        return jsonify(resp), 200
     except Exception as e:
         logging.error(f"Failed to update closure {closure_id}: {e}")
         return jsonify({"error": str(e)}), 500
@@ -579,14 +609,47 @@ def closures_ui():
     except Exception as e:
         logging.warning(f"Failed to load closures for UI: {e}")
 
-    # Build HTML
-    rows = ["<tr><th>ID</th><th>Start Date</th><th>End Date</th><th>Actions</th></tr>"]
-    for c in closures:
+    # Helper to count business days (Mon-Fri) inclusive
+    def workdays_count(s: str, e: str) -> int:
+        try:
+            sd = datetime.strptime(s, "%Y-%m-%d").date()
+            ed = datetime.strptime(e or s, "%Y-%m-%d").date()
+        except Exception:
+            return 0
+        if ed < sd:
+            sd, ed = ed, sd
+        days = 0
+        cur = sd
+        while cur <= ed:
+            if cur.weekday() < 5:  # Mon-Fri
+                days += 1
+            cur = date.fromordinal(cur.toordinal() + 1)
+        return days
+
+    # Build HTML rows with Index, Description (with tags), Start, End, Workdays, Actions
+    rows = ["<tr><th>#</th><th>Description</th><th>Start Date</th><th>End Date</th><th>Workdays</th><th>Actions</th></tr>"]
+    for idx, c in enumerate(closures, start=1):
+        start_val = c.get('start_date','')
+        end_val = c.get('end_date','') or start_val
+        description_val = (c.get('description') or c.get('reason') or '').replace('\n', ' ')
+        # Normalize tags for display
+        ct = c.get('tags')
+        if isinstance(ct, list):
+            tags_list = [str(t) for t in ct if str(t).strip()]
+        elif isinstance(ct, str):
+            tags_list = [t.strip() for t in ct.split(',') if t.strip()]
+        else:
+            tags_list = []
+        tags_html = ''.join([f'<span class="tag">{t}</span>' for t in tags_list])
+        tags_csv = ','.join(tags_list)
+        workdays = workdays_count(start_val, end_val)
         rows.append(
-            f"<tr data-id=\"{c.get('id','')}\">"
-            f"<td class=\"id\">{c.get('id','')}</td>"
-            f"<td class=\"start\">{c.get('start_date','')}</td>"
-            f"<td class=\"end\">{c.get('end_date','')}</td>"
+            f"<tr data-id=\"{c.get('id','')}\" data-tags=\"{tags_csv}\">"
+            f"<td class=\"idx\">{idx}</td>"
+            f"<td class=\"description\" title=\"{description_val}\"><div class=\"taglist\">{tags_html}</div><div class=\"desc-text\">{description_val}</div></td>"
+            f"<td class=\"start\">{start_val}</td>"
+            f"<td class=\"end\">{end_val}</td>"
+            f"<td class=\"workdays\">{workdays}</td>"
             f"<td>"
             f"  <button class=\"edit\">Edit</button>"
             f"  <button class=\"save\" style=\"display:none\">Save</button>"
@@ -598,20 +661,26 @@ def closures_ui():
 
     html = (
         "<html><head><title>Manage Office Closures</title>"
-        "<style>body{font-family:sans-serif;max-width:880px;margin:24px auto;padding:0 12px}" 
-        ".card{border:1px solid #ddd;border-radius:8px;padding:16px;margin-bottom:20px}" 
-        "label{display:block;margin:8px 0 4px}input{padding:8px;border:1px solid #ccc;border-radius:4px}" 
-        "button{padding:8px 12px;border:1px solid #0a7;background:#0a7;color:#fff;border-radius:4px;cursor:pointer}" 
-        "table{border-collapse:collapse;width:100%;margin-top:12px}td,th{border:1px solid #ddd;padding:8px;text-align:left}" 
-        ".msg{margin-top:10px} .ok{color:#056} .err{color:#a00} .row{display:flex;gap:12px;align-items:center}"
+        "<style>"
+        ":root{--bg:#f7f8fa;--card:#fff;--text:#1d2433;--muted:#6b778c;--brand:#0a7;--border:#e2e8f0;--ok:#0a7;--err:#b00020}"
+        "*{box-sizing:border-box}body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:1000px;margin:24px auto;padding:0 12px;background:var(--bg);color:var(--text)}"
+        ".card{border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:20px;background:var(--card);box-shadow:0 1px 2px rgba(16,24,40,.06)}" 
+        "label{display:block;margin:8px 0 4px;color:var(--muted)}input,select,textarea{padding:10px 12px;border:1px solid var(--border);border-radius:8px;outline:none;min-height:38px;background:#fff}input:focus,select:focus,textarea:focus{border-color:var(--brand);box-shadow:0 0 0 3px rgba(0,128,255,.12)}textarea{width:260px;height:38px}"
+        "button{padding:8px 12px;border:1px solid var(--brand);background:var(--brand);color:#fff;border-radius:8px;cursor:pointer;transition:all .15s}button:hover{filter:brightness(.95)}button.secondary{background:#f5f5f5;color:#333;border-color:var(--border)}button.secondary:hover{background:#eee}"
+        "table{border-collapse:collapse;width:100%;margin-top:12px;background:#fff;border:1px solid var(--border);border-radius:8px;overflow:hidden}td,th{border-bottom:1px solid var(--border);padding:10px;text-align:left}th{background:#fafafa;position:sticky;top:0;z-index:1}tbody tr:nth-child(even){background:#fafafa}tbody tr:hover{background:#f2f6ff}"
+        ".msg{position:fixed;right:16px;bottom:16px;padding:10px 12px;border-radius:8px;background:#fff;border:1px solid var(--border);box-shadow:0 10px 30px rgba(16,24,40,.12);min-width:220px} .ok{color:var(--ok)} .err{color:var(--err)} .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}"
+        ".topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px} .datebox{display:flex;gap:8px;align-items:center;color:var(--muted)} .datebox input{padding:4px 6px}"
+        ".tag{display:inline-block;background:#eef;border:1px solid #cde;color:#245;padding:2px 8px;margin:2px;border-radius:999px;font-size:.8em} .taglist{margin:4px 0}"
         "</style>"
         "</head><body>"
-        "<h2>Global Holidays / Office Closures</h2>"
+        f"<div class=\"topbar\"><h2>Global Holidays / Office Closures</h2><div class=\"datebox\"><span>Today:</span><input type=\"date\" value=\"{date.today().isoformat()}\" /></div></div>"
         "<div class=\"card\">"
         "<h3>Add Closure</h3>"
         "<div class=\"row\">"
         "  <div><label>Start Date</label><input type=\"date\" id=\"start\" required></div>"
         "  <div><label>End Date</label><input type=\"date\" id=\"end\"></div>"
+        "  <div><label>Tags</label><div class=\"row\"><select id=\"tagSelect\"><option value=\"\">-- Select tag --</option><option>Public Holiday</option><option>Wellness Day</option><option>Office Maintenance</option><option>Weather Event</option><option>National Holiday</option><option>Regional Holiday</option><option>System Maintenance</option><option>Office Closure</option></select></div></div>"
+        "  <div><label>Description</label><input type=\"text\" id=\"description\" placeholder=\"e.g., National public holiday\"></div>"
         "  <div style=\"margin-top:22px\"><button id=\"submit\">Add</button></div>"
         "</div>"
         "<div class=\"msg\" id=\"msg\"></div>"
@@ -622,20 +691,20 @@ def closures_ui():
         "</div>"
         "<script>"
         "(function(){"
-        "const submit=document.getElementById('submit');const s=document.getElementById('start');const e=document.getElementById('end');const msg=document.getElementById('msg');"
+        "const submit=document.getElementById('submit');const s=document.getElementById('start');const e=document.getElementById('end');const d=document.getElementById('description');const tagSelect=document.getElementById('tagSelect');const msg=document.getElementById('msg');"
         "function show(type,text){msg.className='msg '+type;msg.textContent=text;}"
-        "submit.addEventListener('click',async()=>{const start=s.value;const end=e.value||start;"
+        "submit.addEventListener('click',async()=>{const start=s.value;const end=e.value||start;const description=d.value||'';const cur=(tagSelect.value||'').trim();const tags=cur?[cur]:[];"
         " if(!start){show('err','Start date is required');return;}"
-        " try{const res=await fetch('/closures',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({start_date:start,end_date:end})});"
+        " try{const res=await fetch('/closures',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({start_date:start,end_date:end,description:description,tags:tags})});"
         " if(res.status===401){location.href='/admin/login?next=/closures/ui';return;}const data=await res.json();if(!res.ok){show('err',data.error||'Failed to create');return;}"
         " show('ok','Created closure '+(data.id||''));setTimeout(()=>{location.reload();},600);"
         " }catch(err){show('err','Network error');}"
         "});"
         "const table=document.getElementById('closures-table');"
         "table.addEventListener('click',async(ev)=>{const btn=ev.target;const tr=btn.closest?btn.closest('tr'):null;if(!tr)return;const id=tr.dataset.id;"
-        " if(btn.classList.contains('edit')){const sCell=tr.querySelector('.start');const eCell=tr.querySelector('.end');const sVal=sCell.textContent.trim();const eVal=eCell.textContent.trim();sCell.innerHTML=`<input type=\"date\" value=\"${sVal}\" />`;eCell.innerHTML=`<input type=\"date\" value=\"${eVal}\" />`;tr.querySelector('.edit').style.display='none';tr.querySelector('.delete').style.display='none';tr.querySelector('.save').style.display='inline-block';tr.querySelector('.cancel').style.display='inline-block';return;}"
+        " if(btn.classList.contains('edit')){const sCell=tr.querySelector('.start');const eCell=tr.querySelector('.end');const dCell=tr.querySelector('.description');const sVal=sCell.textContent.trim();const eVal=eCell.textContent.trim();const dVal=(dCell.querySelector('.desc-text')||{}).textContent||dCell.textContent;const tagsCsv=tr.dataset.tags||'';sCell.innerHTML=`<input type=\"date\" value=\"${sVal}\" />`;eCell.innerHTML=`<input type=\"date\" value=\"${eVal}\" />`;dCell.innerHTML=`<div class=\"row\"><select class=\"tag-select\"><option value=\"\">-- Select tag --</option><option>Public Holiday</option><option>Wellness Day</option><option>Office Maintenance</option><option>Weather Event</option><option>National Holiday</option><option>Regional Holiday</option><option>System Maintenance</option><option>Office Closure</option></select></div><input type=\"hidden\" class=\"tags-input\" value=\"${tagsCsv.replace(/\"/g,'&quot;')}\"/><textarea rows=\"2\" placeholder=\"Description\">${(dVal||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>`;tr.querySelector('.edit').style.display='none';tr.querySelector('.delete').style.display='none';tr.querySelector('.save').style.display='inline-block';tr.querySelector('.cancel').style.display='inline-block';return;}"
         " if(btn.classList.contains('cancel')){location.reload();return;}"
-        " if(btn.classList.contains('save')){const sVal=tr.querySelector('.start input').value;const eVal=tr.querySelector('.end input').value||sVal;try{const res=await fetch('/closures/'+id,{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({start_date:sVal,end_date:eVal})});if(res.status===401){location.href='/admin/login?next=/closures/ui';return;}const data=await res.json();if(!res.ok){alert(data.error||'Failed to update');return;}location.reload();}catch(err){alert('Network error');}return;}"
+        " if(btn.classList.contains('save')){const sVal=tr.querySelector('.start input').value;const eVal=tr.querySelector('.end input').value||sVal;const dVal=(tr.querySelector('.description textarea')||{}).value||'';const tagsCsv=(tr.querySelector('.description .tags-input')||{}).value||'';const tagSel=(tr.querySelector('.description .tag-select')||{}).value||'';let tags=(tagsCsv?tagsCsv.split(',').map(x=>x.trim()).filter(Boolean):[]);const cur=(tagSel||'').trim();if(cur && !tags.includes(cur)){tags.push(cur);}try{const res=await fetch('/closures/'+id,{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({start_date:sVal,end_date:eVal,description:dVal,tags:tags})});if(res.status===401){location.href='/admin/login?next=/closures/ui';return;}const data=await res.json();if(!res.ok){show('err',data.error||'Failed to update');return;}show('ok','Updated');setTimeout(()=>{location.reload();},600);}catch(err){show('err','Network error');}return;}"
         " if(btn.classList.contains('delete')){if(!confirm('Delete this closure?'))return;try{const res=await fetch('/closures/'+id,{method:'DELETE',credentials:'same-origin',headers:{'Accept':'application/json'}});if(res.status===401){location.href='/admin/login?next=/closures/ui';return;}if(!res.ok){alert('Failed to delete');return;}location.reload();}catch(err){alert('Network error');}return;}"
         "});"
         "})();"
@@ -828,6 +897,11 @@ def availability_schedule():
         return (f"<p>Failed to load advisers: {e}</p>", 500, {"Content-Type": "text/html; charset=utf-8"})
 
     emails = sorted([(u.get("properties") or {}).get("hs_email") or "" for u in advisers if (u.get("properties") or {}).get("hs_email")])
+    # Build display names: strip domain, prettify local-part
+    def pretty_name(email: str) -> str:
+        local = (email or "").split("@")[0]
+        # Replace common separators with spaces and title-case
+        return " ".join(part.capitalize() for part in local.replace(".", " ").replace("_", " ").split()) or email
     selected = request.args.get("email")
 
     table_rows = []
@@ -854,17 +928,20 @@ def availability_schedule():
             return (f"<p>Failed to compute schedule for {selected}: {e}</p>", 500, {"Content-Type": "text/html; charset=utf-8"})
 
     options = [f"<option value=\"\">-- Select adviser --</option>"] + [
-        f"<option value=\"{e}\"{' selected' if selected==e else ''}>{e}</option>" for e in emails
+        f"<option value=\"{e}\"{' selected' if selected==e else ''}>{pretty_name(e)}</option>" for e in emails
     ]
 
     html = (
         "<html><head><title>Adviser Schedule</title>"
-        "<style>body{font-family:sans-serif;max-width:1100px;margin:24px auto;padding:0 12px}"
-        ".row{display:flex;gap:12px;align-items:center;margin-bottom:16px}select{padding:6px 8px}"
-        "table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:8px;text-align:left}"
-        "th{background:#fafafa}tr.hl{background:#e8f7e8}caption{margin:8px 0;font-weight:600}"
+        "<style>"
+        ":root{--bg:#f7f8fa;--card:#fff;--text:#1d2433;--muted:#6b778c;--brand:#0a7;--border:#e2e8f0}"
+        "*{box-sizing:border-box}body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:1100px;margin:24px auto;padding:0 12px;background:var(--bg);color:var(--text)}"
+        ".row{display:flex;gap:12px;align-items:center;margin-bottom:16px}select{padding:8px 10px;border:1px solid var(--border);border-radius:8px}select:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px rgba(0,128,255,.12)}"
+        "table{border-collapse:collapse;width:100%;background:#fff;border:1px solid var(--border);border-radius:8px;overflow:hidden}td,th{border-bottom:1px solid var(--border);padding:10px;text-align:left}"
+        "th{background:#fafafa;position:sticky;top:0}tbody tr:nth-child(even){background:#fafafa}tbody tr:hover{background:#f2f6ff}tr.hl{background:#e8f7e8}caption{margin:8px 0;font-weight:600}"
+        ".topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px} .datebox{color:#555} .datebox span+span{margin-left:10px}"
         "</style></head><body>"
-        "<h2>Adviser Schedule</h2>"
+        f"<div class=\"topbar\"><h2>Adviser Schedule</h2><div class=\"datebox\"><span>Today: {date.today().isoformat()}</span><span>Week: {date.today().isocalendar()[1]:02d}</span></div></div>"
         "<div class=\"row\"><label for=\"email\">Adviser:</label>"
         f"<select id=\"email\" name=\"email\" onchange=\"location='?email='+encodeURIComponent(this.value)\">{''.join(options)}</select>"
         "</div>"
