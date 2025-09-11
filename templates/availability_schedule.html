@@ -1,0 +1,53 @@
+{% extends 'layout.html' %}
+{% set title = 'Adviser Schedule' %}
+
+{% block content %}
+<div class="topbar">
+  <h2>Adviser Schedule</h2>
+  <div class="datebox"><span>Today: {{ today }}</span><span>Week: {{ week_num }}</span></div>
+  <div id="msg" class="msg" style="display:none"></div>
+  <div id="toast-ok" class="msg ok" style="display:none"></div>
+  <div id="toast-err" class="msg err" style="display:none"></div>
+</div>
+
+<div class="row">
+  <label for="email">Adviser:</label>
+  <select id="email" name="email" onchange="location='?email='+encodeURIComponent(this.value)">
+    {{ options_html|safe }}
+  </select>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>Week</th>
+      <th>Monday Date</th>
+      <th>Clarify Count</th>
+      <th>OOO</th>
+      <th>Deal No Clarify</th>
+      <th>Target</th>
+      <th>Actual</th>
+      <th>Difference</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% if rows %}
+      {% for r in rows %}
+        <tr{% if r.is_earliest %} class="hl"{% endif %}>
+          <td>{{ r.wk_label }}</td>
+          <td>{{ r.monday }}</td>
+          <td>{{ r.clarify }}</td>
+          <td>{{ r.ooo }}</td>
+          <td>{{ r.deals }}</td>
+          <td>{{ r.target }}</td>
+          <td>{{ r.actual }}</td>
+          <td>{{ r.diff }}</td>
+        </tr>
+      {% endfor %}
+    {% else %}
+      <tr><td colspan="8">Select an adviser to view schedule.</td></tr>
+    {% endif %}
+  </tbody>
+</table>
+{% endblock %}
+

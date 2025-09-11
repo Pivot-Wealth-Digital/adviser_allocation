@@ -1,0 +1,44 @@
+{% extends 'layout.html' %}
+{% set title = 'Adviser Earliest Availability' %}
+
+{% block content %}
+<div class="topbar">
+  <h2>Adviser Earliest Availability</h2>
+  <div class="datebox"><span>Today: {{ today }}</span><span>Week: {{ week_num }}</span></div>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>Email</th>
+      <th>Service<br/>Packages</th>
+      <th>Pod<br/>Type</th>
+      <th>Client<br/>Monthly Limit</th>
+      <th>Earliest<br/>Open Week</th>
+      <th>Monday<br/>Date</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in rows %}
+      <tr>
+        <td>{{ r.email }}</td>
+        <td>
+          <div class="taglist">
+            {% for t in r.tag_items %}
+              <span class="tag {{ t.cls }}">{{ t.name }}</span>
+            {% endfor %}
+          </div>
+        </td>
+        <td>{{ r.pod }}</td>
+        <td>{{ r.limit }}</td>
+        <td>{{ r.wk_label }}</td>
+        <td>{{ r.monday }}</td>
+      </tr>
+    {% endfor %}
+  </tbody>
+  {% if not rows %}
+    <tbody><tr><td colspan="6">No data.</td></tr></tbody>
+  {% endif %}
+</table>
+{% endblock %}
+

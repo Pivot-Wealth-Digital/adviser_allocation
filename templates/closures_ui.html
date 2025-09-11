@@ -1,0 +1,96 @@
+{% extends 'layout.html' %}
+{% set title = 'Manage Office Closures' %}
+
+{% block content %}
+<div class="topbar">
+  <h2>Global Holidays / Office Closures</h2>
+  <div class="datebox">
+    <span>Today:</span>
+    <input id="todayInput" type="date" value="{{ today }}" readonly />
+  </div>
+  <div id="toast" class="msg" style="display:none"></div>
+  <div id="toast-err" class="msg err" style="display:none"></div>
+  <div id="toast-ok" class="msg ok" style="display:none"></div>
+  <div id="msg" class="msg" style="display:none"></div>
+</div>
+
+<div class="card">
+    <h3>Add Closure</h3>
+    <div class="row">
+      <div>
+        <label>Start Date</label>
+        <input type="date" id="start" required />
+      </div>
+      <div>
+        <label>End Date</label>
+        <input type="date" id="end" />
+      </div>
+      <div>
+        <label>Tags</label>
+        <select id="tagSelect">
+          <option value="">-- Select tag --</option>
+          <option>Public Holiday</option>
+          <option>Wellness Day</option>
+          <option>Office Maintenance</option>
+          <option>Weather Event</option>
+          <option>National Holiday</option>
+          <option>Regional Holiday</option>
+          <option>System Maintenance</option>
+          <option>Office Closure</option>
+        </select>
+      </div>
+      <div>
+        <label>Description</label>
+        <input type="text" id="description" placeholder="e.g., National public holiday" />
+      </div>
+      <div style="margin-top:22px"><button id="submit">Add</button></div>
+    </div>
+    <div id="livewd" class="muted"></div>
+  </div>
+
+  <div class="card">
+    <h3>Existing Closures</h3>
+    <table id="closures-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Description</th>
+          <th>Start Date</th>
+          <th>End Date</th>
+          <th>Workdays</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if closures %}
+          {% for c in closures %}
+            <tr data-id="{{ c.id }}" data-tags="{{ ','.join(c.tags) }}">
+              <td class="idx">{{ c.idx }}</td>
+              <td class="description">
+                <div class="taglist">
+                  {% for t in c.tags %}<span class="tag">{{ t }}</span>{% endfor %}
+                </div>
+                <div class="desc-text">{{ c.description }}</div>
+              </td>
+              <td class="start">{{ c.start_date }}</td>
+              <td class="end">{{ c.end_date }}</td>
+              <td class="workdays">{{ c.workdays }}</td>
+              <td>
+                <button class="edit">Edit</button>
+                <button class="save" style="display:none">Save</button>
+                <button class="cancel" style="display:none">Cancel</button>
+                <button class="delete" style="margin-left:6px">Delete</button>
+              </td>
+            </tr>
+          {% endfor %}
+        {% else %}
+          <tr><td colspan="6">No closures yet. Add one on the left.</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/closures.js') }}"></script>
+{% endblock %}

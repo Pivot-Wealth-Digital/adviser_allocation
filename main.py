@@ -1,9 +1,9 @@
-import os, time, secrets, json
+import os, time, secrets, json, re
 from datetime import datetime, date
 import logging
 
 from urllib.parse import urlencode
-from flask import Flask, redirect, request, session, jsonify
+from flask import Flask, redirect, request, session, jsonify, render_template, url_for
 import requests
 
 from allocate import (
@@ -626,92 +626,43 @@ def closures_ui():
             cur = date.fromordinal(cur.toordinal() + 1)
         return days
 
-    # Build HTML rows with Index, Description (with tags), Start, End, Workdays, Actions
-    rows = ["<tr><th>#</th><th>Description</th><th>Start Date</th><th>End Date</th><th>Workdays</th><th>Actions</th></tr>"]
+    # Render via Jinja template with static assets (stable UI)
+    def normalize_tags(v):
+        if isinstance(v, list):
+            return [str(t).strip() for t in v if str(t).strip()]
+        if isinstance(v, str):
+            return [t.strip() for t in v.split(',') if t.strip()]
+        return []
+
+    closures_data = []
     for idx, c in enumerate(closures, start=1):
         start_val = c.get('start_date','')
         end_val = c.get('end_date','') or start_val
-        description_val = (c.get('description') or c.get('reason') or '').replace('\n', ' ')
-        # Normalize tags for display
-        ct = c.get('tags')
-        if isinstance(ct, list):
-            tags_list = [str(t) for t in ct if str(t).strip()]
-        elif isinstance(ct, str):
-            tags_list = [t.strip() for t in ct.split(',') if t.strip()]
-        else:
-            tags_list = []
-        tags_html = ''.join([f'<span class="tag">{t}</span>' for t in tags_list])
-        tags_csv = ','.join(tags_list)
-        workdays = workdays_count(start_val, end_val)
-        rows.append(
-            f"<tr data-id=\"{c.get('id','')}\" data-tags=\"{tags_csv}\">"
-            f"<td class=\"idx\">{idx}</td>"
-            f"<td class=\"description\" title=\"{description_val}\"><div class=\"taglist\">{tags_html}</div><div class=\"desc-text\">{description_val}</div></td>"
-            f"<td class=\"start\">{start_val}</td>"
-            f"<td class=\"end\">{end_val}</td>"
-            f"<td class=\"workdays\">{workdays}</td>"
-            f"<td>"
-            f"  <button class=\"edit\">Edit</button>"
-            f"  <button class=\"save\" style=\"display:none\">Save</button>"
-            f"  <button class=\"cancel\" style=\"display:none\">Cancel</button>"
-            f"  <button class=\"delete\" style=\"margin-left:6px\">Delete</button>"
-            f"</td>"
-            f"</tr>"
-        )
+        closures_data.append({
+            'idx': idx,
+            'id': c.get('id'),
+            'start_date': start_val,
+            'end_date': end_val,
+            'description': (c.get('description') or c.get('reason') or ''),
+            'tags': normalize_tags(c.get('tags')),
+            'workdays': workdays_count(start_val, end_val),
+        })
 
-    html = (
-        "<html><head><title>Manage Office Closures</title>"
-        "<style>"
-        ":root{--bg:#f7f8fa;--card:#fff;--text:#1d2433;--muted:#6b778c;--brand:#0a7;--border:#e2e8f0;--ok:#0a7;--err:#b00020}"
-        "*{box-sizing:border-box}body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:1000px;margin:24px auto;padding:0 12px;background:var(--bg);color:var(--text)}"
-        ".card{border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:20px;background:var(--card);box-shadow:0 1px 2px rgba(16,24,40,.06)}" 
-        "label{display:block;margin:8px 0 4px;color:var(--muted)}input,select,textarea{padding:10px 12px;border:1px solid var(--border);border-radius:8px;outline:none;min-height:38px;background:#fff}input:focus,select:focus,textarea:focus{border-color:var(--brand);box-shadow:0 0 0 3px rgba(0,128,255,.12)}textarea{width:260px;height:38px}"
-        "button{padding:8px 12px;border:1px solid var(--brand);background:var(--brand);color:#fff;border-radius:8px;cursor:pointer;transition:all .15s}button:hover{filter:brightness(.95)}button.secondary{background:#f5f5f5;color:#333;border-color:var(--border)}button.secondary:hover{background:#eee}"
-        "table{border-collapse:collapse;width:100%;margin-top:12px;background:#fff;border:1px solid var(--border);border-radius:8px;overflow:hidden}td,th{border-bottom:1px solid var(--border);padding:10px;text-align:left}th{background:#fafafa;position:sticky;top:0;z-index:1}tbody tr:nth-child(even){background:#fafafa}tbody tr:hover{background:#f2f6ff}"
-        ".msg{position:fixed;right:16px;bottom:16px;padding:10px 12px;border-radius:8px;background:#fff;border:1px solid var(--border);box-shadow:0 10px 30px rgba(16,24,40,.12);min-width:220px} .ok{color:var(--ok)} .err{color:var(--err)} .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}"
-        ".topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px} .datebox{display:flex;gap:8px;align-items:center;color:var(--muted)} .datebox input{padding:4px 6px}"
-        ".tag{display:inline-block;background:#eef;border:1px solid #cde;color:#245;padding:2px 8px;margin:2px;border-radius:999px;font-size:.8em} .taglist{margin:4px 0}"
-        "</style>"
-        "</head><body>"
-        f"<div class=\"topbar\"><h2>Global Holidays / Office Closures</h2><div class=\"datebox\"><span>Today:</span><input type=\"date\" value=\"{date.today().isoformat()}\" /></div></div>"
-        "<div class=\"card\">"
-        "<h3>Add Closure</h3>"
-        "<div class=\"row\">"
-        "  <div><label>Start Date</label><input type=\"date\" id=\"start\" required></div>"
-        "  <div><label>End Date</label><input type=\"date\" id=\"end\"></div>"
-        "  <div><label>Tags</label><div class=\"row\"><select id=\"tagSelect\"><option value=\"\">-- Select tag --</option><option>Public Holiday</option><option>Wellness Day</option><option>Office Maintenance</option><option>Weather Event</option><option>National Holiday</option><option>Regional Holiday</option><option>System Maintenance</option><option>Office Closure</option></select></div></div>"
-        "  <div><label>Description</label><input type=\"text\" id=\"description\" placeholder=\"e.g., National public holiday\"></div>"
-        "  <div style=\"margin-top:22px\"><button id=\"submit\">Add</button></div>"
-        "</div>"
-        "<div class=\"msg\" id=\"msg\"></div>"
-        "</div>"
-        "<div class=\"card\">"
-        "<h3>Existing Closures</h3>"
-        f"<table id=\"closures-table\"><thead>{rows[0]}</thead><tbody>{''.join(rows[1:])}</tbody></table>"
-        "</div>"
-        "<script>"
-        "(function(){"
-        "const submit=document.getElementById('submit');const s=document.getElementById('start');const e=document.getElementById('end');const d=document.getElementById('description');const tagSelect=document.getElementById('tagSelect');const msg=document.getElementById('msg');"
-        "function show(type,text){msg.className='msg '+type;msg.textContent=text;}"
-        "submit.addEventListener('click',async()=>{const start=s.value;const end=e.value||start;const description=d.value||'';const cur=(tagSelect.value||'').trim();const tags=cur?[cur]:[];"
-        " if(!start){show('err','Start date is required');return;}"
-        " try{const res=await fetch('/closures',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({start_date:start,end_date:end,description:description,tags:tags})});"
-        " if(res.status===401){location.href='/admin/login?next=/closures/ui';return;}const data=await res.json();if(!res.ok){show('err',data.error||'Failed to create');return;}"
-        " show('ok','Created closure '+(data.id||''));setTimeout(()=>{location.reload();},600);"
-        " }catch(err){show('err','Network error');}"
-        "});"
-        "const table=document.getElementById('closures-table');"
-        "table.addEventListener('click',async(ev)=>{const btn=ev.target;const tr=btn.closest?btn.closest('tr'):null;if(!tr)return;const id=tr.dataset.id;"
-        " if(btn.classList.contains('edit')){const sCell=tr.querySelector('.start');const eCell=tr.querySelector('.end');const dCell=tr.querySelector('.description');const sVal=sCell.textContent.trim();const eVal=eCell.textContent.trim();const dVal=(dCell.querySelector('.desc-text')||{}).textContent||dCell.textContent;const tagsCsv=tr.dataset.tags||'';sCell.innerHTML=`<input type=\"date\" value=\"${sVal}\" />`;eCell.innerHTML=`<input type=\"date\" value=\"${eVal}\" />`;dCell.innerHTML=`<div class=\"row\"><select class=\"tag-select\"><option value=\"\">-- Select tag --</option><option>Public Holiday</option><option>Wellness Day</option><option>Office Maintenance</option><option>Weather Event</option><option>National Holiday</option><option>Regional Holiday</option><option>System Maintenance</option><option>Office Closure</option></select></div><input type=\"hidden\" class=\"tags-input\" value=\"${tagsCsv.replace(/\"/g,'&quot;')}\"/><textarea rows=\"2\" placeholder=\"Description\">${(dVal||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>`;tr.querySelector('.edit').style.display='none';tr.querySelector('.delete').style.display='none';tr.querySelector('.save').style.display='inline-block';tr.querySelector('.cancel').style.display='inline-block';return;}"
-        " if(btn.classList.contains('cancel')){location.reload();return;}"
-        " if(btn.classList.contains('save')){const sVal=tr.querySelector('.start input').value;const eVal=tr.querySelector('.end input').value||sVal;const dVal=(tr.querySelector('.description textarea')||{}).value||'';const tagsCsv=(tr.querySelector('.description .tags-input')||{}).value||'';const tagSel=(tr.querySelector('.description .tag-select')||{}).value||'';let tags=(tagsCsv?tagsCsv.split(',').map(x=>x.trim()).filter(Boolean):[]);const cur=(tagSel||'').trim();if(cur && !tags.includes(cur)){tags.push(cur);}try{const res=await fetch('/closures/'+id,{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({start_date:sVal,end_date:eVal,description:dVal,tags:tags})});if(res.status===401){location.href='/admin/login?next=/closures/ui';return;}const data=await res.json();if(!res.ok){show('err',data.error||'Failed to update');return;}show('ok','Updated');setTimeout(()=>{location.reload();},600);}catch(err){show('err','Network error');}return;}"
-        " if(btn.classList.contains('delete')){if(!confirm('Delete this closure?'))return;try{const res=await fetch('/closures/'+id,{method:'DELETE',credentials:'same-origin',headers:{'Accept':'application/json'}});if(res.status===401){location.href='/admin/login?next=/closures/ui';return;}if(!res.ok){alert('Failed to delete');return;}location.reload();}catch(err){alert('Network error');}return;}"
-        "});"
-        "})();"
-        "</script>"
-        "</body></html>"
-    )
-    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+    # Build color map for tags and closures-for-calendar payload
+    color_cycle = ["blue", "green", "purple", "orange", "pink", "teal"]
+    all_tags = []
+    for c in closures_data:
+        all_tags.extend(c.get('tags') or [])
+    tag_color_map = {}
+    for i, t in enumerate(list(dict.fromkeys(all_tags))):
+        tag_color_map[t] = color_cycle[i % len(color_cycle)]
+    closures_for_js = []
+    for c in closures_data:
+        tags = c.get('tags') or []
+        color = tag_color_map.get(tags[0], 'blue') if tags else 'blue'
+        closures_for_js.append({'start_date': c['start_date'], 'end_date': c['end_date'], 'color': color})
+
+    return render_template('closures_ui.html', closures=closures_data, today=date.today().isoformat(), closures_for_js=closures_for_js)
 
 
 @app.route("/admin/login", methods=["GET", "POST"])
@@ -818,7 +769,10 @@ def handle_webhook():
 
     except Exception as e:
         logging.error(f"Failed to process webhook: {e}")
-        return jsonify({'message': 'Internal Server Error'}), 500
+    return jsonify({'message': 'Internal Server Error'}), 500
+
+
+## Removed /closures/ui_v2 and /availability/schedule_v2
 
 
 # ---- Example API call ----
@@ -842,47 +796,67 @@ def list_leave_requests():
 # ---- Availability ----
 @app.route("/availability/earliest")
 def availability_earliest():
-    """Display earliest available week per adviser as an HTML table.
-
-    Columns: Email | Service Packages | Earliest Open Week
-    """
+    """Uniform templated view of earliest availability with tags and topbar."""
     try:
         results = get_users_earliest_availability()
-        # Sort by email alphabetically (case-insensitive)
         results = sorted(results, key=lambda r: (r.get("email") or "").lower())
 
-        # Build simple HTML table with sortable headers
-        header_row = (
-            "<tr>"
-            "<th class=\"sortable\" data-col=\"0\" data-type=\"string\">Email <span class=\"indicator\">⇅</span></th>"
-            "<th class=\"sortable\" data-col=\"1\" data-type=\"string\">Service Packages <span class=\"indicator\">⇅</span></th>"
-            "<th class=\"sortable\" data-col=\"2\" data-type=\"string\">Pod Type <span class=\"indicator\">⇅</span></th>"
-            "<th class=\"sortable\" data-col=\"3\" data-type=\"number\">Client Monthly Limit <span class=\"indicator\">⇅</span></th>"
-            "<th class=\"sortable\" data-col=\"4\" data-type=\"string\">Earliest Open Week <span class=\"indicator\">⇅</span></th>"
-            "<th class=\"sortable\" data-col=\"5\" data-type=\"date\">Monday Date <span class=\"indicator\">⇅</span></th>"
-            "</tr>"
-        )
-        body_rows = []
+        # Build rows for template
+        rows = []
         for item in results:
             earliest_wk_ordinal = item.get("earliest_open_week")
             monday_str = date.fromordinal(earliest_wk_ordinal).isoformat() if isinstance(earliest_wk_ordinal, int) else ""
-            email = item.get("email") or ""
-            svc = item.get("service_packages") or ""
-            pod = item.get("pod_type") or ""
-            limit = item.get("client_limit_monthly") or ""
-            wk = item.get("earliest_open_week_label") or (item.get("error") or "")
-            body_rows.append(f"<tr><td>{email}</td><td>{svc}</td><td>{pod}</td><td>{limit}</td><td>{wk}</td><td>{monday_str}</td></tr>")
+            svc_raw = (item.get("service_packages") or "")
+            # Split into clean tags by common delimiters and preserve order without duplicates
+            parts = [p.strip() for p in re.split(r"[;,/|]+", svc_raw) if p.strip()] if svc_raw else []
+            seen = set()
+            tags = []
+            for p in parts:
+                if p not in seen:
+                    seen.add(p)
+                    tags.append(p)
+            # Canonicalize to title case for consistency across rows
+            tags = [t.title() for t in tags]
+            rows.append({
+                "email": item.get("email") or "",
+                "tags": tags,
+                "pod": item.get("pod_type") or "",
+                "limit": item.get("client_limit_monthly") or "",
+                "wk_label": item.get("earliest_open_week_label") or (item.get("error") or ""),
+                "monday": monday_str,
+            })
 
-        html = (
-            "<html><head><title>Earliest Availability</title>"
-            "<style>table{border-collapse:collapse}td,th{border:1px solid #ccc;padding:6px 10px;text-align:left;font-family:sans-serif}th.sortable{cursor:pointer;user-select:none}th.sortable:hover{background:#f5f5f5}th.sorted{background:#eef}th .indicator{margin-left:6px;opacity:.7;font-size:.9em}</style>"
-            "</head><body>"
-            "<h3>Adviser Earliest Availability</h3>"
-            "<table id=\"avail-table\"><thead>" + header_row + "</thead><tbody>" + "".join(body_rows) + "</tbody></table>"
-            "<script>(function(){const table=document.getElementById('avail-table');function getCell(tr,i){return tr.children[i]?.innerText||tr.children[i]?.textContent||''}function cmp(i,type,asc){return function(a,b){const v1=getCell(asc?a:b,i),v2=getCell(asc?b:a,i);if(type==='number'){return (parseFloat(v1)||0)-(parseFloat(v2)||0)}if(type==='date'){return new Date(v1)-new Date(v2)}return v1.localeCompare(v2)}}const headers=Array.from(document.querySelectorAll('#avail-table th.sortable'));function resetHeaders(active){headers.forEach(h=>{h.classList.remove('sorted');const ind=h.querySelector('.indicator');if(ind){ind.textContent='⇅';}if(h!==active){h.removeAttribute('data-asc');}});}headers.forEach(th=>{th.addEventListener('click',()=>{const i=parseInt(th.dataset.col||'0',10);const type=th.dataset.type||'string';const asc=th.dataset.asc!=='true';th.dataset.asc=asc?'true':'false';const tbody=table.tBodies[0];Array.from(tbody.querySelectorAll('tr')).sort(cmp(i,type,asc)).forEach(tr=>tbody.appendChild(tr));resetHeaders(th);th.classList.add('sorted');const ind=th.querySelector('.indicator');if(ind){ind.textContent=asc?'▲':'▼';}});});})();</script>"
-            "</body></html>"
+        # Enforce a consistent tag order across all rows
+        preferred_order = [
+            "Seed", "Series A", "Series B", "Series C", "Series D", "Series E", "Series F", "Series G", "Ipo"
+        ]
+        order_index = {name.lower(): i for i, name in enumerate(preferred_order)}
+        def tag_sort_key(t: str):
+            tl = t.lower()
+            return (0, order_index[tl]) if tl in order_index else (1, tl)
+        for r in rows:
+            r["tags"] = sorted((r.get("tags") or []), key=tag_sort_key)
+
+        # Assign consistent colors per tag across all rows
+        color_cycle = ["blue", "green", "purple", "orange", "pink", "teal"]
+        tag_color_map = {}
+        next_idx = 0
+        for r in rows:
+            for t in (r.get("tags") or []):
+                if t not in tag_color_map:
+                    tag_color_map[t] = color_cycle[next_idx % len(color_cycle)]
+                    next_idx += 1
+
+        # Prepare rows with colored tags using the global map
+        for r in rows:
+            r["tag_items"] = [{"name": t, "cls": tag_color_map.get(t, color_cycle[0])} for t in (r.get("tags") or [])]
+
+        return render_template(
+            "availability_earliest.html",
+            rows=rows,
+            today=date.today().isoformat(),
+            week_num=f"{date.today().isocalendar()[1]:02d}",
         )
-        return html, 200, {"Content-Type": "text/html; charset=utf-8"}
     except Exception as e:
         logging.error(f"Failed to compute earliest availability: {e}")
         return jsonify({"error": str(e)}), 500
