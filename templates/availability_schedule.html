@@ -17,6 +17,7 @@
   </select>
   <button id="toggle-edit" class="secondary" style="margin-left:8px">Edit</button>
   <button id="done-edit" class="secondary" style="display:none;margin-left:4px">Done</button>
+  <button id="reset-edit" class="secondary" style="display:none;margin-left:4px">Reset</button>
 </div>
 
 <table>
@@ -58,6 +59,7 @@
 (function(){
   const editBtn=document.getElementById('toggle-edit');
   const doneBtn=document.getElementById('done-edit');
+  const resetBtn=document.getElementById('reset-edit');
   const table=document.querySelector('table');
   if(!table) return;
 
@@ -89,6 +91,7 @@
 
   function enterEdit(){
     doneBtn.style.display='inline-block';
+    resetBtn.style.display='inline-block';
     editBtn.style.display='none';
     Array.from(table.querySelectorAll('tbody tr')).forEach(tr => {
       ['clarify','deals'].forEach(f => {
@@ -96,6 +99,7 @@
         if(!td) return;
         const val = (td.dataset.value || td.textContent || '0').trim();
         td.dataset.value = val;
+        if(!td.dataset.original){ td.dataset.original = val; }
         td.innerHTML = `<input type="number" min="0" step="1" value="${val}">`;
       });
     });
@@ -104,6 +108,7 @@
 
   function exitEdit(){
     doneBtn.style.display='none';
+    resetBtn.style.display='none';
     editBtn.style.display='inline-block';
     Array.from(table.querySelectorAll('tbody tr')).forEach(tr => {
       ['clarify','deals'].forEach(f => {
@@ -118,6 +123,20 @@
     recalc();
   }
 
+  function resetEdit(){
+    Array.from(table.querySelectorAll('tbody tr')).forEach(tr => {
+      ['clarify','deals'].forEach(f => {
+        const td = tr.querySelector(`td[data-field="${f}"]`);
+        if(!td) return;
+        const orig = td.dataset.original || td.dataset.value || '0';
+        const input = td.querySelector('input');
+        if(input){ input.value = orig; }
+        td.dataset.value = orig;
+      });
+    });
+    recalc();
+  }
+
   function onInput(e){
     const el = e.target;
     if(el && el.tagName === 'INPUT') recalc();
@@ -125,6 +144,7 @@
 
   if(editBtn) editBtn.addEventListener('click', enterEdit);
   if(doneBtn) doneBtn.addEventListener('click', exitEdit);
+  if(resetBtn) resetBtn.addEventListener('click', resetEdit);
   table.addEventListener('input', onInput);
 })();
 </script>
