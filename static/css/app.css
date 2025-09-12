@@ -1,9 +1,23 @@
-:root{--bg:#f7f8fa;--card:#fff;--text:#1d2433;--muted:#6b778c;--brand:#0a7;--border:#e2e8f0;--ok:#0a7;--err:#b00020}
+:root{
+  /* Pivot Wealth brand palette (normalized) */
+  --bg:#ffffff;
+  --nav:#1B202B;           /* primary navy */
+  --brand:#F08354;         /* accent orange */
+  --brand-600:#D36A3E;     /* darker hover */
+  --text:#2A303B;          /* ink */
+  --muted:#8E98A7;         /* muted gray */
+  --card:#ffffff;
+  --border:#E2E8F0;
+  --ok:#0a7;
+  --err:#b00020;
+  --soft-accent:#DCE8D9;   /* soft sage panel */
+}
 *{box-sizing:border-box}
 body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:1100px;margin:24px auto;padding:0 12px;background:var(--bg);color:var(--text)}
 .container{width:100%}
-.topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
-.datebox{display:flex;gap:8px;align-items:center;color:var(--muted)}
+.topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;background:var(--nav);color:#fff;padding:12px 16px;border-radius:10px}
+.topbar h2{margin:0;color:#fff}
+.datebox{display:flex;gap:8px;align-items:center;color:#d0d7e2}
 .msg{position:fixed;right:16px;bottom:16px;padding:10px 12px;border-radius:8px;background:#fff;border:1px solid var(--border);box-shadow:0 10px 30px rgba(16,24,40,.12);min-width:220px}
 .ok{color:var(--ok)}.err{color:var(--err)}.muted{color:var(--muted)}
 .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
@@ -12,27 +26,27 @@ body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,s
 .card{border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:20px;background:var(--card);box-shadow:0 1px 2px rgba(16,24,40,.06)}
 label{display:block;margin:8px 0 4px;color:var(--muted)}
 input,select,textarea{padding:10px 12px;border:1px solid var(--border);border-radius:8px;outline:none;min-height:38px;background:#fff}
-input:focus,select:focus,textarea:focus{border-color:var(--brand);box-shadow:0 0 0 3px rgba(0,128,255,.12)}
+input:focus,select:focus,textarea:focus{border-color:var(--brand);box-shadow:0 0 0 3px rgba(240,131,84,.22)}
 textarea{width:260px;height:38px}
 button{padding:8px 12px;border:1px solid var(--brand);background:var(--brand);color:#fff;border-radius:8px;cursor:pointer;transition:all .15s}
-button:hover{filter:brightness(.95)}
+button:hover{background:var(--brand-600)}
 button.secondary{background:#f5f5f5;color:#333;border-color:var(--border)}
 button.secondary:hover{background:#eee}
 table{border-collapse:collapse;width:100%;background:#fff;border:1px solid var(--border);border-radius:8px;overflow:hidden}
 td,th{border-bottom:1px solid var(--border);padding:10px;text-align:left}
 th{background:#fafafa;position:sticky;top:0;z-index:1}
 tbody tr:nth-child(even){background:#fafafa}
-tbody tr:hover{background:#f2f6ff}
-tr.hl{background:#e8f7e8}
-.tag{display:inline-block;background:#eef;border:1px solid #cde;color:#245;padding:2px 8px;margin:2px;border-radius:999px;font-size:.8em}
+tbody tr:hover{background:#f7f9fc}
+tr.hl{background:var(--soft-accent); box-shadow:inset 4px 0 0 var(--ok)}
+.tag{display:inline-block;background:#eef2f6;border:1px solid #cfd6df;color:#24364d;padding:2px 8px;margin:2px;border-radius:999px;font-size:.8em}
 .taglist{margin:4px 0}
 /* Tag color variants */
-.tag.blue{background:#e8f1ff;border-color:#c7ddff;color:#0b3b82}
-.tag.green{background:#e8f7ef;border-color:#c5ead6;color:#0a5a38}
-.tag.purple{background:#f0eaff;border-color:#dacfff;color:#462a82}
-.tag.orange{background:#fff3e6;border-color:#ffd9b3;color:#7a3b00}
-.tag.pink{background:#ffeaf2;border-color:#ffccde;color:#7a2045}
-.tag.teal{background:#e6faf7;border-color:#c2f0e9;color:#0a4f4a}
+.tag.blue{background:#e6eef9;border-color:#cbd8ee;color:#233a66}
+.tag.green{background:#e6f4ec;border-color:#c7e6d4;color:#225c3b}
+.tag.purple{background:#efe9fb;border-color:#dacff7;color:#46308a}
+.tag.orange{background:#fff1e9;border-color:#ffd4bd;color:#a14b22}
+.tag.pink{background:#ffe9ef;border-color:#ffd0dc;color:#8a294b}
+.tag.teal{background:#e7faf6;border-color:#c8efe6;color:#0a4f4a}
 th, td{white-space:normal;}
 /* Mini calendar and popover */
 .mini-cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;border:1px solid var(--border);border-radius:8px;padding:8px;background:#fff;margin-left:8px}

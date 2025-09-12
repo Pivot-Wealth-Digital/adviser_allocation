@@ -68,7 +68,7 @@
               <td class="idx">{{ c.idx }}</td>
               <td class="description">
                 <div class="taglist">
-                  {% for t in c.tags %}<span class="tag">{{ t }}</span>{% endfor %}
+                  {% for t in c.tag_items %}<span class="tag {{ t.cls }}">{{ t.name }}</span>{% endfor %}
                 </div>
                 <div class="desc-text">{{ c.description }}</div>
               </td>

@@ -646,10 +646,6 @@ def compute_capacity(user, min_week):
 
         # Precompute common quantities once
         half = ceil_div(limit, 2)  # 2 for limit=3
-        third = ceil_div(limit, 3)  # 1 for limit=3
-
-        prev_has_high = any(ch in prev_status for ch in HIGH)
-        prev_has_low = any(ch in prev_status for ch in LOW)
 
         curr_has_high = any(ch in curr_status for ch in HIGH)
         curr_has_low = any(ch in curr_status for ch in LOW)
@@ -668,16 +664,8 @@ def compute_capacity(user, min_week):
         elif curr_status == "Full":
             current_value_capacity = 0
         elif partial_days is not None:
-            # Special handling per fortnight limit
-            if limit == 2:
-                # Only reduce to 1 when Partial is 3 or 4 days; otherwise keep 2
-                current_value_capacity = 1 if partial_days in (3, 4) else 2
-            elif limit == 3:
-                # Any Partial 1–4 reduces to 2
-                current_value_capacity = 2
-            else:
-                # Fallback to prior behavior (halve capacity on partials)
-                current_value_capacity = half
+            # Generalized rule: if partial is 3 or 4 days, use ceil(limit/2), else keep full limit
+            current_value_capacity = half if partial_days in (3,4) else limit
         else:
             # Fallback for other statuses: keep previous behavior
             current_value_capacity = half if (curr_has_high or curr_has_low) else limit
@@ -816,6 +804,13 @@ def find_earliest_week(user, min_week):
                 user["earliest_open_week"] = candidate
                 print(f"Week: {week_label_from_ordinal(candidate)}")
                 return user
+            
+            elif (diff_curr < 0 and capacity_next_week < 0) and (curr_fortnight_spare - prev_slack_debt > 0):
+                candidate = max(wk, min_allowed_week)
+                user["earliest_open_week"] = candidate
+                print(f"Week: {week_label_from_ordinal(candidate)}")
+                return user
+
             # Otherwise continue scanning subsequent blocks until the condition is met
 
             prev_slack_debt = 0  # reset slack debt after use

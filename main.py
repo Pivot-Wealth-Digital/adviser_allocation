@@ -648,7 +648,7 @@ def closures_ui():
             'workdays': workdays_count(start_val, end_val),
         })
 
-    # Build color map for tags and closures-for-calendar payload
+    # Build color map for tags (same cycle as availability pages)
     color_cycle = ["blue", "green", "purple", "orange", "pink", "teal"]
     all_tags = []
     for c in closures_data:
@@ -656,9 +656,12 @@ def closures_ui():
     tag_color_map = {}
     for i, t in enumerate(list(dict.fromkeys(all_tags))):
         tag_color_map[t] = color_cycle[i % len(color_cycle)]
+
+    # Attach colored tag items for template and build mini-calendar payload
     closures_for_js = []
     for c in closures_data:
         tags = c.get('tags') or []
+        c["tag_items"] = [{"name": t, "cls": tag_color_map.get(t, color_cycle[0])} for t in tags]
         color = tag_color_map.get(tags[0], 'blue') if tags else 'blue'
         closures_for_js.append({'start_date': c['start_date'], 'end_date': c['end_date'], 'color': color})
 
@@ -864,21 +867,21 @@ def availability_earliest():
 
 @app.route("/availability/schedule")
 def availability_schedule():
-    """UI to view an adviser's weekly schedule table with a dropdown selector."""
+    """UI to view an adviser's weekly schedule with shared layout/topbar."""
     try:
         advisers = get_users_taking_on_clients()
     except Exception as e:
         return (f"<p>Failed to load advisers: {e}</p>", 500, {"Content-Type": "text/html; charset=utf-8"})
 
     emails = sorted([(u.get("properties") or {}).get("hs_email") or "" for u in advisers if (u.get("properties") or {}).get("hs_email")])
-    # Build display names: strip domain, prettify local-part
+
     def pretty_name(email: str) -> str:
         local = (email or "").split("@")[0]
-        # Replace common separators with spaces and title-case
         return " ".join(part.capitalize() for part in local.replace(".", " ").replace("_", " ").split()) or email
+
     selected = request.args.get("email")
 
-    table_rows = []
+    rows = []
     earliest_week = None
     if selected:
         try:
@@ -887,46 +890,34 @@ def availability_schedule():
             earliest_week = res.get("earliest_open_week")
             for wk in sorted(capacity.keys()):
                 vals = capacity[wk]
-                # Columns by spec
-                label = week_label_from_ordinal(wk)
-                monday = date.fromordinal(wk).isoformat()
-                clarify = str(vals[0]) if len(vals) > 0 else "0"
-                ooo = str(vals[2]) if len(vals) > 2 else "No"
-                deals = str(vals[3]) if len(vals) > 3 else "0"
-                target = str(vals[4]) if len(vals) > 4 else "0"
-                actual = str(vals[5]) if len(vals) > 5 else "0"
-                diff = str(vals[6]) if len(vals) > 6 else "0"
-                cls = " class=\"hl\"" if isinstance(earliest_week, int) and wk == earliest_week else ""
-                table_rows.append(f"<tr{cls}><td>{label}</td><td>{monday}</td><td>{clarify}</td><td>{ooo}</td><td>{deals}</td><td>{target}</td><td>{actual}</td><td>{diff}</td></tr>")
+                rows.append({
+                    "wk_label": week_label_from_ordinal(wk),
+                    "monday": date.fromordinal(wk).isoformat(),
+                    "clarify": str(vals[0]) if len(vals) > 0 else "0",
+                    "ooo": str(vals[2]) if len(vals) > 2 else "No",
+                    "deals": str(vals[3]) if len(vals) > 3 else "0",
+                    "target": str(vals[4]) if len(vals) > 4 else "0",
+                    "actual": str(vals[5]) if len(vals) > 5 else "0",
+                    "diff": str(vals[6]) if len(vals) > 6 else "0",
+                    "is_earliest": isinstance(earliest_week, int) and wk == earliest_week,
+                })
         except Exception as e:
             return (f"<p>Failed to compute schedule for {selected}: {e}</p>", 500, {"Content-Type": "text/html; charset=utf-8"})
 
-    options = [f"<option value=\"\">-- Select adviser --</option>"] + [
-        f"<option value=\"{e}\"{' selected' if selected==e else ''}>{pretty_name(e)}</option>" for e in emails
-    ]
+    # Build the adviser dropdown options HTML (kept simple for template)
+    option_items = ["<option value=\"\">-- Select adviser --</option>"]
+    for e in emails:
+        sel_attr = " selected" if selected == e else ""
+        option_items.append(f"<option value=\"{e}\"{sel_attr}>{pretty_name(e)}</option>")
+    options_html = "".join(option_items)
 
-    html = (
-        "<html><head><title>Adviser Schedule</title>"
-        "<style>"
-        ":root{--bg:#f7f8fa;--card:#fff;--text:#1d2433;--muted:#6b778c;--brand:#0a7;--border:#e2e8f0}"
-        "*{box-sizing:border-box}body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:1100px;margin:24px auto;padding:0 12px;background:var(--bg);color:var(--text)}"
-        ".row{display:flex;gap:12px;align-items:center;margin-bottom:16px}select{padding:8px 10px;border:1px solid var(--border);border-radius:8px}select:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px rgba(0,128,255,.12)}"
-        "table{border-collapse:collapse;width:100%;background:#fff;border:1px solid var(--border);border-radius:8px;overflow:hidden}td,th{border-bottom:1px solid var(--border);padding:10px;text-align:left}"
-        "th{background:#fafafa;position:sticky;top:0}tbody tr:nth-child(even){background:#fafafa}tbody tr:hover{background:#f2f6ff}tr.hl{background:#e8f7e8}caption{margin:8px 0;font-weight:600}"
-        ".topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px} .datebox{color:#555} .datebox span+span{margin-left:10px}"
-        "</style></head><body>"
-        f"<div class=\"topbar\"><h2>Adviser Schedule</h2><div class=\"datebox\"><span>Today: {date.today().isoformat()}</span><span>Week: {date.today().isocalendar()[1]:02d}</span></div></div>"
-        "<div class=\"row\"><label for=\"email\">Adviser:</label>"
-        f"<select id=\"email\" name=\"email\" onchange=\"location='?email='+encodeURIComponent(this.value)\">{''.join(options)}</select>"
-        "</div>"
-        "<table><thead><tr>"
-        "<th>Week</th><th>Monday Date</th><th>Clarify Count</th><th>OOO</th><th>Deal No Clarify</th><th>Target</th><th>Actual</th><th>Difference</th>"
-        "</tr></thead>"
-        f"<tbody>{''.join(table_rows) if table_rows else '<tr><td colspan=8>Select an adviser to view schedule.</td></tr>'}</tbody>"
-        "</table>"
-        "</body></html>"
+    return render_template(
+        "availability_schedule.html",
+        rows=rows,
+        options_html=options_html,
+        today=date.today().isoformat(),
+        week_num=f"{date.today().isocalendar()[1]:02d}",
     )
-    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 # Healthcheck
 @app.route("/_ah/warmup")
