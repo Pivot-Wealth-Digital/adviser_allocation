@@ -777,8 +777,9 @@ def find_earliest_week(user, min_week):
 
         week_limit = WEEKLY_HARD_LIMIT - clarify_curr
         diff_next = _get_col(data, wk + 7, DIFFERENCE_COL, 0)
+        diff_prev  = _get_col(data, prev_wk, DIFFERENCE_COL, 0)
     
-        backlog_assigned_curr = max(min(min(max(min(capacity_this_week, week_limit), 0), remaining_backlog), -diff_next), 0)
+        backlog_assigned_curr = max(min(min(max(min(capacity_this_week, week_limit), 0), remaining_backlog), max(-diff_prev, -diff_next)), 0)
         
         remaining_backlog -= backlog_assigned_curr
         backlog_assigned_prev = backlog_assigned_curr
@@ -786,7 +787,6 @@ def find_earliest_week(user, min_week):
         final_capacity_curr = capacity_this_week - backlog_assigned_curr
         diff_curr = _get_col(data, wk, DIFFERENCE_COL, 0)
         if diff_curr > 0:
-            diff_prev = _get_col(data, prev_wk, DIFFERENCE_COL, 0)
             remaining_backlog += max(diff_curr - max(diff_prev, 0), 0)
 
     
