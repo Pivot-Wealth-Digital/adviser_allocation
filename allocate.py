@@ -746,6 +746,10 @@ def find_earliest_week(user, min_week):
     remaining_backlog = sum(
         v[DEALS_NO_CLARIFY_COL] for k, v in data.items() if k < baseline_week - deal_no_clarify_delay
     )
+    diff_prev = _get_col(data, baseline_week - 7, DIFFERENCE_COL, 0)
+    if diff_prev > 0:
+        remaining_backlog += diff_prev
+
     print(f"Baseline Week: {week_label_from_ordinal(baseline_week)}, Initial Backlog: {remaining_backlog}")
     # Walk forward in non-overlapping fortnights: accumulate new deals for two weeks,
     # then consume using fortnight spare (target - clarifies(prev+curr)).
@@ -772,12 +776,18 @@ def find_earliest_week(user, min_week):
         capacity_this_week = block_target - clarify_prev - clarify_curr - backlog_assigned_prev
 
         week_limit = WEEKLY_HARD_LIMIT - clarify_curr
-
-        backlog_assigned_curr = min(max(min(capacity_this_week, week_limit), 0), remaining_backlog)
+        diff_next = _get_col(data, wk + 7, DIFFERENCE_COL, 0)
+    
+        backlog_assigned_curr = max(min(min(max(min(capacity_this_week, week_limit), 0), remaining_backlog), -diff_next), 0)
+        
         remaining_backlog -= backlog_assigned_curr
         backlog_assigned_prev = backlog_assigned_curr
 
         final_capacity_curr = capacity_this_week - backlog_assigned_curr
+        diff_curr = _get_col(data, wk, DIFFERENCE_COL, 0)
+        if diff_curr > 0:
+            diff_prev = _get_col(data, prev_wk, DIFFERENCE_COL, 0)
+            remaining_backlog += max(diff_curr - max(diff_prev, 0), 0)
 
     
         print(f"  Week: {week_label_from_ordinal(wk)}, New Deals: {new_deals}, Clarify Prev: {clarify_prev}, Clarify Curr: {clarify_curr}, Target: {block_target}, Capacity This Week: {capacity_this_week}, Assigned Curr: {backlog_assigned_curr}, Remaining Backlog: {remaining_backlog}")
