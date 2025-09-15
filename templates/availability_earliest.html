@@ -7,21 +7,24 @@
   <div class="datebox"><span>Today: {{ today }}</span><span>Week: {{ week_num }}</span></div>
 </div>
 
+
 <table>
   <thead>
     <tr>
       <th>Email</th>
+      <th data-sort="num">Taking<br/>On Clients</th>
       <th>Service<br/>Packages</th>
       <th>Pod<br/>Type</th>
       <th>Client<br/>Monthly Limit</th>
       <th>Earliest<br/>Open Week</th>
-      <th>Monday<br/>Date</th>
+      <th class="nowrap">Monday Date</th>
     </tr>
   </thead>
   <tbody>
     {% for r in rows %}
       <tr>
         <td>{{ r.email }}</td>
+        <td data-value="{{ r.taking_on_clients_sort }}">{{ r.taking_on_clients }}</td>
         <td>
           <div class="taglist">
             {% for t in r.tag_items %}
@@ -32,13 +35,49 @@
         <td>{{ r.pod }}</td>
         <td>{{ r.limit }}</td>
         <td>{{ r.wk_label }}</td>
-        <td>{{ r.monday }}</td>
+        <td class="nowrap">{{ r.monday }}</td>
       </tr>
     {% endfor %}
   </tbody>
   {% if not rows %}
-    <tbody><tr><td colspan="6">No data.</td></tr></tbody>
+    <tbody><tr><td colspan="7">No data.</td></tr></tbody>
   {% endif %}
 </table>
 {% endblock %}
 
+{% block scripts %}
+{{ super() }}
+<script>
+(function() {
+  const table = document.querySelector('table');
+  if (!table) return;
+  const getCellValue = (td) => {
+    const v = td.getAttribute('data-value');
+    return v !== null ? Number(v) : td.textContent.trim().toLowerCase();
+  };
+  const comparer = (idx, numeric) => (a, b) => {
+    const ta = a.children[idx];
+    const tb = b.children[idx];
+    const va = getCellValue(ta);
+    const vb = getCellValue(tb);
+    if (numeric) return (va === vb ? 0 : va > vb ? 1 : -1);
+    return va.localeCompare(vb);
+  };
+  const ths = table.querySelectorAll('thead th');
+  ths.forEach((th, idx) => {
+    th.style.cursor = 'pointer';
+    th.addEventListener('click', () => {
+      const tbody = table.tBodies[0];
+      const rows = Array.from(tbody.querySelectorAll('tr'));
+      const isNum = th.getAttribute('data-sort') === 'num';
+      const asc = th.getAttribute('data-asc') !== 'true';
+      rows.sort(comparer(idx, isNum));
+      if (!asc) rows.reverse();
+      rows.forEach(r => tbody.appendChild(r));
+      ths.forEach(h => h.removeAttribute('data-asc'));
+      th.setAttribute('data-asc', asc ? 'true' : 'false');
+    });
+  });
+})();
+</script>
+{% endblock %}

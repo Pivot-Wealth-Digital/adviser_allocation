@@ -863,13 +863,21 @@ def display_data(data):
         print(data_row)
 
 
-def get_user_ids_adviser(service_package):
+def get_user_ids_adviser():
     url = "https://api.hubapi.com/crm/v3/objects/users?properties=taking_on_clients,hs_email,hubspot_owner_id,adviser_start_date,pod_type,client_types&limit=100"  # include start date and ooo status
     if not HUBSPOT_TOKEN:
         raise RuntimeError("HUBSPOT_TOKEN is not configured")
     response = requests.get(url, headers=HEADERS, timeout=30)
     response.raise_for_status()
     users = response.json().get("results", [])
+
+    return users
+
+
+def get_adviser(service_package):
+    # get users with taking_on_clients on
+    print("Getting USER IDs taking on client")
+    users = get_user_ids_adviser()
     users_list = []
     for user in users:
         props = user.get("properties") or {}
@@ -877,15 +885,6 @@ def get_user_ids_adviser(service_package):
             client_types = props.get("client_types") or ""
             if service_package in client_types:
                 users_list.append(user)
-
-    return users_list
-
-
-
-def get_adviser(service_package):
-    # get users with taking_on_clients on
-    print("Getting USER IDs taking on client")
-    users_list = get_user_ids_adviser(service_package)
 
     # Load global closures once
     global_closures = classify_leave_weeks(get_global_closures_from_firestore())
@@ -985,7 +984,14 @@ def get_users_earliest_availability():
 
     Returns a list of concise dicts per user suitable for API output.
     """
-    users_list = get_users_taking_on_clients()
+    # Use the helper that already filters to advisers taking on clients
+    users = get_user_ids_adviser()
+    # Compute for all advisers; we'll filter/present taking_on_clients later
+    users_list = []
+    for user in users:
+        props = user.get("properties") or {}
+        if props.get("taking_on_clients"):
+            users_list.append(user)
     results = []
 
     # Establish baseline week (1 week ago Monday) similar to allocation logic
@@ -1036,6 +1042,7 @@ def get_users_earliest_availability():
                 "service_packages": (user["properties"].get("client_types") or ""),
                 "hubspot_owner_id": user["properties"].get("hubspot_owner_id"),
                 "client_limit_monthly": user["properties"].get("client_limit_monthly"),
+                "taking_on_clients": user["properties"].get("taking_on_clients"),
                 "availability_start_week": user.get("availability_start_week"),
                 "earliest_open_week": earliest_wk,
                 "earliest_open_week_label": week_label_from_ordinal(earliest_wk) if isinstance(earliest_wk, int) else None,
@@ -1055,7 +1062,7 @@ def get_users_earliest_availability():
 
 def get_user_by_email(user_email: str):
     """Return HubSpot user object for the given email among those taking on clients."""
-    users = get_users_taking_on_clients()
+    users = get_user_ids_adviser()
     for u in users:
         if (u.get("properties") or {}).get("hs_email") == user_email:
             return u
@@ -1113,6 +1120,7 @@ def compute_user_schedule_by_email(user_email: str):
         "min_week": effective_min_week,
         "email": user_email,
     }
+
 def week_monday_ordinal(d: date) -> int:
     """Return the ordinal of the Monday for the week containing date ``d``.
 

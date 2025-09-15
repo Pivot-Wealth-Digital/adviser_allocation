@@ -14,6 +14,7 @@ from allocate import (
     get_users_taking_on_clients,
     compute_user_schedule_by_email,
     week_label_from_ordinal,
+    get_user_ids_adviser
 )
 
 from dotenv import load_dotenv
@@ -775,8 +776,6 @@ def handle_webhook():
     return jsonify({'message': 'Internal Server Error'}), 500
 
 
-## Removed /closures/ui_v2 and /availability/schedule_v2
-
 
 # ---- Example API call ----
 @app.route("/test/organisations")
@@ -801,7 +800,19 @@ def list_leave_requests():
 def availability_earliest():
     """Uniform templated view of earliest availability with tags and topbar."""
     try:
+        # Toggle: include users not taking on clients (default ON to display everyone)
+        include_no = str(request.args.get("include_no", "1")).lower() in ("1", "true", "yes", "on")
+
         results = get_users_earliest_availability()
+        # Default: show only taking_on_clients == True
+        if not include_no:
+            filtered = []
+            for r in results:
+                val = r.get("taking_on_clients")
+                if str(val).lower() == "true":
+                    filtered.append(r)
+            results = filtered
+
         results = sorted(results, key=lambda r: (r.get("email") or "").lower())
 
         # Build rows for template
@@ -820,6 +831,10 @@ def availability_earliest():
                     tags.append(p)
             # Canonicalize to title case for consistency across rows
             tags = [t.title() for t in tags]
+            toc_raw = item.get("taking_on_clients")
+            # Normalize taking_on_clients to a boolean-like value and label
+            toc_bool = True if str(toc_raw).lower() == "true" else False
+            toc_label = "Yes" if toc_bool else "No"
             rows.append({
                 "email": item.get("email") or "",
                 "tags": tags,
@@ -827,11 +842,13 @@ def availability_earliest():
                 "limit": item.get("client_limit_monthly") or "",
                 "wk_label": item.get("earliest_open_week_label") or (item.get("error") or ""),
                 "monday": monday_str,
+                "taking_on_clients": toc_label,
+                "taking_on_clients_sort": 1 if toc_bool else 0,
             })
 
         # Enforce a consistent tag order across all rows
         preferred_order = [
-            "Seed", "Series A", "Series B", "Series C", "Series D", "Series E", "Series F", "Series G", "Ipo"
+            "Seed", "Series A", "Series B", "Series C", "Series D", "Series E", "Series F", "Series G", "IPO"
         ]
         order_index = {name.lower(): i for i, name in enumerate(preferred_order)}
         def tag_sort_key(t: str):
@@ -859,6 +876,7 @@ def availability_earliest():
             rows=rows,
             today=date.today().isoformat(),
             week_num=f"{date.today().isocalendar()[1]:02d}",
+            include_no=include_no,
         )
     except Exception as e:
         logging.error(f"Failed to compute earliest availability: {e}")
@@ -869,7 +887,13 @@ def availability_earliest():
 def availability_schedule():
     """UI to view an adviser's weekly schedule with shared layout/topbar."""
     try:
-        advisers = get_users_taking_on_clients()
+        users = get_user_ids_adviser()
+        advisers = []
+        for user in users:
+            props = user.get("properties") or {}
+            if props.get("taking_on_clients"):
+                advisers.append(user)
+
     except Exception as e:
         return (f"<p>Failed to load advisers: {e}</p>", 500, {"Content-Type": "text/html; charset=utf-8"})
 

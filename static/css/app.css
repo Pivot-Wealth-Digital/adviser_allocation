@@ -48,6 +48,7 @@ tr.hl{background:var(--soft-accent); box-shadow:inset 4px 0 0 var(--ok)}
 .tag.pink{background:#ffe9ef;border-color:#ffd0dc;color:#8a294b}
 .tag.teal{background:#e7faf6;border-color:#c8efe6;color:#0a4f4a}
 th, td{white-space:normal;}
+.nowrap{white-space:nowrap;}
 /* Mini calendar and popover */
 .mini-cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;border:1px solid var(--border);border-radius:8px;padding:8px;background:#fff;margin-left:8px}
 .mini-cal .dow{font-weight:600;color:var(--muted);font-size:.8em;text-align:center}
