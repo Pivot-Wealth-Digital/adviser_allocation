@@ -747,8 +747,10 @@ def find_earliest_week(user, min_week):
         v[DEALS_NO_CLARIFY_COL] for k, v in data.items() if k < baseline_week - deal_no_clarify_delay
     )
     diff_prev = _get_col(data, baseline_week - 7, DIFFERENCE_COL, 0)
-    if diff_prev > 0:
-        remaining_backlog += diff_prev
+    diff_prev_prev = _get_col(data, baseline_week - 14, DIFFERENCE_COL, 0)
+    overflow = max(diff_prev, diff_prev_prev, 0)
+
+    remaining_backlog += overflow
 
     print(f"Baseline Week: {week_label_from_ordinal(baseline_week)}, Initial Backlog: {remaining_backlog}")
     # Walk forward in non-overlapping fortnights: accumulate new deals for two weeks,
@@ -795,6 +797,8 @@ def find_earliest_week(user, min_week):
             # Enforce condition: two consecutive negative differences (prev and curr)
             capacity_next_week = -_get_col(data, wk + 7, DIFFERENCE_COL, 0)
             if capacity_next_week >= final_capacity_curr > 0:
+                if capacity_next_week - final_capacity_curr < 0:
+                    continue  # not enough capacity next week to confirm
                 candidate = max(wk, min_allowed_week)
                 user["earliest_open_week"] = candidate
                 print(f"Week: {week_label_from_ordinal(candidate)}, Diff Curr: {final_capacity_curr}")
