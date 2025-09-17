@@ -746,11 +746,14 @@ def find_earliest_week(user, min_week):
     remaining_backlog = sum(
         v[DEALS_NO_CLARIFY_COL] for k, v in data.items() if k < baseline_week - deal_no_clarify_delay
     )
-    diff_prev = _get_col(data, baseline_week - 7, DIFFERENCE_COL, 0)
-    diff_prev_prev = _get_col(data, baseline_week - 14, DIFFERENCE_COL, 0)
-    overflow = max(diff_prev, diff_prev_prev, 0)
 
-    remaining_backlog += overflow
+    # Initialize overflow to 0 baseline - 14 days
+    # Overflow is clarify count - target capacity / 2, we remove 1  per capacity until less than 0
+    remaining_backlog += max(_get_col(data, baseline_week - 21, CLARIFY_COL, 0) - _get_col(data, baseline_week - 21, TARGET_CAPACITY_COL, 0) / 2, 0)
+    # overflow for baseline week - 14 days
+    remaining_backlog += _get_col(data, baseline_week - 14, CLARIFY_COL, 0) - _get_col(data, baseline_week - 14, TARGET_CAPACITY_COL, 0) / 2
+    # overflow for baseline week - 7 days
+    remaining_backlog += _get_col(data, baseline_week - 7, CLARIFY_COL, 0) - _get_col(data, baseline_week - 7, TARGET_CAPACITY_COL, 0) / 2
 
     print(f"Baseline Week: {week_label_from_ordinal(baseline_week)}, Initial Backlog: {remaining_backlog}")
     # Walk forward in non-overlapping fortnights: accumulate new deals for two weeks,
@@ -763,6 +766,7 @@ def find_earliest_week(user, min_week):
     backlog_assigned_prev = 0
 
     for idx, wk in enumerate(sorted_weeks[starting_index:]):
+        # starts at baseline_week current + 14 days
         # Add new deals for this week into the pending fortnight block
         new_deals = _get_col(data, wk - deal_no_clarify_delay, DEALS_NO_CLARIFY_COL, 0)
         remaining_backlog += new_deals
@@ -776,41 +780,34 @@ def find_earliest_week(user, min_week):
         # Use the current week's target as the fortnight target reference (matches how 'difference' is computed)
         block_target = _get_col(data, wk, TARGET_CAPACITY_COL, fortnight_target)
         capacity_this_week = block_target - clarify_prev - clarify_curr - backlog_assigned_prev
+        capacity_next_week = -_get_col(data, wk + 7, DIFFERENCE_COL, 0)
+
+        actual_capacity_this_week = min(capacity_this_week, capacity_next_week)
 
         week_limit = WEEKLY_HARD_LIMIT - clarify_curr
+        diff_curr = _get_col(data, wk, DIFFERENCE_COL, 0)
         diff_next = _get_col(data, wk + 7, DIFFERENCE_COL, 0)
         diff_prev  = _get_col(data, prev_wk, DIFFERENCE_COL, 0)
     
-        backlog_assigned_curr = max(min(min(max(min(capacity_this_week, week_limit), 0), remaining_backlog), max(-diff_prev, -diff_next)), 0)
+        backlog_assigned_curr = max(min(min(max(min(actual_capacity_this_week, week_limit), 0), remaining_backlog), max(-diff_prev, -diff_next)), 0)
         
-        remaining_backlog -= backlog_assigned_curr
+        remaining_backlog -= backlog_assigned_curr 
         backlog_assigned_prev = backlog_assigned_curr
 
-        final_capacity_curr = capacity_this_week - backlog_assigned_curr
-        diff_curr = _get_col(data, wk, DIFFERENCE_COL, 0)
-        if diff_curr > 0:
-            remaining_backlog += max(diff_curr - max(diff_prev, 0), 0)
+        final_capacity_curr = actual_capacity_this_week - backlog_assigned_curr
 
+        # overflow computation added to remaining backlog
+        remaining_backlog += max(clarify_curr, backlog_assigned_curr) - block_target / 2
+
+        
     
-        print(f"  Week: {week_label_from_ordinal(wk)}, New Deals: {new_deals}, Clarify Prev: {clarify_prev}, Clarify Curr: {clarify_curr}, Target: {block_target}, Capacity This Week: {capacity_this_week}, Assigned Curr: {backlog_assigned_curr}, Remaining Backlog: {remaining_backlog}")
-        if remaining_backlog <= 0:
-            # Enforce condition: two consecutive negative differences (prev and curr)
-            capacity_next_week = -_get_col(data, wk + 7, DIFFERENCE_COL, 0)
-            if capacity_next_week >= final_capacity_curr > 0:
-                if capacity_next_week - final_capacity_curr < 0:
-                    continue  # not enough capacity next week to confirm
-                candidate = max(wk, min_allowed_week)
-                user["earliest_open_week"] = candidate
-                print(f"Week: {week_label_from_ordinal(candidate)}, Diff Curr: {final_capacity_curr}")
-                return user
+        print(f"  Week: {week_label_from_ordinal(wk)}, New Deals: {new_deals}, Clarify Prev: {clarify_prev}, Clarify Curr: {clarify_curr}, Target: {block_target}, Capacity: {final_capacity_curr}, Assigned: {backlog_assigned_curr}, Backlog: {remaining_backlog},")
+        if remaining_backlog <= 0 and final_capacity_curr > 0.5:
+            candidate = max(wk, min_allowed_week)
+            user["earliest_open_week"] = candidate
+            print(f"Week: {week_label_from_ordinal(candidate)}, Diff Curr: {final_capacity_curr}, Capacity Next: {capacity_next_week}")
+            return user
             
-            # elif (diff_curr < 0 and capacity_next_week < 0) and (curr_fortnight_spare - prev_slack_debt > 0):
-            #     candidate = max(wk, min_allowed_week)
-            #     user["earliest_open_week"] = candidate
-            #     print(f"Week: {week_label_from_ordinal(candidate)}")
-            #     return user
-
-            # Otherwise continue scanning subsequent blocks until the condition is met
 
     # If backlog still remains after projected weeks, include any pending block deals
     last_week = sorted_weeks[-1]
