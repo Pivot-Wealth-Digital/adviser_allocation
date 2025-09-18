@@ -765,6 +765,14 @@ def find_earliest_week(user, min_week):
     backlog_assigned_curr = 0
     backlog_assigned_prev = 0
 
+    clarify_accum = sum(
+        v[CLARIFY_COL] for k, v in data.items() if k < baseline_week
+    )
+    target_accum = sum(
+        v[TARGET_CAPACITY_COL] for k, v in data.items() if k <  baseline_week
+    ) / 2
+
+    print(f"Clarify Accum: {clarify_accum}, Target Accum: {target_accum}")
     for idx, wk in enumerate(sorted_weeks[starting_index:]):
         # starts at baseline_week current + 14 days
         # Add new deals for this week into the pending fortnight block
@@ -776,6 +784,7 @@ def find_earliest_week(user, min_week):
         prev_wk = _prev_week(wk)
         clarify_curr = _get_col(data, wk, CLARIFY_COL, 0)
         clarify_prev = _get_col(data, prev_wk, CLARIFY_COL, 0)
+
 
         # Use the current week's target as the fortnight target reference (matches how 'difference' is computed)
         block_target = _get_col(data, wk, TARGET_CAPACITY_COL, fortnight_target)
@@ -799,10 +808,12 @@ def find_earliest_week(user, min_week):
         # overflow computation added to remaining backlog
         remaining_backlog += max(clarify_curr, backlog_assigned_curr) - block_target / 2
 
-        
-    
+        target_accum += block_target / 2
+        clarify_accum += clarify_curr + new_deals
+
         print(f"  Week: {week_label_from_ordinal(wk)}, New Deals: {new_deals}, Clarify Prev: {clarify_prev}, Clarify Curr: {clarify_curr}, Target: {block_target}, Capacity: {final_capacity_curr}, Assigned: {backlog_assigned_curr}, Backlog: {remaining_backlog},")
-        if remaining_backlog <= 0 and final_capacity_curr > 0.5:
+        print(f"Clarify Accum: {clarify_accum}, Target Accum: {target_accum}")
+        if remaining_backlog <= 0 and final_capacity_curr > 0.5 and target_accum > clarify_accum:
             candidate = max(wk, min_allowed_week)
             user["earliest_open_week"] = candidate
             print(f"Week: {week_label_from_ordinal(candidate)}, Diff Curr: {final_capacity_curr}, Capacity Next: {capacity_next_week}")
