@@ -619,7 +619,7 @@ def compute_capacity(user, min_week):
     max_week = max(data_dict.keys())
     # Ensure we have a forward projection horizon to avoid premature termination
     # when searching for earliest week (e.g., project 52 weeks ahead of min_week)
-    desired_max_week = max(max_week, min_week + 52 * 7)
+    desired_max_week = max(max_week, min_week + 26 * 7)
     complete_data_dict = {}
 
     for week_num in range(min_week, desired_max_week + 1, 7):
@@ -714,7 +714,8 @@ def find_earliest_week(user, min_week):
     slack_debt first, then reduces backlog. Requires two consecutive negative
     differences before confirming the earliest week.
     """
-    print(f"{user['properties']['hs_email']}")
+    user_name = user['properties']['hs_email'].split('@')[0].replace('.', ' ').title()
+    print(f"🔍 Finding earliest available week for {user_name}...")
     now_week = week_monday_ordinal(date.today())
     min_allowed_week = now_week + FORTNIGHT_DAYS  # must be at least 2 weeks out
     # Always start searching at or after the minimum allowed week
@@ -816,7 +817,7 @@ def find_earliest_week(user, min_week):
         if remaining_backlog <= 0 and final_capacity_curr > 0.5 and target_accum > clarify_accum:
             candidate = max(wk, min_allowed_week)
             user["earliest_open_week"] = candidate
-            print(f"Week: {week_label_from_ordinal(candidate)}, Diff Curr: {final_capacity_curr}, Capacity Next: {capacity_next_week}")
+            print(f"   ✅ Available week found: {week_label_from_ordinal(candidate)} (Capacity: {final_capacity_curr:.1f})")
             return user
             
 
@@ -838,7 +839,7 @@ def find_earliest_week(user, min_week):
                 chosen = wk
                 break
     user["earliest_open_week"] = chosen if chosen else final_week
-    print(f"Week: {week_label_from_ordinal(user['earliest_open_week'])}")
+    print(f"   📊 Final earliest week: {week_label_from_ordinal(user['earliest_open_week'])}")
     return user
 
 
@@ -896,9 +897,23 @@ def get_user_ids_adviser():
     return users
 
 
-def get_adviser(service_package):
-    # get users with taking_on_clients on
-    print("Getting USER IDs taking on client")
+def get_adviser(service_package, agreement_start_date=None):
+    print("=" * 60)
+    print("🔍 ADVISER ALLOCATION PROCESS STARTED")
+    print("=" * 60)
+
+    # Display key parameters
+    print(f"📋 Service Package: {service_package}")
+    if agreement_start_date:
+        agreement_date = datetime.fromtimestamp(int(agreement_start_date) / 1000).date()
+        print(f"📅 Agreement Start Date: {agreement_date} ({agreement_date.strftime('%A, %B %d, %Y')})")
+    else:
+        print("📅 Agreement Start Date: Not specified")
+
+    print(f"🗓️  Current Date: {date.today()} ({date.today().strftime('%A, %B %d, %Y')})")
+    print()
+
+    print("🔍 Finding eligible advisers...")
     users = get_user_ids_adviser()
     users_list = []
     for user in users:
@@ -908,13 +923,28 @@ def get_adviser(service_package):
             if service_package in client_types:
                 users_list.append(user)
 
+    print(f"✅ Found {len(users_list)} advisers taking on {service_package} clients")
+    print()
+
     # Load global closures once
     global_closures = classify_leave_weeks(get_global_closures_from_firestore())
 
+    # Convert agreement_start_date from milliseconds to week ordinal
+    agreement_start_week = None
+    if agreement_start_date:
+        agreement_start_week = week_monday_ordinal(
+            datetime.fromtimestamp(int(agreement_start_date) / 1000).date()
+        )
+        print(f"📊 Agreement Start Week: {week_label_from_ordinal(agreement_start_week)}")
+    print()
+
     for i, user in enumerate(users_list):
-        print(f"user {i}")
-        # get user approved leave requests from EH
         user_email = user["properties"]["hs_email"]
+        user_name = user_email.split('@')[0].replace('.', ' ').title()
+
+        print(f"👤 Processing Adviser {i+1}/{len(users_list)}: {user_name} ({user_email})")
+
+        # get user approved leave requests from EH
         employee_id = get_employee_id_from_firestore(user_email)
         if not employee_id:
             employee_leaves = []
@@ -955,28 +985,130 @@ def get_adviser(service_package):
         # Respect future start: allow allocation starting PRESTART_WEEKS before start date
         availability_week = user.get("availability_start_week")
         effective_min_week = max(min_week, availability_week) if availability_week else min_week
+
+        # Display adviser-specific parameters
+        print(f"   📊 Client Limit (monthly): {user['properties']['client_limit_monthly']}")
+        if availability_week:
+            availability_date = date.fromordinal(availability_week)
+            print(f"   🚀 Adviser Start Date: {availability_date} (Week {week_label_from_ordinal(availability_week)})")
+        print(f"   📈 Analysis Period: {week_label_from_ordinal(min_week)} to {week_label_from_ordinal(effective_min_week + 26 * 7)}")
+        print()
+
         user = compute_capacity(user, effective_min_week)
 
+        print(f"📊 CAPACITY TABLE FOR {user_name.upper()}")
+        print("-" * 60)
         display_data(user["capacity"])
-        print("\n")
+        print()
         user = find_earliest_week(user, effective_min_week)
 
         users_list[i] = user
-        # Show current and minimum week in YYYY-Www format for clarity
-        print(
-            week_label_from_ordinal(current_week),
-            week_label_from_ordinal(min_week),
-        )
+        print(f"✅ {user_name} analysis complete")
+        print("=" * 60)
+        print()
 
     if not users_list:
         raise RuntimeError("No eligible advisers found for the requested service package")
-    final_agent = min(users_list, key=lambda user: user.get("earliest_open_week", float('inf')))
+
+    print("🎯 FINAL SELECTION PROCESS")
+    print("=" * 60)
+
+    # Show all advisers and their earliest weeks
+    print("📋 All Adviser Availability:")
     for user in users_list:
+        user_name = user["properties"]["hs_email"].split('@')[0].replace('.', ' ').title()
         wk = user.get('earliest_open_week')
         wk_label = week_label_from_ordinal(wk) if isinstance(wk, int) else str(wk)
-        print(f"{user['properties']['hs_email']} \t Week: {wk_label}")
-    print("\n")
-    print(f"Earliest open agent: {final_agent['properties']['hs_email']}")
+        earliest_date = date.fromordinal(wk).strftime('%B %d, %Y') if isinstance(wk, int) else "Unknown"
+        print(f"   • {user_name}: {wk_label} ({earliest_date})")
+    print()
+
+    # Filter advisers whose earliest_open_week is later than or equal to agreement_start_week
+    if agreement_start_week:
+        print(f"🔍 Filtering advisers available on/after {week_label_from_ordinal(agreement_start_week)}...")
+        eligible_users = []
+        for user in users_list:
+            earliest_week = user.get("earliest_open_week", float('inf'))
+            if isinstance(earliest_week, int) and earliest_week >= agreement_start_week:
+                eligible_users.append(user)
+
+        if not eligible_users:
+            raise RuntimeError("No advisers available for the requested agreement start date")
+
+        print(f"✅ {len(eligible_users)} advisers meet the agreement start date requirement")
+        users_list = eligible_users
+        print()
+
+    # Find the earliest week among remaining advisers
+    earliest_week = min(user.get("earliest_open_week", float('inf')) for user in users_list)
+    earliest_date = date.fromordinal(earliest_week).strftime('%B %d, %Y') if isinstance(earliest_week, int) else "Unknown"
+
+    # Get all advisers tied for the earliest week
+    tied_advisers = [user for user in users_list if user.get("earliest_open_week") == earliest_week]
+
+    print(f"🏆 Earliest Available Week: {week_label_from_ordinal(earliest_week)} ({earliest_date})")
+    print(f"👥 Advisers Available This Week: {len(tied_advisers)}")
+    print()
+
+    if len(tied_advisers) == 1:
+        final_agent = tied_advisers[0]
+        agent_name = final_agent["properties"]["hs_email"].split('@')[0].replace('.', ' ').title()
+        print(f"✅ Single adviser available: {agent_name}")
+    else:
+        print("⚖️  TIEBREAKER: Analyzing workload ratios...")
+
+        # Tiebreaker: select adviser with lowest ratio of accumulated clarify counts to target
+        def calculate_tiebreaker_ratio(user):
+            capacity = user.get("capacity", {})
+            if not capacity:
+                return 0.0
+
+            total_clarify = 0
+            total_target = 0
+
+            # Sum clarify counts and targets from all weeks up to earliest_week
+            for week_key, week_data in capacity.items():
+                if week_key <= earliest_week:
+                    total_clarify += week_data[CLARIFY_COL] if len(week_data) > CLARIFY_COL else 0
+                    total_target += week_data[TARGET_CAPACITY_COL] / 2 if len(week_data) > TARGET_CAPACITY_COL else 0
+
+            # Avoid division by zero
+            return total_clarify / max(total_target, 1)
+
+        # Select adviser with lowest ratio (most capacity available relative to target)
+        min_ratio = min(calculate_tiebreaker_ratio(user) for user in tied_advisers)
+        ratio_tied_advisers = [user for user in tied_advisers if abs(calculate_tiebreaker_ratio(user) - min_ratio) < 1e-6]
+
+        print("📊 Workload Ratios (Clarify Count / Target Capacity):")
+        for user in tied_advisers:
+            user_name = user["properties"]["hs_email"].split('@')[0].replace('.', ' ').title()
+            ratio = calculate_tiebreaker_ratio(user)
+            status = ""
+            if user in ratio_tied_advisers:
+                status = " 🎯 (LOWEST)" if len(ratio_tied_advisers) == 1 else " 🎯 (TIED FOR LOWEST)"
+            print(f"   • {user_name}: {ratio:.3f}{status}")
+        print()
+
+        if len(ratio_tied_advisers) == 1:
+            final_agent = ratio_tied_advisers[0]
+            agent_name = final_agent["properties"]["hs_email"].split('@')[0].replace('.', ' ').title()
+            print(f"✅ Selected by workload ratio: {agent_name}")
+        else:
+            # Final tiebreaker: random selection
+            import random
+            final_agent = random.choice(ratio_tied_advisers)
+            agent_name = final_agent["properties"]["hs_email"].split('@')[0].replace('.', ' ').title()
+            print(f"🎲 Final tie ({len(ratio_tied_advisers)} advisers), selecting randomly: {agent_name}")
+
+    print()
+    print("🎉 ALLOCATION COMPLETE")
+    print("=" * 60)
+    final_agent_name = final_agent["properties"]["hs_email"].split('@')[0].replace('.', ' ').title()
+    final_week_date = date.fromordinal(final_agent.get("earliest_open_week")).strftime('%B %d, %Y')
+    print(f"📋 Selected Adviser: {final_agent_name} ({final_agent['properties']['hs_email']})")
+    print(f"📅 Available Week: {week_label_from_ordinal(final_agent.get('earliest_open_week'))} ({final_week_date})")
+    print(f"🆔 HubSpot Owner ID: {final_agent['properties']['hubspot_owner_id']}")
+    print("=" * 60)
 
     return final_agent
 

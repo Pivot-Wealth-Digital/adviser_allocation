@@ -737,7 +737,8 @@ def handle_webhook():
         # Check for 'deal' object type as this is for a deal workflow.
         if event.get('object', {}).get('objectType', ''):
             service_package = event["fields"]["service_package"]
-            user = get_adviser(service_package)
+            agreement_start_date = event.get('fields', {}).get('agreement_start_date', '')
+            user = get_adviser(service_package, agreement_start_date)
             hubspot_owner_id = user["properties"]["hubspot_owner_id"]
             print(hubspot_owner_id)
             # hubspot_owner_id = '81859793'  
