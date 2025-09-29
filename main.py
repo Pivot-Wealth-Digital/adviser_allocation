@@ -36,21 +36,50 @@ app.secret_key = get_secret("SESSION_SECRET") or "change-me-please"  # set in ap
 ADMIN_USERNAME = get_secret("ADMIN_USERNAME") or os.environ.get("ADMIN_USERNAME")
 ADMIN_PASSWORD = get_secret("ADMIN_PASSWORD") or os.environ.get("ADMIN_PASSWORD")
 
-def is_admin():
-    return bool(session.get("is_admin"))
+def is_authenticated():
+    return bool(session.get("is_authenticated"))
 
-def admin_required(view_func):
+def login_required(view_func):
     from functools import wraps
     @wraps(view_func)
     def wrapper(*args, **kwargs):
-        if not is_admin():
+        if not is_authenticated():
             # For API calls, return 401; for browser, redirect to login with next
             if request.accept_mimetypes and "text/html" in request.accept_mimetypes:
                 nxt = request.path
-                return redirect(f"/admin/login?next={nxt}")
+                return redirect(f"/login?next={nxt}")
             return jsonify({"error": "Unauthorized"}), 401
         return view_func(*args, **kwargs)
     return wrapper
+
+# Global before_request handler to protect all routes
+@app.before_request
+def require_login():
+    # List of endpoints that don't require authentication
+    public_endpoints = [
+        'login', 
+        'logout',
+        'static',  # Static files (CSS, JS, images)
+    ]
+    
+    # List of routes that don't require authentication (by path)
+    public_paths = [
+        '/webhook/allocation',  # HubSpot webhook
+        '/_ah/warmup',         # App Engine warmup
+    ]
+    
+    # Check if current route is public
+    if (request.endpoint in public_endpoints or 
+        request.path in public_paths or
+        request.path.startswith('/static/')):
+        return  # Allow access
+    
+    # Require authentication for all other routes
+    if not is_authenticated():
+        if request.accept_mimetypes and "text/html" in request.accept_mimetypes:
+            nxt = request.path
+            return redirect(f"/login?next={nxt}")
+        return jsonify({"error": "Unauthorized"}), 401
 
 # ---- Employment Hero (HR) OAuth config ----
 EH_AUTHORIZE_URL = os.environ.get("EH_AUTHORIZE_URL", "https://oauth.employmenthero.com/oauth2/authorize")
@@ -486,7 +515,7 @@ def closures():
     try:
         if not request.is_json:
             return jsonify({"error": "Expected application/json"}), 415
-        if not is_admin():
+        if not is_authenticated():
             return jsonify({"error": "Unauthorized"}), 401
         payload = request.get_json() or {}
         start_date = payload.get("start_date")
@@ -524,7 +553,7 @@ def closures_item(closure_id):
     """Update or delete a specific closure document (admin only)."""
     if not db:
         return jsonify({"error": "Firestore is not configured"}), 400
-    if not is_admin():
+    if not is_authenticated():
         return jsonify({"error": "Unauthorized"}), 401
 
     if request.method == "DELETE":
@@ -579,7 +608,6 @@ def closures_item(closure_id):
 
 
 @app.route("/closures/ui")
-@admin_required
 def closures_ui():
     """Simple UI to create and list global office closures (holidays)."""
     if not db:
@@ -658,18 +686,21 @@ def closures_ui():
     return render_template('closures_ui.html', closures=closures_data, today=sydney_today().isoformat(), closures_for_js=closures_for_js)
 
 
-@app.route("/admin/login", methods=["GET", "POST"])
-def admin_login():
-    """Simple admin login to manage closures."""
-    # If already logged in, go to UI or 'next'
-    nxt = request.args.get("next") or "/closures/ui"
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    """Site-wide login for all access."""
+    # If already logged in, go to home or 'next'
+    nxt = request.args.get("next") or "/"
+    if is_authenticated():
+        return redirect(nxt)
+        
     if request.method == "POST":
         username = request.form.get("username") or ""
         password = request.form.get("password") or ""
         if not ADMIN_USERNAME or not ADMIN_PASSWORD:
-            return ("<p>Admin credentials not configured. Set ADMIN_USERNAME and ADMIN_PASSWORD.</p>", 500)
+            return ("<p>Login credentials not configured. Set ADMIN_USERNAME and ADMIN_PASSWORD.</p>", 500)
         if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
-            session["is_admin"] = True
+            session["is_authenticated"] = True
             return redirect(nxt)
         # invalid
         error = "Invalid credentials"
@@ -677,14 +708,15 @@ def admin_login():
         error = ""
 
     html = (
-        "<html><head><title>Admin Login</title>"
-        "<style>body{font-family:sans-serif;max-width:420px;margin:60px auto;padding:0 12px}.f{display:flex;flex-direction:column;gap:10px}label{font-size:.9em;color:#333}input{padding:8px;border:1px solid #bbb;border-radius:4px}button{padding:8px 12px;border:1px solid #0a7;background:#0a7;color:#fff;border-radius:4px;cursor:pointer}.err{color:#a00;margin-top:8px}</style>"
+        "<html><head><title>Login - Adviser Allocation System</title>"
+        "<style>body{font-family:sans-serif;max-width:420px;margin:60px auto;padding:0 12px}.f{display:flex;flex-direction:column;gap:10px}label{font-size:.9em;color:#333}input{padding:8px;border:1px solid #bbb;border-radius:4px}button{padding:8px 12px;border:1px solid #0a7;background:#0a7;color:#fff;border-radius:4px;cursor:pointer}.err{color:#a00;margin-top:8px}h3{color:#333;text-align:center}</style>"
         "</head><body>"
-        "<h3>Admin Login</h3>"
-        f"<form class=\"f\" method=\"POST\" action=\"/admin/login?next={nxt}\">"
-        "<div><label>Username</label><input name=\"username\" autocomplete=\"username\"></div>"
-        "<div><label>Password</label><input name=\"password\" type=\"password\" autocomplete=\"current-password\"></div>"
-        "<div><button type=\"submit\">Sign in</button></div>"
+        "<h3>🔐 Adviser Allocation System</h3>"
+        "<p style='text-align:center;color:#666;margin-bottom:20px'>Please sign in to continue</p>"
+        f"<form class=\"f\" method=\"POST\" action=\"/login?next={nxt}\">"
+        "<div><label>Username</label><input name=\"username\" autocomplete=\"username\" required></div>"
+        "<div><label>Password</label><input name=\"password\" type=\"password\" autocomplete=\"current-password\" required></div>"
+        "<div><button type=\"submit\">Sign In</button></div>"
         f"<div class=\"err\">{error}</div>"
         "</form>"
         "</body></html>"
@@ -692,10 +724,10 @@ def admin_login():
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
-@app.route("/admin/logout")
-def admin_logout():
-    session.pop("is_admin", None)
-    return redirect("/admin/login")
+@app.route("/logout")
+def logout():
+    session.pop("is_authenticated", None)
+    return redirect("/login")
 
 
 # ---- assign adviser to open deal ----

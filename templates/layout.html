@@ -8,6 +8,13 @@
     {% block head %}{% endblock %}
   </head>
   <body>
+    <div style="position: fixed; top: 10px; right: 10px; z-index: 1000;">
+      <a href="/logout" style="text-decoration: none;">
+        <button style="background: #dc3545; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.8em;">
+          🚪 Logout
+        </button>
+      </a>
+    </div>
     <div class="container">
       {% block content %}{% endblock %}
     </div>
