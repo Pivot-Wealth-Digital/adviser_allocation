@@ -1,10 +1,22 @@
 import os, time, secrets, json, re
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import logging
 
 from urllib.parse import urlencode
-from flask import Flask, redirect, request, session, jsonify, render_template, url_for
+from flask import Flask, redirect, request, session, jsonify, render_template, render_template_string, url_for
 import requests
+from zoneinfo import ZoneInfo
+
+# Sydney timezone constant
+SYDNEY_TZ = ZoneInfo("Australia/Sydney")
+
+def sydney_now() -> datetime:
+    """Return current datetime in Sydney timezone."""
+    return datetime.now(SYDNEY_TZ)
+
+def sydney_today() -> date:
+    """Return current date in Sydney timezone."""
+    return sydney_now().date()
 
 from allocate import (
     get_adviser,
@@ -156,11 +168,14 @@ def update_tokens(tokens: dict):
 # ---- OAuth flow ----
 @app.route("/")
 def index():
-    """Basic index route reporting service status and helpful routes."""
-    return jsonify({
-        "ok": True,
-        "routes": ["/auth/start", "/auth/callback", "/test/organisations"]
-    })
+    """Homepage with navigation to all available features."""
+    return render_template(
+        "homepage.html",
+        today=sydney_today().isoformat(),
+        week_num=f"{sydney_today().isocalendar()[1]:02d}",
+        environment=os.environ.get("GAE_ENV", "development"),
+        sydney_time=sydney_now().strftime("%Y-%m-%d %H:%M:%S %Z")
+    )
 
 @app.route("/auth/start")
 def auth_start():
@@ -334,7 +349,7 @@ def get_leave_requests():
     access_token = get_access_token()
     headers = {"Authorization": f"Bearer {access_token}"}
 
-    now_date = date.today()
+    now_date = sydney_today()
 
     page = 1
     total_pages = 9
@@ -666,7 +681,7 @@ def closures_ui():
         color = tag_color_map.get(tags[0], 'blue') if tags else 'blue'
         closures_for_js.append({'start_date': c['start_date'], 'end_date': c['end_date'], 'color': color})
 
-    return render_template('closures_ui.html', closures=closures_data, today=date.today().isoformat(), closures_for_js=closures_for_js)
+    return render_template('closures_ui.html', closures=closures_data, today=sydney_today().isoformat(), closures_for_js=closures_for_js)
 
 
 @app.route("/admin/login", methods=["GET", "POST"])
@@ -763,11 +778,82 @@ def handle_webhook():
 
                 logging.info(f"Successfully assigned deal ID {deal_id} to owner ID {hubspot_owner_id}.")
                 print(f"Successfully assigned deal ID {deal_id} to owner ID {hubspot_owner_id}.")
+                
+                # Store allocation in Firestore for history tracking
+                if db:
+                    try:
+                        allocation_record = {
+                            "timestamp": sydney_now().isoformat(),
+                            "request_data": event,
+                            "client_email": event.get('fields', {}).get('client_email', ''),
+                            "adviser_email": user.get('properties', {}).get('hs_email', ''),
+                            "adviser_hubspot_id": hubspot_owner_id,
+                            "deal_id": deal_id,
+                            "service_package": service_package,
+                            "agreement_start_date": agreement_start_date,
+                            "allocation_result": "success",
+                            "status": "completed",
+                            "source": "hubspot_webhook",
+                            "ip_address": request.remote_addr,
+                            "user_agent": request.headers.get("User-Agent", ""),
+                        }
+                        
+                        doc_ref = db.collection("allocation_requests").document()
+                        doc_ref.set(allocation_record)
+                        logging.info(f"Stored allocation record: {doc_ref.id}")
+                    except Exception as store_err:
+                        logging.error(f"Failed to store allocation record: {store_err}")
             except requests.exceptions.HTTPError as http_err:
                 logging.error(f"HTTP error during deal update: {http_err}")
                 logging.error(f"Response content: {response.text}")
+                
+                # Store failed allocation in Firestore
+                if db:
+                    try:
+                        allocation_record = {
+                            "timestamp": sydney_now().isoformat(),
+                            "request_data": event,
+                            "client_email": event.get('fields', {}).get('client_email', ''),
+                            "adviser_email": user.get('properties', {}).get('hs_email', '') if 'user' in locals() else '',
+                            "deal_id": deal_id,
+                            "service_package": service_package,
+                            "agreement_start_date": agreement_start_date,
+                            "allocation_result": "http_error",
+                            "status": "failed",
+                            "error_message": str(http_err),
+                            "source": "hubspot_webhook",
+                            "ip_address": request.remote_addr,
+                            "user_agent": request.headers.get("User-Agent", ""),
+                        }
+                        
+                        db.collection("allocation_requests").document().set(allocation_record)
+                    except Exception as store_err:
+                        logging.error(f"Failed to store failed allocation record: {store_err}")
+                        
             except Exception as err:
                 logging.error(f"An unexpected error occurred during deal update: {err}")
+                
+                # Store failed allocation in Firestore
+                if db:
+                    try:
+                        allocation_record = {
+                            "timestamp": sydney_now().isoformat(),
+                            "request_data": event,
+                            "client_email": event.get('fields', {}).get('client_email', ''),
+                            "deal_id": deal_id if 'deal_id' in locals() else '',
+                            "service_package": service_package if 'service_package' in locals() else '',
+                            "agreement_start_date": agreement_start_date if 'agreement_start_date' in locals() else '',
+                            "allocation_result": "general_error",
+                            "status": "failed",
+                            "error_message": str(err),
+                            "source": "hubspot_webhook",
+                            "ip_address": request.remote_addr,
+                            "user_agent": request.headers.get("User-Agent", ""),
+                        }
+                        
+                        db.collection("allocation_requests").document().set(allocation_record)
+                    except Exception as store_err:
+                        logging.error(f"Failed to store failed allocation record: {store_err}")
         
         # Return a success response. HubSpot expects a 200 OK.
         return jsonify({'message': 'Webhook received successfully'}), 200
@@ -795,89 +881,370 @@ def list_leave_requests():
     r = requests.get(f"{API_BASE}/api/v1/leave_requests", headers=headers, timeout=30)
     return (r.json(), r.status_code, {"Content-Type": "application/json"})
 
+@app.route("/employees/ui")
+def employees_ui():
+    """UI to view employees from Firestore with consistent styling."""
+    try:
+        if not db:
+            return render_template_string("""
+                <div style="padding: 20px; text-align: center;">
+                    <h3>⚠️ Firestore Not Configured</h3>
+                    <p>Database connection is not available.</p>
+                </div>
+            """), 500
+        
+        # Fetch employees from Firestore
+        employees = []
+        for doc in db.collection("employees").stream():
+            emp_data = doc.to_dict()
+            emp_data['doc_id'] = doc.id
+            employees.append(emp_data)
+        
+        # Sort employees by name
+        employees.sort(key=lambda x: (x.get('name') or '').lower())
+        
+        return render_template(
+            "employees_ui.html",
+            employees=employees,
+            today=sydney_today().isoformat(),
+            week_num=f"{sydney_today().isocalendar()[1]:02d}",
+            total_count=len(employees)
+        )
+        
+    except Exception as e:
+        return render_template_string(f"""
+            <div style="padding: 20px; text-align: center;">
+                <h3>❌ Error Loading Employees</h3>
+                <p>{str(e)}</p>
+            </div>
+        """), 500
+
+@app.route("/leave_requests/ui")
+def leave_requests_ui():
+    """UI to view leave requests from Firestore with filtering and calendar view."""
+    try:
+        if not db:
+            return render_template_string("""
+                <div style="padding: 20px; text-align: center;">
+                    <h3>⚠️ Firestore Not Configured</h3>
+                    <p>Database connection is not available.</p>
+                </div>
+            """), 500
+        
+        # Get filter parameters
+        selected_employee = request.args.get('employee', '')
+        status_filter = request.args.get('status', '')
+        
+        # Fetch employees first for dropdown (optimized query)
+        employees = []
+        employees_dict = {}
+        for emp_doc in db.collection("employees").stream():
+            emp_data = emp_doc.to_dict()
+            emp_id = emp_doc.id
+            emp_name = emp_data.get('name', 'Unknown')
+            emp_email = emp_data.get('company_email', emp_data.get('account_email', ''))
+            
+            employees.append({
+                'id': emp_id,
+                'name': emp_name,
+                'email': emp_email
+            })
+            employees_dict[emp_id] = {'name': emp_name, 'email': emp_email}
+        
+        employees.sort(key=lambda x: x['name'].lower())
+        
+        # Fetch leave requests (with optional filtering)
+        leave_requests = []
+        calendar_events = []
+        
+        if selected_employee:
+            # Fetch only for selected employee (faster)
+            emp_ref = db.collection("employees").document(selected_employee)
+            emp_data = employees_dict.get(selected_employee, {'name': 'Unknown', 'email': ''})
+            
+            for leave_doc in emp_ref.collection("leave_requests").stream():
+                leave_data = leave_doc.to_dict()
+                leave_data['employee_id'] = selected_employee
+                leave_data['employee_name'] = emp_data['name']
+                leave_data['employee_email'] = emp_data['email']
+                leave_data['doc_id'] = leave_doc.id
+                
+                # Apply status filter
+                if not status_filter or leave_data.get('status', '').lower() == status_filter.lower():
+                    leave_requests.append(leave_data)
+                    
+                # Add to calendar events if approved
+                if leave_data.get('status', '').lower() == 'approved':
+                    calendar_events.append({
+                        'title': f"{emp_data['name']} - {leave_data.get('leave_type', 'Leave')}",
+                        'start': leave_data.get('start_date', ''),
+                        'end': leave_data.get('end_date', ''),
+                        'employee': emp_data['name'],
+                        'type': leave_data.get('leave_type', 'Leave')
+                    })
+        else:
+            # Fetch all leave requests (existing logic but optimized)
+            for emp_id, emp_data in employees_dict.items():
+                emp_ref = db.collection("employees").document(emp_id)
+                
+                for leave_doc in emp_ref.collection("leave_requests").stream():
+                    leave_data = leave_doc.to_dict()
+                    leave_data['employee_id'] = emp_id
+                    leave_data['employee_name'] = emp_data['name']
+                    leave_data['employee_email'] = emp_data['email']
+                    leave_data['doc_id'] = leave_doc.id
+                    
+                    # Apply status filter
+                    if not status_filter or leave_data.get('status', '').lower() == status_filter.lower():
+                        leave_requests.append(leave_data)
+                        
+                    # Add to calendar events if approved
+                    if leave_data.get('status', '').lower() == 'approved':
+                        calendar_events.append({
+                            'title': f"{emp_data['name']} - {leave_data.get('leave_type', 'Leave')}",
+                            'start': leave_data.get('start_date', ''),
+                            'end': leave_data.get('end_date', ''),
+                            'employee': emp_data['name'],
+                            'type': leave_data.get('leave_type', 'Leave')
+                        })
+        
+        # Sort by start date (most recent first)
+        leave_requests.sort(key=lambda x: x.get('start_date', ''), reverse=True)
+        
+        return render_template(
+            "leave_requests_ui.html",
+            leave_requests=leave_requests,
+            employees=employees,
+            calendar_events=calendar_events,
+            selected_employee=selected_employee,
+            status_filter=status_filter,
+            today=sydney_today().isoformat(),
+            week_num=f"{sydney_today().isocalendar()[1]:02d}",
+            total_count=len(leave_requests)
+        )
+        
+    except Exception as e:
+        return render_template_string(f"""
+            <div style="padding: 20px; text-align: center;">
+                <h3>❌ Error Loading Leave Requests</h3>
+                <p>{str(e)}</p>
+            </div>
+        """), 500
+
+@app.route("/webhook/allocation", methods=["POST"])
+def allocation_webhook():
+    """Webhook endpoint to receive and store allocation requests."""
+    try:
+        if not db:
+            return jsonify({"error": "Firestore not configured"}), 500
+        
+        # Get request data
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No JSON data provided"}), 400
+        
+        # Create allocation record with timestamp
+        allocation_record = {
+            "timestamp": sydney_now().isoformat(),
+            "request_data": data,
+            "client_email": data.get("client_email", ""),
+            "adviser_email": data.get("adviser_email", ""),
+            "allocation_result": data.get("allocation_result", ""),
+            "earliest_week": data.get("earliest_week", ""),
+            "agreement_start_date": data.get("agreement_start_date", ""),
+            "status": data.get("status", "received"),
+            "source": "webhook",
+            "ip_address": request.remote_addr,
+            "user_agent": request.headers.get("User-Agent", ""),
+        }
+        
+        # Store in Firestore
+        doc_ref = db.collection("allocation_requests").document()
+        doc_ref.set(allocation_record)
+        
+        return jsonify({
+            "success": True, 
+            "id": doc_ref.id,
+            "timestamp": allocation_record["timestamp"]
+        }), 201
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/allocations/history")
+def allocation_history_ui():
+    """UI to view allocation request history from Firestore."""
+    try:
+        if not db:
+            return render_template_string("""
+                <div style="padding: 20px; text-align: center;">
+                    <h3>⚠️ Firestore Not Configured</h3>
+                    <p>Database connection is not available.</p>
+                </div>
+            """), 500
+        
+        # Get filter parameters
+        status_filter = request.args.get('status', '')
+        deal_filter = request.args.get('deal', '')
+        adviser_filter = request.args.get('adviser', '')
+        days_filter = int(request.args.get('days', 30))  # Default to last 30 days
+        
+        # Calculate date filter
+        cutoff_date = sydney_now() - timedelta(days=days_filter)
+        
+        # Fetch allocation requests from Firestore
+        allocations_ref = db.collection("allocation_requests")
+        
+        # Get all matching documents (remove date filter for now to debug)
+        allocations = []
+        for doc in allocations_ref.order_by("timestamp", direction="DESCENDING").stream():
+            allocation_data = doc.to_dict()
+            allocation_data['doc_id'] = doc.id
+            
+            # Apply date filter manually for debugging
+            doc_timestamp = allocation_data.get('timestamp', '')
+            if doc_timestamp:
+                try:
+                    doc_date = datetime.fromisoformat(doc_timestamp.replace('Z', '+00:00'))
+                    if doc_date < cutoff_date:
+                        continue  # Skip old records
+                except:
+                    pass  # Include records with invalid timestamps for debugging
+            
+            # Apply additional filters
+            if status_filter and allocation_data.get('status', '').lower() != status_filter.lower():
+                continue
+            if deal_filter and str(allocation_data.get('deal_id', '')) != deal_filter:
+                continue
+            if adviser_filter and adviser_filter.lower() not in allocation_data.get('adviser_email', '').lower():
+                continue
+                
+            allocations.append(allocation_data)
+        
+        # Get unique deals and advisers for filter dropdowns
+        unique_deals = sorted(set([str(a.get('deal_id', '')) for a in allocations if a.get('deal_id')]))
+        unique_advisers = sorted(set([a.get('adviser_email', '') for a in allocations if a.get('adviser_email')]))
+        unique_statuses = sorted(set([a.get('status', '') for a in allocations if a.get('status')]))
+        
+        return render_template(
+            "allocation_history_ui.html",
+            allocations=allocations,
+            unique_deals=unique_deals,
+            unique_advisers=unique_advisers,
+            unique_statuses=unique_statuses,
+            status_filter=status_filter,
+            deal_filter=deal_filter,
+            adviser_filter=adviser_filter,
+            days_filter=days_filter,
+            today=sydney_today().isoformat(),
+            week_num=f"{sydney_today().isocalendar()[1]:02d}",
+            total_count=len(allocations),
+            hubspot_portal_id=os.getenv('HUBSPOT_PORTAL_ID', '21983344')  # Add HubSpot portal ID for deal links
+        )
+        
+    except Exception as e:
+        return render_template_string(f"""
+            <div style="padding: 20px; text-align: center;">
+                <h3>❌ Error Loading Allocation History</h3>
+                <p>{str(e)}</p>
+            </div>
+        """), 500
+
 
 # ---- Availability ----
 @app.route("/availability/earliest")
 def availability_earliest():
     """Uniform templated view of earliest availability with tags and topbar."""
     try:
+        # Check if computation is requested
+        compute = request.args.get("compute") == "1"
+        
         # Toggle: include users not taking on clients (default ON to display everyone)
         include_no = str(request.args.get("include_no", "1")).lower() in ("1", "true", "yes", "on")
 
-        results = get_users_earliest_availability()
-        # Default: show only taking_on_clients == True
-        if not include_no:
-            filtered = []
-            for r in results:
-                val = r.get("taking_on_clients")
-                if str(val).lower() == "true":
-                    filtered.append(r)
-            results = filtered
+        # Parse agreement_start_date parameter (default to Sydney now if not provided)
+        agreement_start_date_param = request.args.get("agreement_start_date")
+        agreement_start_date = None
+        default_date = sydney_today().isoformat()
+        
+        if agreement_start_date_param:
+            try:
+                # Parse date string as YYYY-MM-DD and convert to Sydney timezone datetime
+                parsed_date = datetime.strptime(agreement_start_date_param, "%Y-%m-%d").date()
+                agreement_start_date = datetime(parsed_date.year, parsed_date.month, parsed_date.day, tzinfo=SYDNEY_TZ)
+                default_date = agreement_start_date_param
+            except ValueError:
+                return jsonify({"error": "Invalid agreement_start_date format. Use YYYY-MM-DD"}), 400
 
-        results = sorted(results, key=lambda r: (r.get("email") or "").lower())
-
-        # Build rows for template
+        # Only compute if requested
         rows = []
-        for item in results:
-            earliest_wk_ordinal = item.get("earliest_open_week")
-            monday_str = date.fromordinal(earliest_wk_ordinal).isoformat() if isinstance(earliest_wk_ordinal, int) else ""
-            svc_raw = (item.get("service_packages") or "")
-            # Split into clean tags by common delimiters and preserve order without duplicates
-            parts = [p.strip() for p in re.split(r"[;,/|]+", svc_raw) if p.strip()] if svc_raw else []
-            seen = set()
-            tags = []
-            for p in parts:
-                if p not in seen:
-                    seen.add(p)
-                    tags.append(p)
-            # Canonicalize to title case for consistency across rows
-            tags = [t.title() for t in tags]
-            toc_raw = item.get("taking_on_clients")
-            # Normalize taking_on_clients to a boolean-like value and label
-            toc_bool = True if str(toc_raw).lower() == "true" else False
-            toc_label = "Yes" if toc_bool else "No"
-            rows.append({
-                "email": item.get("email") or "",
-                "tags": tags,
-                "pod": item.get("pod_type") or "",
-                "limit": item.get("client_limit_monthly") or "",
-                "wk_label": item.get("earliest_open_week_label") or (item.get("error") or ""),
-                "monday": monday_str,
-                "taking_on_clients": toc_label,
-                "taking_on_clients_sort": 1 if toc_bool else 0,
-            })
+        if compute:
+            results = get_users_earliest_availability(agreement_start_date=agreement_start_date, include_no=include_no)
+            results = sorted(results, key=lambda r: (r.get("email") or "").lower())
 
-        # Enforce a consistent tag order across all rows
-        preferred_order = [
-            "Seed", "Series A", "Series B", "Series C", "Series D", "Series E", "Series F", "Series G", "IPO"
-        ]
-        order_index = {name.lower(): i for i, name in enumerate(preferred_order)}
-        def tag_sort_key(t: str):
-            tl = t.lower()
-            return (0, order_index[tl]) if tl in order_index else (1, tl)
-        for r in rows:
-            r["tags"] = sorted((r.get("tags") or []), key=tag_sort_key)
+            # Build rows for template
+            for item in results:
+                earliest_wk_ordinal = item.get("earliest_open_week")
+                monday_str = date.fromordinal(earliest_wk_ordinal).isoformat() if isinstance(earliest_wk_ordinal, int) else ""
+                svc_raw = (item.get("service_packages") or "")
+                # Split into clean tags by common delimiters and preserve order without duplicates
+                parts = [p.strip() for p in re.split(r"[;,/|]+", svc_raw) if p.strip()] if svc_raw else []
+                seen = set()
+                tags = []
+                for p in parts:
+                    if p not in seen:
+                        seen.add(p)
+                        tags.append(p)
+                # Canonicalize to title case for consistency across rows
+                tags = [t.title() for t in tags]
+                toc_raw = item.get("taking_on_clients")
+                # Normalize taking_on_clients to a boolean-like value and label
+                toc_bool = True if str(toc_raw).lower() == "true" else False
+                toc_label = "Yes" if toc_bool else "No"
+                rows.append({
+                    "email": item.get("email") or "",
+                    "tags": tags,
+                    "pod": item.get("pod_type") or "",
+                    "limit": item.get("client_limit_monthly") or "",
+                    "wk_label": item.get("earliest_open_week_label") or (item.get("error") or ""),
+                    "monday": monday_str,
+                    "taking_on_clients": toc_label,
+                    "taking_on_clients_sort": 1 if toc_bool else 0,
+                })
 
-        # Assign consistent colors per tag across all rows
-        color_cycle = ["blue", "green", "purple", "orange", "pink", "teal"]
-        tag_color_map = {}
-        next_idx = 0
-        for r in rows:
-            for t in (r.get("tags") or []):
-                if t not in tag_color_map:
-                    tag_color_map[t] = color_cycle[next_idx % len(color_cycle)]
-                    next_idx += 1
+            # Enforce a consistent tag order across all rows
+            preferred_order = [
+                "Seed", "Series A", "Series B", "Series C", "Series D", "Series E", "Series F", "Series G", "IPO"
+            ]
+            order_index = {name.lower(): i for i, name in enumerate(preferred_order)}
+            def tag_sort_key(t: str):
+                tl = t.lower()
+                return (0, order_index[tl]) if tl in order_index else (1, tl)
+            for r in rows:
+                r["tags"] = sorted((r.get("tags") or []), key=tag_sort_key)
 
-        # Prepare rows with colored tags using the global map
-        for r in rows:
-            r["tag_items"] = [{"name": t, "cls": tag_color_map.get(t, color_cycle[0])} for t in (r.get("tags") or [])]
+            # Assign consistent colors per tag across all rows
+            color_cycle = ["blue", "green", "purple", "orange", "pink", "teal"]
+            tag_color_map = {}
+            next_idx = 0
+            for r in rows:
+                for t in (r.get("tags") or []):
+                    if t not in tag_color_map:
+                        tag_color_map[t] = color_cycle[next_idx % len(color_cycle)]
+                        next_idx += 1
+
+            # Prepare rows with colored tags using the global map
+            for r in rows:
+                r["tag_items"] = [{"name": t, "cls": tag_color_map.get(t, color_cycle[0])} for t in (r.get("tags") or [])]
 
         return render_template(
             "availability_earliest.html",
             rows=rows,
-            today=date.today().isoformat(),
-            week_num=f"{date.today().isocalendar()[1]:02d}",
+            today=sydney_today().isoformat(),
+            week_num=f"{sydney_today().isocalendar()[1]:02d}",
             include_no=include_no,
+            default_date=default_date,
+            compute=compute,
         )
     except Exception as e:
         logging.error(f"Failed to compute earliest availability: {e}")
@@ -888,16 +1255,50 @@ def availability_earliest():
 def availability_schedule():
     """UI to view an adviser's weekly schedule with shared layout/topbar."""
     try:
+        # Check if computation is requested
+        compute = request.args.get("compute") == "1"
+        
+        # For schedule endpoint, include all advisers (taking and not taking on clients)
+        include_no = True
+        
+        # Parse agreement_start_date parameter (default to Sydney now if not provided)
+        agreement_start_date_param = request.args.get("agreement_start_date")
+        agreement_start_date = None
+        default_date = sydney_today().isoformat()
+        
+        if agreement_start_date_param:
+            try:
+                # Parse date string as YYYY-MM-DD and convert to Sydney timezone datetime
+                parsed_date = datetime.strptime(agreement_start_date_param, "%Y-%m-%d").date()
+                agreement_start_date = datetime(parsed_date.year, parsed_date.month, parsed_date.day, tzinfo=SYDNEY_TZ)
+                default_date = agreement_start_date_param
+            except ValueError:
+                return jsonify({"error": "Invalid agreement_start_date format. Use YYYY-MM-DD"}), 400
+
         users = get_user_ids_adviser()
         advisers = []
         for user in users:
             props = user.get("properties") or {}
-            if props.get("taking_on_clients"):
+            taking_on_clients_value = props.get("taking_on_clients")
+            
+            # Skip users with blank/None taking_on_clients
+            if taking_on_clients_value is None or str(taking_on_clients_value).strip() == "":
+                continue
+                
+            taking_on_clients = str(taking_on_clients_value).lower() == "true"
+            
+            if include_no:
+                # Include advisers with taking_on_clients = true OR false (but not blank)
                 advisers.append(user)
+            else:
+                # Only include advisers who are taking on clients
+                if taking_on_clients:
+                    advisers.append(user)
 
     except Exception as e:
         return (f"<p>Failed to load advisers: {e}</p>", 500, {"Content-Type": "text/html; charset=utf-8"})
 
+    # Only get emails from advisers that match the include_no filter
     emails = sorted([(u.get("properties") or {}).get("hs_email") or "" for u in advisers if (u.get("properties") or {}).get("hs_email")])
 
     def pretty_name(email: str) -> str:
@@ -908,9 +1309,9 @@ def availability_schedule():
 
     rows = []
     earliest_week = None
-    if selected:
+    if selected and compute:
         try:
-            res = compute_user_schedule_by_email(selected)
+            res = compute_user_schedule_by_email(selected, agreement_start_date=agreement_start_date)
             capacity = res.get("capacity") or {}
             earliest_week = res.get("earliest_open_week")
             for wk in sorted(capacity.keys()):
@@ -940,8 +1341,11 @@ def availability_schedule():
         "availability_schedule.html",
         rows=rows,
         options_html=options_html,
-        today=date.today().isoformat(),
-        week_num=f"{date.today().isocalendar()[1]:02d}",
+        today=sydney_today().isoformat(),
+        week_num=f"{sydney_today().isocalendar()[1]:02d}",
+        selected=selected or "",
+        default_date=default_date,
+        compute=compute,
     )
 
 # Healthcheck

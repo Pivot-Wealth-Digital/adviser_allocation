@@ -1,0 +1,477 @@
+{% extends 'layout.html' %}
+{% set title = 'Leave Requests' %}
+
+{% block content %}
+<div class="topbar">
+  <div style="display: flex; align-items: center; gap: 16px;">
+    <a href="/" style="color: #d0d7e2; text-decoration: none; font-size: 0.9em;">← Home</a>
+    <h2>Leave Requests</h2>
+  </div>
+  <div class="datebox"><span>Today: {{ today }}</span><span>Week: {{ week_num }}</span></div>
+</div>
+
+<div class="card">
+  <h3>Filter Leave Requests</h3>
+  <div class="row" style="margin-bottom: 16px;">
+    <div>
+      <label for="employeeFilter">Employee</label>
+      <select id="employeeFilter" onchange="applyFilters()">
+        <option value="">All Employees ({{ employees|length }})</option>
+        {% for emp in employees %}
+          <option value="{{ emp.id }}" {% if selected_employee == emp.id %}selected{% endif %}>
+            {{ emp.name }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="statusFilter">Status</label>
+      <select id="statusFilter" onchange="applyFilters()">
+        <option value="">All Statuses</option>
+        <option value="approved" {% if status_filter == 'approved' %}selected{% endif %}>✅ Approved</option>
+        <option value="pending" {% if status_filter == 'pending' %}selected{% endif %}>⏳ Pending</option>
+        <option value="rejected" {% if status_filter == 'rejected' %}selected{% endif %}>❌ Rejected</option>
+      </select>
+    </div>
+    <div>
+      <button onclick="clearFilters()" class="secondary">Clear Filters</button>
+    </div>
+    <div>
+      <button onclick="toggleCalendar()" class="secondary" id="calendarToggle">📅 Show Calendar</button>
+    </div>
+  </div>
+</div>
+
+<div class="card" id="calendarCard" style="display: none;">
+  <h3>📅 Leave Calendar (Approved Requests Only)</h3>
+  <div id="calendar" class="calendar-grid">
+    <!-- Calendar will be populated by JavaScript -->
+  </div>
+</div>
+
+<div class="card">
+  <h3>Leave Requests</h3>
+  <p class="muted">
+    Showing <strong>{{ total_count }}</strong> 
+    {% if selected_employee or status_filter %}filtered{% endif %} leave requests
+    {% if selected_employee %}for <strong>{{ employees|selectattr('id', 'equalto', selected_employee)|map(attribute='name')|first }}</strong>{% endif %}
+    {% if status_filter %}with status <strong>{{ status_filter.title() }}</strong>{% endif %}
+  </p>
+  
+  {% if total_count == 0 %}
+    <div style="text-align: center; padding: 40px; color: var(--muted);">
+      <h4>📅 No Leave Requests Found</h4>
+      {% if selected_employee or status_filter %}
+        <p>No leave requests match the current filters.</p>
+        <button onclick="clearFilters()" class="secondary">Clear Filters</button>
+      {% else %}
+        <p>No leave request data is currently available in the database.</p>
+        <p style="font-size: 0.9em;">Try running the sync leave requests process first.</p>
+      {% endif %}
+    </div>
+  {% endif %}
+</div>
+
+{% if leave_requests %}
+<table>
+  <thead>
+    <tr>
+      <th>Employee</th>
+      <th>Start Date</th>
+      <th>End Date</th>
+      <th>Duration</th>
+      <th>Status</th>
+      <th>Leave Type</th>
+      <th>Request ID</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for request in leave_requests %}
+    <tr>
+      <td>
+        <div>
+          <strong>{{ request.employee_name or 'Unknown' }}</strong>
+          {% if request.employee_email %}
+            <br><small class="muted">{{ request.employee_email }}</small>
+          {% endif %}
+        </div>
+      </td>
+      <td>
+        {% if request.start_date %}
+          <div class="date-display">
+            <span class="date-formatted" data-date="{{ request.start_date }}">{{ request.start_date }}</span>
+          </div>
+        {% else %}
+          <span class="muted">N/A</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if request.end_date %}
+          <div class="date-display">
+            <span class="date-formatted" data-date="{{ request.end_date }}">{{ request.end_date }}</span>
+          </div>
+        {% else %}
+          <span class="muted">N/A</span>
+        {% endif %}  
+      </td>
+      <td>
+        {% if request.duration %}
+          <strong>{{ request.duration }}</strong>
+          {% if request.duration_unit %}
+            <small class="muted">{{ request.duration_unit }}{% if request.duration != '1' %}s{% endif %}</small>
+          {% endif %}
+        {% else %}
+          <span class="muted">N/A</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if request.status %}
+          {% set status_lower = request.status.lower() %}
+          {% if status_lower == 'approved' %}
+            <span class="tag green">✅ {{ request.status }}</span>
+          {% elif status_lower == 'pending' %}
+            <span class="tag orange">⏳ {{ request.status }}</span>
+          {% elif status_lower == 'rejected' %}
+            <span class="tag pink">❌ {{ request.status }}</span>
+          {% else %}
+            <span class="tag">{{ request.status }}</span>
+          {% endif %}
+        {% else %}
+          <span class="muted">N/A</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if request.leave_type %}
+          <span class="tag blue">{{ request.leave_type }}</span>
+        {% else %}
+          <span class="muted">N/A</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if request.leave_request_id %}
+          <span class="request-id">{{ request.leave_request_id }}</span>
+        {% else %}
+          <span class="muted">N/A</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<div class="card" style="margin-top: 24px;">
+  <h4>💡 Data Management</h4>
+  <p class="muted">Leave request data is synchronized from Employment Hero and stored locally for performance.</p>
+  <div class="row" style="margin-top: 12px;">
+    <a href="/sync/leave_requests" style="text-decoration: none;">
+      <button class="secondary">🔄 Sync Leave Requests</button>
+    </a>
+    <a href="/get/leave_requests_list" style="text-decoration: none;">
+      <button class="secondary">📊 Raw API Data</button>
+    </a>
+    <a href="/employees/ui" style="text-decoration: none;">
+      <button class="secondary">👥 View Employees</button>
+    </a>
+  </div>
+</div>
+{% endblock %}
+
+{% block head %}
+<style>
+  table {
+    margin-top: 16px;
+  }
+  
+  .tag {
+    font-size: 0.8em;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  
+  .card h4 {
+    margin: 0 0 8px 0;
+    color: var(--text);
+  }
+  
+  .card p.muted {
+    margin: 0 0 8px 0;
+    font-size: 0.9em;
+  }
+  
+  .row {
+    gap: 12px;
+  }
+  
+  small.muted {
+    font-size: 0.8em;
+    color: var(--muted);
+    display: block;
+    margin-top: 2px;
+  }
+  
+  .date-display {
+    white-space: nowrap;
+  }
+  
+  .date-formatted {
+    font-weight: 500;
+  }
+  
+  .request-id {
+    font-family: monospace;
+    background: #f5f5f5;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.85em;
+    color: var(--muted);
+  }
+  
+  /* Calendar Styles */
+  .calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-top: 12px;
+  }
+  
+  .calendar-day {
+    background: white;
+    padding: 8px 4px;
+    min-height: 80px;
+    position: relative;
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+  
+  .calendar-day.header {
+    background: #fafafa;
+    min-height: auto;
+    padding: 8px;
+    font-weight: 600;
+    text-align: center;
+    color: var(--muted);
+  }
+  
+  .calendar-day.other-month {
+    background: #f9f9f9;
+    color: var(--muted);
+  }
+  
+  .calendar-day.today {
+    background: var(--soft-accent);
+    border: 2px solid var(--brand);
+  }
+  
+  .calendar-day-number {
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  
+  .calendar-event {
+    background: var(--brand);
+    color: white;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-size: 0.7em;
+    margin-bottom: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  
+  .calendar-event.multi-day {
+    background: var(--ok);
+  }
+  
+  /* Loading state */
+  .loading {
+    opacity: 0.6;
+    pointer-events: none;
+  }
+  
+  @media (max-width: 768px) {
+    table {
+      font-size: 0.85em;
+    }
+    
+    th, td {
+      padding: 8px 4px;
+    }
+    
+    .row {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+    
+    .row > div {
+      width: 100%;
+    }
+    
+    .row select, .row button {
+      width: 100%;
+    }
+    
+    .calendar-grid {
+      grid-template-columns: repeat(7, 1fr);
+      font-size: 0.8em;
+    }
+    
+    .calendar-day {
+      min-height: 60px;
+      padding: 4px 2px;
+    }
+    
+    .calendar-event {
+      font-size: 0.6em;
+      padding: 1px 2px;
+    }
+  }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Date formatting function
+function formatDate(dateStr) {
+  if (!dateStr) return 'N/A';
+  
+  try {
+    const date = new Date(dateStr);
+    const options = { 
+      year: 'numeric', 
+      month: 'short', 
+      day: 'numeric',
+      weekday: 'short'
+    };
+    return date.toLocaleDateString('en-AU', options);
+  } catch (e) {
+    return dateStr;
+  }
+}
+
+// Format all dates on page load
+document.addEventListener('DOMContentLoaded', function() {
+  const dateElements = document.querySelectorAll('.date-formatted');
+  dateElements.forEach(el => {
+    const originalDate = el.dataset.date;
+    const formattedDate = formatDate(originalDate);
+    el.innerHTML = `<strong>${formattedDate}</strong><br><small class="muted">${originalDate}</small>`;
+  });
+  
+  // Generate calendar if we have events
+  generateCalendar();
+});
+
+// Filter functions
+function applyFilters() {
+  const employee = document.getElementById('employeeFilter').value;
+  const status = document.getElementById('statusFilter').value;
+  
+  const params = new URLSearchParams();
+  if (employee) params.set('employee', employee);
+  if (status) params.set('status', status);
+  
+  // Show loading state
+  document.body.classList.add('loading');
+  
+  window.location.href = '?' + params.toString();
+}
+
+function clearFilters() {
+  window.location.href = window.location.pathname;
+}
+
+// Calendar functions
+let calendarVisible = false;
+
+function toggleCalendar() {
+  const calendarCard = document.getElementById('calendarCard');
+  const toggleBtn = document.getElementById('calendarToggle');
+  
+  calendarVisible = !calendarVisible;
+  
+  if (calendarVisible) {
+    calendarCard.style.display = 'block';
+    toggleBtn.textContent = '📅 Hide Calendar';
+    generateCalendar();
+  } else {
+    calendarCard.style.display = 'none';
+    toggleBtn.textContent = '📅 Show Calendar';
+  }
+}
+
+function generateCalendar() {
+  const calendarDiv = document.getElementById('calendar');
+  if (!calendarDiv) return;
+  
+  const events = {{ calendar_events|tojson }};
+  const today = new Date();
+  const currentMonth = today.getMonth();
+  const currentYear = today.getFullYear();
+  
+  // Clear existing calendar
+  calendarDiv.innerHTML = '';
+  
+  // Add day headers
+  const dayHeaders = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  dayHeaders.forEach(day => {
+    const dayHeader = document.createElement('div');
+    dayHeader.className = 'calendar-day header';
+    dayHeader.textContent = day;
+    calendarDiv.appendChild(dayHeader);
+  });
+  
+  // Generate calendar days
+  const firstDay = new Date(currentYear, currentMonth, 1);
+  const lastDay = new Date(currentYear, currentMonth + 1, 0);
+  const startDate = new Date(firstDay);
+  startDate.setDate(startDate.getDate() - firstDay.getDay());
+  
+  const endDate = new Date(lastDay);
+  endDate.setDate(endDate.getDate() + (6 - lastDay.getDay()));
+  
+  const currentDate = new Date(startDate);
+  
+  while (currentDate <= endDate) {
+    const dayDiv = document.createElement('div');
+    dayDiv.className = 'calendar-day';
+    
+    if (currentDate.getMonth() !== currentMonth) {
+      dayDiv.classList.add('other-month');
+    }
+    
+    if (currentDate.toDateString() === today.toDateString()) {
+      dayDiv.classList.add('today');
+    }
+    
+    const dayNumber = document.createElement('div');
+    dayNumber.className = 'calendar-day-number';
+    dayNumber.textContent = currentDate.getDate();
+    dayDiv.appendChild(dayNumber);
+    
+    // Add events for this day
+    const dateStr = currentDate.toISOString().split('T')[0];
+    events.forEach(event => {
+      if (event.start <= dateStr && dateStr <= event.end) {
+        const eventDiv = document.createElement('div');
+        eventDiv.className = 'calendar-event';
+        if (event.start !== event.end) {
+          eventDiv.classList.add('multi-day');
+        }
+        eventDiv.textContent = `${event.employee} - ${event.type}`;
+        eventDiv.title = `${event.employee}: ${event.type} (${event.start} to ${event.end})`;
+        dayDiv.appendChild(eventDiv);
+      }
+    });
+    
+    calendarDiv.appendChild(dayDiv);
+    currentDate.setDate(currentDate.getDate() + 1);
+  }
+}
+</script>
+{% endblock %}

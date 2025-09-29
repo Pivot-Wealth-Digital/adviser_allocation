@@ -1,0 +1,143 @@
+{% extends 'layout.html' %}
+{% set title = 'Adviser Allocation System' %}
+
+{% block content %}
+<div class="topbar">
+  <h2>Adviser Allocation System</h2>
+  <div class="datebox"><span>Today: {{ today }}</span><span>Week: {{ week_num }}</span></div>
+</div>
+
+<div class="card">
+  <h3>Welcome to the Adviser Allocation System</h3>
+  <p class="muted">Select an option below to get started:</p>
+</div>
+
+<div class="grid-2">
+  <!-- Main Features -->
+  <div class="card">
+    <h4>📊 Availability & Scheduling</h4>
+    <p class="muted">View and manage adviser availability and schedules</p>
+    <div class="row" style="margin-top: 16px;">
+      <a href="/availability/earliest" style="text-decoration: none;">
+        <button class="primary">View Earliest Availability</button>
+      </a>
+      <a href="/availability/schedule" style="text-decoration: none;">
+        <button class="primary">View Adviser Schedule</button>
+      </a>
+    </div>
+  </div>
+
+  <div class="card">
+    <h4>📝 Allocation Management</h4>
+    <p class="muted">Allocate clients to advisers and manage assignments</p>
+    <div class="row" style="margin-top: 16px;">
+      <a href="/post/allocate" style="text-decoration: none;">
+        <button class="primary">Client Allocation</button>
+      </a>
+      <a href="/allocations/history" style="text-decoration: none;">
+        <button class="primary">Allocation History</button>
+      </a>
+    </div>
+  </div>
+
+  <div class="card">
+    <h4>🔒 Closures Management</h4>
+    <p class="muted">Manage adviser closures and unavailable periods</p>
+    <div class="row" style="margin-top: 16px;">
+      <a href="/closures/ui" style="text-decoration: none;">
+        <button class="primary">Manage Closures</button>
+      </a>
+    </div>
+  </div>
+
+  <div class="card">
+    <h4>👥 Employee Data</h4>
+    <p class="muted">Access employee information and leave requests</p>
+    <div class="row" style="margin-top: 16px;">
+      <a href="/employees/ui" style="text-decoration: none;">
+        <button class="secondary">View Employees</button>
+      </a>
+      <a href="/leave_requests/ui" style="text-decoration: none;">
+        <button class="secondary">Leave Requests</button>
+      </a>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h4>🔧 System Tools</h4>
+  <p class="muted">Administrative tools and data synchronization</p>
+  <div class="row" style="margin-top: 16px;">
+    <a href="/admin/login" style="text-decoration: none;">
+      <button class="secondary">Admin Login</button>
+    </a>
+    <a href="/sync/employees" style="text-decoration: none;">
+      <button class="secondary">Sync Employees</button>
+    </a>
+    <a href="/sync/leave_requests" style="text-decoration: none;">
+      <button class="secondary">Sync Leave Requests</button>
+    </a>
+    <a href="/auth/start" style="text-decoration: none;">
+      <button class="secondary">OAuth Setup</button>
+    </a>
+  </div>
+</div>
+
+<div class="card" style="background: var(--soft-accent); border-color: var(--ok);">
+  <h4>ℹ️ System Information</h4>
+  <div class="row">
+    <div>
+      <strong>Version:</strong> <span class="muted">1.0.0</span>
+    </div>
+    <div>
+      <strong>Environment:</strong> <span class="muted">{{ environment }}</span>
+    </div>
+    <div>
+      <strong>Sydney Time:</strong> <span class="muted">{{ sydney_time }}</span>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block head %}
+<style>
+  .card h4 {
+    margin: 0 0 8px 0;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  
+  .card p.muted {
+    margin: 0 0 8px 0;
+    font-size: 0.9em;
+  }
+  
+  .primary {
+    background: var(--brand);
+    border-color: var(--brand);
+    color: white;
+  }
+  
+  .primary:hover {
+    background: var(--brand-600);
+    border-color: var(--brand-600);
+  }
+  
+  .row {
+    gap: 8px;
+  }
+  
+  @media (max-width: 600px) {
+    .row {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+    
+    .row button {
+      width: 100%;
+    }
+  }
+</style>
+{% endblock %}

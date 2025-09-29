@@ -1,0 +1,536 @@
+{% extends 'layout.html' %}
+{% set title = 'Allocation History' %}
+
+{% block content %}
+<div class="topbar">
+  <div style="display: flex; align-items: center; gap: 16px;">
+    <a href="/" style="color: #d0d7e2; text-decoration: none; font-size: 0.9em;">← Home</a>
+    <h2>Allocation History</h2>
+  </div>
+  <div class="datebox"><span>Today: {{ today }}</span><span>Week: {{ week_num }}</span></div>
+</div>
+
+<div class="card">
+  <h3>Filter Allocation Requests</h3>
+  <div class="row" style="margin-bottom: 16px;">
+    <div>
+      <label for="daysFilter">Time Period</label>
+      <select id="daysFilter" onchange="applyFilters()">
+        <option value="7" {% if days_filter == 7 %}selected{% endif %}>Last 7 days</option>
+        <option value="30" {% if days_filter == 30 %}selected{% endif %}>Last 30 days</option>
+        <option value="90" {% if days_filter == 90 %}selected{% endif %}>Last 90 days</option>
+        <option value="365" {% if days_filter == 365 %}selected{% endif %}>Last year</option>
+      </select>
+    </div>
+    <div>
+      <label for="statusFilter">Status</label>
+      <select id="statusFilter" onchange="applyFilters()">
+        <option value="">All Statuses</option>
+        {% for status in unique_statuses %}
+          <option value="{{ status }}" {% if status_filter == status %}selected{% endif %}>
+            {{ status.title() }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="dealFilter">Deal ID</label>
+      <select id="dealFilter" onchange="applyFilters()">
+        <option value="">All Deals ({{ unique_deals|length }})</option>
+        {% for deal in unique_deals %}
+          <option value="{{ deal }}" {% if deal_filter == deal %}selected{% endif %}>
+            {{ deal }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="adviserFilter">Adviser</label>
+      <select id="adviserFilter" onchange="applyFilters()">
+        <option value="">All Advisers ({{ unique_advisers|length }})</option>
+        {% for adviser in unique_advisers %}
+          <option value="{{ adviser }}" {% if adviser_filter == adviser %}selected{% endif %}>
+            {{ adviser }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div style="display: flex; gap: 8px; align-items: end;">
+      <button onclick="clearFilters()" class="secondary">Clear Filters</button>
+      <button onclick="exportData()" class="secondary">📊 Export</button>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Allocation Requests</h3>
+  <p class="muted">
+    Showing <strong>{{ total_count }}</strong> 
+    {% if status_filter or deal_filter or adviser_filter %}filtered{% endif %} 
+    allocation requests from the last <strong>{{ days_filter }} days</strong>
+  </p>
+  
+  {% if total_count == 0 %}
+    <div style="text-align: center; padding: 40px; color: var(--muted);">
+      <h4>📋 No Allocation Requests Found</h4>
+      {% if status_filter or deal_filter or adviser_filter %}
+        <p>No allocation requests match the current filters.</p>
+        <button onclick="clearFilters()" class="secondary">Clear Filters</button>
+      {% else %}
+        <p>No allocation requests have been received in the selected time period.</p>
+        <p style="font-size: 0.9em;">Requests will appear here when sent to the webhook endpoint.</p>
+      {% endif %}
+    </div>
+  {% endif %}
+</div>
+
+{% if allocations %}
+<table>
+  <thead>
+    <tr>
+      <th>Timestamp</th>
+      <th>HubSpot Deal</th>
+      <th>Assigned Adviser</th>
+      <th>Status</th>
+      <th>Agreement Start Date</th>
+      <th>Service Package</th>
+      <th>Source</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for allocation in allocations %}
+    <tr>
+      <td>
+        <div class="timestamp-display">
+          <span class="timestamp-formatted" data-timestamp="{{ allocation.timestamp }}">
+            {{ allocation.timestamp }}
+          </span>
+        </div>
+      </td>
+      <td>
+        {% if allocation.deal_id %}
+          <a href="https://app.hubspot.com/contacts/{{ hubspot_portal_id or '21983344' }}/deal/{{ allocation.deal_id }}" 
+             target="_blank" 
+             style="color: var(--brand); text-decoration: none; font-weight: bold;">
+            🔗 Deal {{ allocation.deal_id }}
+          </a>
+          <br><small class="muted">Click to open in HubSpot</small>
+        {% else %}
+          <span class="muted">No Deal ID</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if allocation.adviser_email %}
+          <strong>{{ allocation.adviser_email }}</strong>
+          {% if allocation.adviser_hubspot_id %}
+            <br><small class="muted">ID: {{ allocation.adviser_hubspot_id }}</small>
+          {% endif %}
+        {% else %}
+          <span class="muted">Not assigned</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if allocation.status %}
+          {% set status_lower = allocation.status.lower() %}
+          {% if status_lower == 'success' or status_lower == 'completed' %}
+            <span class="tag green">✅ {{ allocation.status.title() }}</span>
+          {% elif status_lower == 'pending' or status_lower == 'processing' %}
+            <span class="tag orange">⏳ {{ allocation.status.title() }}</span>
+          {% elif status_lower == 'failed' or status_lower == 'error' %}
+            <span class="tag pink">❌ {{ allocation.status.title() }}</span>
+          {% else %}
+            <span class="tag">{{ allocation.status.title() }}</span>
+          {% endif %}
+        {% else %}
+          <span class="muted">N/A</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if allocation.agreement_start_date %}
+          <div class="date-display">
+            <span class="date-formatted" data-date="{{ allocation.agreement_start_date }}">
+              {{ allocation.agreement_start_date }}
+            </span>
+          </div>
+        {% else %}
+          <span class="muted">N/A</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if allocation.service_package %}
+          <span class="tag blue">{{ allocation.service_package }}</span>
+        {% else %}
+          <span class="muted">N/A</span>
+        {% endif %}
+      </td>
+      <td>
+        <span class="tag">{{ allocation.source or 'webhook' }}</span>
+        {% if allocation.ip_address %}
+          <br><small class="muted">{{ allocation.ip_address }}</small>
+        {% endif %}
+      </td>
+      <td>
+        <button onclick="viewDetails('{{ allocation.doc_id }}')" class="secondary" style="font-size: 0.8em; padding: 4px 8px;">
+          👁️ Details
+        </button>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<div class="card" style="margin-top: 24px;">
+  <h4>📊 Summary Statistics</h4>
+  <div class="row" style="margin-top: 12px;">
+    <div class="stat-card">
+      <strong>{{ total_count }}</strong>
+      <small class="muted">Total Requests</small>
+    </div>
+    <div class="stat-card">
+      <strong>{{ unique_deals|length }}</strong>
+      <small class="muted">Unique Deals</small>
+    </div>
+    <div class="stat-card">
+      <strong>{{ unique_advisers|length }}</strong>
+      <small class="muted">Advisers Assigned</small>
+    </div>
+    <div class="stat-card">
+      <strong>{{ days_filter }}</strong>
+      <small class="muted">Days Shown</small>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h4>🔧 Webhook Information</h4>
+  <p class="muted">Send allocation requests to this endpoint:</p>
+  <div style="background: #f5f5f5; padding: 12px; border-radius: 8px; margin: 8px 0;">
+    <code id="webhookUrl">{{ request.host_url }}webhook/allocation</code>
+    <button onclick="copyWebhookUrl()" class="secondary" style="margin-left: 8px; font-size: 0.8em;">📋 Copy</button>
+  </div>
+  <p style="font-size: 0.9em; color: var(--muted);">
+    POST requests with JSON data will be automatically stored and displayed here.
+  </p>
+</div>
+
+<!-- Details Modal -->
+<div id="detailsModal" class="modal" style="display: none;">
+  <div class="modal-content">
+    <span class="close" onclick="closeDetails()">&times;</span>
+    <h3>Allocation Request Details</h3>
+    <div id="detailsContent">
+      <!-- Details will be populated by JavaScript -->
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block head %}
+<style>
+  .row {
+    gap: 12px;
+  }
+  
+  .timestamp-display {
+    white-space: nowrap;
+  }
+  
+  .timestamp-formatted {
+    font-weight: 500;
+  }
+  
+  .date-display {
+    white-space: nowrap;
+  }
+  
+  .date-formatted {
+    font-weight: 500;
+  }
+  
+  .tag {
+    font-size: 0.8em;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  
+  .stat-card {
+    background: var(--soft-accent);
+    padding: 16px;
+    border-radius: 8px;
+    text-align: center;
+    min-width: 100px;
+  }
+  
+  .stat-card strong {
+    display: block;
+    font-size: 1.5em;
+    color: var(--text);
+  }
+  
+  .stat-card small {
+    color: var(--muted);
+    font-size: 0.8em;
+  }
+  
+  /* Modal Styles */
+  .modal {
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0,0,0,0.5);
+  }
+  
+  .modal-content {
+    background-color: white;
+    margin: 5% auto;
+    padding: 20px;
+    border-radius: 12px;
+    width: 80%;
+    max-width: 800px;
+    max-height: 80vh;
+    overflow-y: auto;
+    position: relative;
+  }
+  
+  .close {
+    position: absolute;
+    right: 20px;
+    top: 15px;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+    color: var(--muted);
+  }
+  
+  .close:hover {
+    color: var(--text);
+  }
+  
+  code {
+    background: #f5f5f5;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: monospace;
+    color: var(--text);
+  }
+  
+  /* Loading state */
+  .loading {
+    opacity: 0.6;
+    pointer-events: none;
+  }
+  
+  @media (max-width: 768px) {
+    .row {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+    
+    .row > div {
+      width: 100%;
+    }
+    
+    .row select, .row button {
+      width: 100%;
+    }
+    
+    table {
+      font-size: 0.85em;
+    }
+    
+    th, td {
+      padding: 8px 4px;
+    }
+    
+    .modal-content {
+      width: 95%;
+      margin: 10% auto;
+    }
+    
+    .stat-card {
+      min-width: auto;
+      flex: 1;
+    }
+  }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Store allocation data for details modal
+const allocationData = {{ allocations|tojson }};
+
+// Format timestamp function
+function formatTimestamp(timestampStr) {
+  if (!timestampStr) return 'N/A';
+  
+  try {
+    const date = new Date(timestampStr);
+    const options = { 
+      year: 'numeric', 
+      month: 'short', 
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      timeZone: 'Australia/Sydney'
+    };
+    return date.toLocaleDateString('en-AU', options);
+  } catch (e) {
+    return timestampStr;
+  }
+}
+
+// Format date function
+function formatDate(dateStr) {
+  if (!dateStr) return 'N/A';
+  
+  try {
+    const date = new Date(dateStr);
+    const options = { 
+      year: 'numeric', 
+      month: 'short', 
+      day: 'numeric',
+      weekday: 'short'
+    };
+    return date.toLocaleDateString('en-AU', options);
+  } catch (e) {
+    return dateStr;
+  }
+}
+
+// Format all timestamps and dates on page load
+document.addEventListener('DOMContentLoaded', function() {
+  const timestampElements = document.querySelectorAll('.timestamp-formatted');
+  timestampElements.forEach(el => {
+    const originalTimestamp = el.dataset.timestamp;
+    const formattedTimestamp = formatTimestamp(originalTimestamp);
+    el.innerHTML = `<strong>${formattedTimestamp}</strong><br><small class="muted">${originalTimestamp}</small>`;
+  });
+  
+  const dateElements = document.querySelectorAll('.date-formatted');
+  dateElements.forEach(el => {
+    const originalDate = el.dataset.date;
+    const formattedDate = formatDate(originalDate);
+    el.innerHTML = `<strong>${formattedDate}</strong><br><small class="muted">${originalDate}</small>`;
+  });
+});
+
+// Filter functions
+function applyFilters() {
+  const days = document.getElementById('daysFilter').value;
+  const status = document.getElementById('statusFilter').value;
+  const deal = document.getElementById('dealFilter').value;
+  const adviser = document.getElementById('adviserFilter').value;
+  
+  const params = new URLSearchParams();
+  if (days) params.set('days', days);
+  if (status) params.set('status', status);
+  if (deal) params.set('deal', deal);
+  if (adviser) params.set('adviser', adviser);
+  
+  // Show loading state
+  document.body.classList.add('loading');
+  
+  window.location.href = '?' + params.toString();
+}
+
+function clearFilters() {
+  window.location.href = window.location.pathname;
+}
+
+// Details modal functions
+function viewDetails(docId) {
+  const allocation = allocationData.find(a => a.doc_id === docId);
+  if (!allocation) return;
+  
+  const detailsContent = document.getElementById('detailsContent');
+  detailsContent.innerHTML = `
+    <div style="margin-bottom: 20px;">
+      <h4>Request Information</h4>
+      <p><strong>ID:</strong> ${allocation.doc_id}</p>
+      <p><strong>Timestamp:</strong> ${formatTimestamp(allocation.timestamp)}</p>
+      <p><strong>Deal ID:</strong> ${allocation.deal_id || 'N/A'}</p>
+      ${allocation.deal_id ? `<p><strong>HubSpot Deal Link:</strong> <a href="https://app.hubspot.com/contacts/{{ hubspot_portal_id or '21983344' }}/deal/${allocation.deal_id}" target="_blank">Open in HubSpot</a></p>` : ''}
+      <p><strong>Adviser Email:</strong> ${allocation.adviser_email || 'N/A'}</p>
+      <p><strong>Status:</strong> ${allocation.status || 'N/A'}</p>
+      <p><strong>Agreement Start Date:</strong> ${formatDate(allocation.agreement_start_date) || 'N/A'}</p>
+      <p><strong>Service Package:</strong> ${allocation.service_package || 'N/A'}</p>
+      <p><strong>Source:</strong> ${allocation.source || 'webhook'}</p>
+      <p><strong>IP Address:</strong> ${allocation.ip_address || 'N/A'}</p>
+      <p><strong>User Agent:</strong> ${allocation.user_agent || 'N/A'}</p>
+      ${allocation.error_message ? `<p><strong>Error Message:</strong> ${allocation.error_message}</p>` : ''}
+    </div>
+    <div>
+      <h4>Raw Request Data</h4>
+      <pre style="background: #f5f5f5; padding: 12px; border-radius: 8px; overflow-x: auto; max-height: 300px;">${JSON.stringify(allocation.request_data, null, 2)}</pre>
+    </div>
+  `;
+  
+  document.getElementById('detailsModal').style.display = 'block';
+}
+
+function closeDetails() {
+  document.getElementById('detailsModal').style.display = 'none';
+}
+
+// Close modal when clicking outside
+window.onclick = function(event) {
+  const modal = document.getElementById('detailsModal');
+  if (event.target === modal) {
+    modal.style.display = 'none';
+  }
+}
+
+// Copy webhook URL
+function copyWebhookUrl() {
+  const webhookUrl = document.getElementById('webhookUrl').textContent;
+  navigator.clipboard.writeText(webhookUrl).then(() => {
+    alert('Webhook URL copied to clipboard!');
+  }).catch(() => {
+    // Fallback for older browsers
+    const textArea = document.createElement('textarea');
+    textArea.value = webhookUrl;
+    document.body.appendChild(textArea);
+    textArea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textArea);
+    alert('Webhook URL copied to clipboard!');
+  });
+}
+
+// Export data function
+function exportData() {
+  const data = allocationData.map(allocation => ({
+    timestamp: allocation.timestamp,
+    deal_id: allocation.deal_id,
+    adviser_email: allocation.adviser_email,
+    status: allocation.status,
+    agreement_start_date: allocation.agreement_start_date,
+    service_package: allocation.service_package,
+    source: allocation.source,
+    ip_address: allocation.ip_address
+  }));
+  
+  const csv = [
+    Object.keys(data[0]).join(','),
+    ...data.map(row => Object.values(row).map(val => `"${val || ''}"`).join(','))
+  ].join('\\n');
+  
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `allocation_history_${new Date().toISOString().split('T')[0]}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+</script>
+{% endblock %}

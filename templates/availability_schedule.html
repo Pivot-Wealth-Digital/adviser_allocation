@@ -3,18 +3,39 @@
 
 {% block content %}
 <div class="topbar">
-  <h2>Adviser Schedule</h2>
+  <div style="display: flex; align-items: center; gap: 16px;">
+    <a href="/" style="color: #d0d7e2; text-decoration: none; font-size: 0.9em;">← Home</a>
+    <h2>Adviser Schedule</h2>
+  </div>
   <div class="datebox"><span>Today: {{ today }}</span><span>Week: {{ week_num }}</span></div>
   <div id="msg" class="msg" style="display:none"></div>
   <div id="toast-ok" class="msg ok" style="display:none"></div>
   <div id="toast-err" class="msg err" style="display:none"></div>
 </div>
 
-<div class="row">
-  <label for="email">Adviser:</label>
-  <select id="email" name="email" onchange="location='?email='+encodeURIComponent(this.value)">
-    {{ options_html|safe }}
-  </select>
+<div class="card">
+  <h3>Compute Schedule</h3>
+  <div class="row">
+    <div>
+      <label for="adviserSelect">Adviser</label>
+      <select id="adviserSelect">
+        {{ options_html|safe }}
+      </select>
+    </div>
+    <div>
+      <label for="agreementStartDate">Agreement Start Date</label>
+      <input type="date" id="agreementStartDate" value="{{ default_date }}" />
+    </div>
+    <div>
+      <button id="computeBtn" class="primary">Compute Schedule</button>
+    </div>
+  </div>
+  <div id="loading" style="display:none;margin-top:12px;color:var(--muted);">
+    <span>🔄 Computing adviser schedule...</span>
+  </div>
+</div>
+
+<div class="row" {% if not compute or not selected %}style="display:none"{% endif %}>
   <button id="toggle-edit" class="secondary" style="margin-left:8px">Edit</button>
   <button id="done-edit" class="secondary" style="display:none;margin-left:4px">Done</button>
   <button id="reset-edit" class="secondary" style="display:none;margin-left:4px">Reset</button>
@@ -34,7 +55,7 @@
     </tr>
   </thead>
   <tbody>
-    {% if rows %}
+    {% if compute and selected and rows %}
       {% for r in rows %}
         <tr{% if r.is_earliest %} class="hl"{% endif %}>
           <td>{{ r.wk_label }}</td>
@@ -47,8 +68,10 @@
           <td data-field="diff">{{ r.diff }}</td>
         </tr>
       {% endfor %}
+    {% elif compute and selected and not rows %}
+      <tr><td colspan="8">No schedule data found for the selected adviser.</td></tr>
     {% else %}
-      <tr><td colspan="8">Select an adviser to view schedule.</td></tr>
+      <tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px;">Select an adviser and click "Compute Schedule" to view weekly capacity data.</td></tr>
     {% endif %}
   </tbody>
 </table>
@@ -57,6 +80,52 @@
 {% block scripts %}
 <script>
 (function(){
+  // Compute button functionality
+  const computeBtn = document.getElementById('computeBtn');
+  const adviserSelect = document.getElementById('adviserSelect');
+  const agreementDateInput = document.getElementById('agreementStartDate');
+  const loadingDiv = document.getElementById('loading');
+
+  if (computeBtn && adviserSelect && agreementDateInput) {
+    // Set initial adviser selection if we have one
+    const currentSelected = "{{ selected }}";
+    if (currentSelected) {
+      adviserSelect.value = currentSelected;
+    }
+
+    computeBtn.addEventListener('click', function() {
+      const selectedAdviser = adviserSelect.value;
+      const agreementDate = agreementDateInput.value;
+      
+      if (!selectedAdviser) {
+        alert('Please select an adviser');
+        return;
+      }
+      
+      if (!agreementDate) {
+        alert('Please select an agreement start date');
+        return;
+      }
+
+      // Show loading state
+      loadingDiv.style.display = 'block';
+      computeBtn.disabled = true;
+      computeBtn.textContent = 'Computing...';
+
+      // Build URL with parameters (include all advisers)
+      const params = new URLSearchParams({
+        compute: '1',
+        email: selectedAdviser,
+        agreement_start_date: agreementDate,
+        include_no: '1'
+      });
+
+      // Redirect to same page with compute parameters
+      window.location.href = '?' + params.toString();
+    });
+  }
+
+  // Edit functionality
   const editBtn=document.getElementById('toggle-edit');
   const doneBtn=document.getElementById('done-edit');
   const resetBtn=document.getElementById('reset-edit');

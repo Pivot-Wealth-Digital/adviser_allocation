@@ -4,6 +4,21 @@ import requests
 
 from zoneinfo import ZoneInfo
 
+# Sydney timezone constant
+SYDNEY_TZ = ZoneInfo("Australia/Sydney")
+
+def sydney_now() -> datetime:
+    """Return current datetime in Sydney timezone."""
+    return datetime.now(SYDNEY_TZ)
+
+def sydney_today() -> date:
+    """Return current date in Sydney timezone."""
+    return sydney_now().date()
+
+def sydney_datetime_from_date(d: date) -> datetime:
+    """Convert a date to datetime at midnight in Sydney timezone."""
+    return datetime(d.year, d.month, d.day, tzinfo=SYDNEY_TZ)
+
 # Weeks before an adviser's start date when they can begin receiving allocations
 PRESTART_WEEKS = int(os.environ.get("PRESTART_WEEKS", "3"))
 
@@ -150,13 +165,17 @@ def get_employee_id_from_firestore(search_email):
     return None
     
 
-def get_first_monday_current_month(input_date=None, tz_name="Australia/Sydney") -> int:
+def get_first_monday_current_month(input_date=None, tz_name=None) -> int:
     """
     Return the epoch timestamp (milliseconds) for local midnight on the first Monday
     of the month containing `input_date`. If `input_date` is None, use 'now' in tz.
     Accepts a datetime (aware or naive) or a date.
     """
-    tz = ZoneInfo(tz_name)
+    # Use Sydney timezone by default
+    if tz_name is None:
+        tz = SYDNEY_TZ
+    else:
+        tz = ZoneInfo(tz_name)
 
     if input_date is None:
         dt = datetime.now(tz)
@@ -187,10 +206,10 @@ def get_first_monday_current_month(input_date=None, tz_name="Australia/Sydney") 
 
 def get_monday_from_weeks_ago(input_date=None, n=1):
     """
-    get monday from n weeks ago of input date or today
+    get monday from n weeks ago of input date or today (using Sydney timezone)
     """
 
-    # Use provided date or today
+    # Use provided date or today (Sydney time)
     if input_date:
         if isinstance(input_date, datetime):
             today = input_date.date()
@@ -199,7 +218,7 @@ def get_monday_from_weeks_ago(input_date=None, n=1):
         else:
             raise TypeError("input_date must be a datetime, date, or None")
     else:
-        today = datetime.now().date()
+        today = sydney_today()
 
     # Calculate the date for the Monday of the current week
     # weekday() returns 0 for Monday, 1 for Tuesday, etc.
@@ -208,10 +227,8 @@ def get_monday_from_weeks_ago(input_date=None, n=1):
     # Calculate the date for the Monday of the week two workweeks ago
     two_workweeks_ago_start = current_week_start - timedelta(weeks=n)
 
-    # Convert the date to a datetime object at midnight (start of the day)
-    start_of_day_two_workweeks_ago = datetime.combine(
-        two_workweeks_ago_start, datetime.min.time()
-    )
+    # Convert the date to a datetime object at midnight (start of the day) in Sydney timezone
+    start_of_day_two_workweeks_ago = sydney_datetime_from_date(two_workweeks_ago_start)
 
     # Convert the datetime object to a Unix timestamp in milliseconds
     timestamp_milliseconds = int(start_of_day_two_workweeks_ago.timestamp() * 1000)
@@ -340,7 +357,7 @@ def get_meeting_count(user_meetings, display_table=False):
 
 
 def get_user_client_limits(user, tenure_limit=90):
-    date_today = date.today()
+    date_today = sydney_today()
     user["properties"]["client_limit_monthly"] = 6  # monthly
 
     start_date_str = (user.get("properties") or {}).get("adviser_start_date")
@@ -498,7 +515,7 @@ def process_weekly_data(data):
     """
     sum_of_values = 0
     keys_to_remove = []
-    current_week_key = week_monday_ordinal(date.today())
+    current_week_key = week_monday_ordinal(sydney_today())
 
     # Iterate through the dictionary to find keys to remove and sum their values
     for key, value_list in data.items():
@@ -517,9 +534,11 @@ def process_weekly_data(data):
 
 
 def get_deals_no_clarify(user_email):
-    current_timestamp = time.time()
+    # Use Sydney timezone for current time
+    current_sydney_time = sydney_now()
+    current_timestamp = current_sydney_time.timestamp()
     # now = int(time.time() * 1000) # convert https://currentmillis.com/
-    two_weeks_ago = datetime.fromtimestamp(current_timestamp) - timedelta(weeks=4)
+    two_weeks_ago = current_sydney_time - timedelta(weeks=4)
     two_weeks_ago_timestamp = int(two_weeks_ago.timestamp() * 1000)
 
     url = "https://api.hubapi.com/crm/v3/objects/deals/search"
@@ -716,7 +735,7 @@ def find_earliest_week(user, min_week):
     """
     user_name = user['properties']['hs_email'].split('@')[0].replace('.', ' ').title()
     print(f"🔍 Finding earliest available week for {user_name}...")
-    now_week = week_monday_ordinal(date.today())
+    now_week = week_monday_ordinal(sydney_today())
     min_allowed_week = now_week + FORTNIGHT_DAYS  # must be at least 2 weeks out
     # Always start searching at or after the minimum allowed week
     starting_week = max(min_week, min_allowed_week)
@@ -905,12 +924,12 @@ def get_adviser(service_package, agreement_start_date=None):
     # Display key parameters
     print(f"📋 Service Package: {service_package}")
     if agreement_start_date:
-        agreement_date = datetime.fromtimestamp(int(agreement_start_date) / 1000).date()
+        agreement_date = datetime.fromtimestamp(int(agreement_start_date) / 1000, tz=SYDNEY_TZ).date()
         print(f"📅 Agreement Start Date: {agreement_date} ({agreement_date.strftime('%A, %B %d, %Y')})")
     else:
         print("📅 Agreement Start Date: Not specified")
 
-    print(f"🗓️  Current Date: {date.today()} ({date.today().strftime('%A, %B %d, %Y')})")
+    print(f"🗓️  Current Date: {sydney_today()} ({sydney_today().strftime('%A, %B %d, %Y')})")
     print()
 
     print("🔍 Finding eligible advisers...")
@@ -933,7 +952,7 @@ def get_adviser(service_package, agreement_start_date=None):
     agreement_start_week = None
     if agreement_start_date:
         agreement_start_week = week_monday_ordinal(
-            datetime.fromtimestamp(int(agreement_start_date) / 1000).date()
+            datetime.fromtimestamp(int(agreement_start_date) / 1000, tz=SYDNEY_TZ).date()
         )
         print(f"📊 Agreement Start Week: {week_label_from_ordinal(agreement_start_week)}")
     print()
@@ -961,7 +980,7 @@ def get_adviser(service_package, agreement_start_date=None):
         # get meeting details
         timestamp_milliseconds = get_monday_from_weeks_ago(n=1)
         min_week = week_monday_ordinal(
-            datetime.fromtimestamp((timestamp_milliseconds / 1000)).date()
+            datetime.fromtimestamp((timestamp_milliseconds / 1000), tz=SYDNEY_TZ).date()
         )
 
         user = get_user_meeting_details(user, timestamp_milliseconds)
@@ -981,7 +1000,7 @@ def get_adviser(service_package, agreement_start_date=None):
         user = get_merged_schedule(user)
 
         # allocate deal to most suitable adviser
-        current_week = week_monday_ordinal(date.today())
+        current_week = week_monday_ordinal(sydney_today())
         # Respect future start: allow allocation starting PRESTART_WEEKS before start date
         availability_week = user.get("availability_start_week")
         effective_min_week = max(min_week, availability_week) if availability_week else min_week
@@ -1132,26 +1151,51 @@ def get_users_taking_on_clients():
     return users_list
 
 
-def get_users_earliest_availability():
+def get_users_earliest_availability(agreement_start_date=None, include_no=True):
     """
     Compute earliest available week for all advisers taking on clients.
+    
+    Args:
+        agreement_start_date (datetime, optional): Start date for the agreement.
+            If None, defaults to Sydney now time.
+        include_no (bool, optional): If True, includes advisers not taking on clients.
+            If False, only computes for advisers who are taking on clients.
 
     Returns a list of concise dicts per user suitable for API output.
     """
     # Use the helper that already filters to advisers taking on clients
     users = get_user_ids_adviser()
-    # Compute for all advisers; we'll filter/present taking_on_clients later
+    # Filter advisers based on include_no parameter BEFORE computation
     users_list = []
     for user in users:
         props = user.get("properties") or {}
-        if props.get("taking_on_clients"):
+        taking_on_clients = str(props.get("taking_on_clients", "")).lower() == "true"
+        
+        if include_no:
+            # Include all advisers (taking and not taking)
             users_list.append(user)
+        else:
+            # Only include advisers who are taking on clients
+            if taking_on_clients:
+                users_list.append(user)
+    
     results = []
 
-    # Establish baseline week (1 week ago Monday) similar to allocation logic
-    timestamp_milliseconds = get_monday_from_weeks_ago(n=1)
+    # Use provided agreement_start_date or default to Sydney now
+    if agreement_start_date is None:
+        agreement_start_date = sydney_now()
+    elif not hasattr(agreement_start_date, 'tzinfo') or agreement_start_date.tzinfo is None:
+        # If naive datetime, assume it's in Sydney timezone
+        agreement_start_date = agreement_start_date.replace(tzinfo=SYDNEY_TZ)
+    elif agreement_start_date.tzinfo != SYDNEY_TZ:
+        # If timezone-aware but not Sydney, convert to Sydney
+        agreement_start_date = agreement_start_date.astimezone(SYDNEY_TZ)
+
+    # Establish baseline week using the agreement start date (1 week ago Monday) 
+    agreement_date = agreement_start_date.date()
+    timestamp_milliseconds = get_monday_from_weeks_ago(input_date=agreement_date, n=1)
     min_week = week_monday_ordinal(
-        datetime.fromtimestamp((timestamp_milliseconds / 1000)).date()
+        datetime.fromtimestamp((timestamp_milliseconds / 1000), tz=SYDNEY_TZ).date()
     )
 
     # Load global closures once for this computation
@@ -1223,8 +1267,13 @@ def get_user_by_email(user_email: str):
     return None
 
 
-def compute_user_schedule_by_email(user_email: str):
+def compute_user_schedule_by_email(user_email: str, agreement_start_date=None):
     """Build and return an adviser's weekly capacity table and earliest week.
+    
+    Args:
+        user_email (str): Email of the user to compute schedule for.
+        agreement_start_date (datetime, optional): Start date for the agreement.
+            If None, defaults to Sydney now time.
 
     Returns a dict with keys: 'capacity' (dict keyed by Monday ordinal),
     'earliest_open_week' (int), and 'min_week' (int baseline used).
@@ -1244,10 +1293,21 @@ def compute_user_schedule_by_email(user_email: str):
     # Limits and availability window
     user = get_user_client_limits(user)
 
-    # Meetings since baseline (1 week ago Monday)
-    timestamp_milliseconds = get_monday_from_weeks_ago(n=1)
+    # Use provided agreement_start_date or default to Sydney now
+    if agreement_start_date is None:
+        agreement_start_date = sydney_now()
+    elif not hasattr(agreement_start_date, 'tzinfo') or agreement_start_date.tzinfo is None:
+        # If naive datetime, assume it's in Sydney timezone
+        agreement_start_date = agreement_start_date.replace(tzinfo=SYDNEY_TZ)
+    elif agreement_start_date.tzinfo != SYDNEY_TZ:
+        # If timezone-aware but not Sydney, convert to Sydney
+        agreement_start_date = agreement_start_date.astimezone(SYDNEY_TZ)
+
+    # Establish baseline week using the agreement start date (1 week ago Monday) 
+    agreement_date = agreement_start_date.date()
+    timestamp_milliseconds = get_monday_from_weeks_ago(input_date=agreement_date, n=1)
     min_week = week_monday_ordinal(
-        datetime.fromtimestamp((timestamp_milliseconds / 1000)).date()
+        datetime.fromtimestamp((timestamp_milliseconds / 1000), tz=SYDNEY_TZ).date()
     )
     user = get_user_meeting_details(user, timestamp_milliseconds)
     user_meetings = (user.get("meetings") or {}).get("results", [])

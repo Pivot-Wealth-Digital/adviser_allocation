@@ -1,0 +1,134 @@
+{% extends 'layout.html' %}
+{% set title = 'Employees' %}
+
+{% block content %}
+<div class="topbar">
+  <div style="display: flex; align-items: center; gap: 16px;">
+    <a href="/" style="color: #d0d7e2; text-decoration: none; font-size: 0.9em;">← Home</a>
+    <h2>Employees</h2>
+  </div>
+  <div class="datebox"><span>Today: {{ today }}</span><span>Week: {{ week_num }}</span></div>
+</div>
+
+<div class="card">
+  <h3>Employee Directory</h3>
+  <p class="muted">Total employees: <strong>{{ total_count }}</strong></p>
+  
+  {% if total_count == 0 %}
+    <div style="text-align: center; padding: 40px; color: var(--muted);">
+      <h4>📋 No Employees Found</h4>
+      <p>No employee data is currently available in the database.</p>
+      <p style="font-size: 0.9em;">Try running the sync employees process first.</p>
+    </div>
+  {% endif %}
+</div>
+
+{% if employees %}
+<table>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Company Email</th>
+      <th>Account Email</th>
+      <th>Employee ID</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for employee in employees %}
+    <tr>
+      <td>
+        <strong>{{ employee.name or 'N/A' }}</strong>
+      </td>
+      <td>
+        {% if employee.company_email %}
+          <a href="mailto:{{ employee.company_email }}" style="color: var(--brand); text-decoration: none;">
+            {{ employee.company_email }}
+          </a>
+        {% else %}
+          <span class="muted">N/A</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if employee.account_email %}
+          {{ employee.account_email }}
+        {% else %}
+          <span class="muted">N/A</span>
+        {% endif %}
+      </td>
+      <td>
+        <span style="font-family: monospace; background: #f5f5f5; padding: 2px 6px; border-radius: 4px; font-size: 0.9em;">
+          {{ employee.id or employee.doc_id }}
+        </span>
+      </td>
+      <td>
+        {% if employee.id %}
+          <a href="/get/employee_leave_requests?employee_id={{ employee.id }}" style="text-decoration: none;">
+            <button class="secondary" style="font-size: 0.8em; padding: 4px 8px;">View Leave</button>
+          </a>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<div class="card" style="margin-top: 24px;">
+  <h4>💡 Data Management</h4>
+  <p class="muted">Employee data is synchronized from Employment Hero and stored locally for performance.</p>
+  <div class="row" style="margin-top: 12px;">
+    <a href="/sync/employees" style="text-decoration: none;">
+      <button class="secondary">🔄 Sync Employees</button>
+    </a>
+    <a href="/get/employees" style="text-decoration: none;">
+      <button class="secondary">📊 Raw API Data</button>
+    </a>
+  </div>
+</div>
+{% endblock %}
+
+{% block head %}
+<style>
+  table {
+    margin-top: 16px;
+  }
+  
+  td a:hover {
+    text-decoration: underline !important;
+  }
+  
+  .card h4 {
+    margin: 0 0 8px 0;
+    color: var(--text);
+  }
+  
+  .card p.muted {
+    margin: 0 0 8px 0;
+    font-size: 0.9em;
+  }
+  
+  .row {
+    gap: 8px;
+  }
+  
+  @media (max-width: 768px) {
+    table {
+      font-size: 0.9em;
+    }
+    
+    th, td {
+      padding: 8px 6px;
+    }
+    
+    .row {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+    
+    .row button {
+      width: 100%;
+    }
+  }
+</style>
+{% endblock %}
