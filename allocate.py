@@ -1201,10 +1201,16 @@ def get_users_earliest_availability(agreement_start_date=None, include_no=True):
     users_list = []
     for user in users:
         props = user.get("properties") or {}
-        taking_on_clients = str(props.get("taking_on_clients", "")).lower() == "true"
+        taking_on_clients_raw = props.get("taking_on_clients")
+        
+        # Skip advisers with blank/null taking_on_clients values
+        if taking_on_clients_raw is None or str(taking_on_clients_raw).strip() == "":
+            continue
+            
+        taking_on_clients = str(taking_on_clients_raw).lower() == "true"
         
         if include_no:
-            # Include all advisers (taking and not taking)
+            # Include all advisers with non-blank taking_on_clients (both True and False)
             users_list.append(user)
         else:
             # Only include advisers who are taking on clients
