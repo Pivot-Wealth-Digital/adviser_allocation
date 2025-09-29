@@ -731,6 +731,45 @@ def logout():
     return redirect("/login")
 
 
+# ---- Helper function to store allocation data ----
+def store_allocation_data(data, source="webhook"):
+    """Store allocation request data in Firestore.
+
+    Args:
+        data: Dictionary containing allocation data
+        source: Source of the request (e.g., "webhook", "hubspot_webhook")
+
+    Returns:
+        Document reference ID if successful, None otherwise
+    """
+    if not db:
+        logging.error("Firestore not configured; cannot store allocation data")
+        return None
+
+    try:
+        allocation_record = {
+            "timestamp": sydney_now().isoformat(),
+            "request_data": data,
+            "client_email": data.get("client_email", ""),
+            "adviser_email": data.get("adviser_email", ""),
+            "allocation_result": data.get("allocation_result", ""),
+            "earliest_week": data.get("earliest_week", ""),
+            "agreement_start_date": data.get("agreement_start_date", ""),
+            "status": data.get("status", "received"),
+            "source": source,
+            "ip_address": request.remote_addr,
+            "user_agent": request.headers.get("User-Agent", ""),
+        }
+
+        doc_ref = db.collection("allocation_requests").document()
+        doc_ref.set(allocation_record)
+        logging.info(f"Stored allocation record: {doc_ref.id}")
+        return doc_ref.id
+    except Exception as e:
+        logging.error(f"Failed to store allocation data: {e}")
+        return None
+
+
 # ---- assign adviser to open deal ----
 @app.route('/post/allocate', methods=['POST', 'GET'])
 def handle_webhook():
@@ -763,9 +802,20 @@ def handle_webhook():
             user = get_adviser(service_package, agreement_start_date)
             hubspot_owner_id = user["properties"]["hubspot_owner_id"]
             print(hubspot_owner_id)
-            # hubspot_owner_id = '81859793'  
+            # hubspot_owner_id = '81859793'
             deal_id = event.get('fields', {}).get('hs_deal_record_id', '')
             print(deal_id)
+
+            # Store initial allocation request
+            store_allocation_data({
+                "client_email": event.get('fields', {}).get('client_email', ''),
+                "adviser_email": user.get('properties', {}).get('hs_email', ''),
+                "deal_id": deal_id,
+                "service_package": service_package,
+                "agreement_start_date": agreement_start_date,
+                "allocation_result": "pending",
+                "status": "processing",
+            }, source="hubspot_webhook")
 
             try:
                 deal_update_url = f"https://api.hubapi.com/crm/v3/objects/deals/{deal_id}"
@@ -1044,37 +1094,24 @@ def allocation_webhook():
     try:
         if not db:
             return jsonify({"error": "Firestore not configured"}), 500
-        
+
         # Get request data
         data = request.get_json()
         if not data:
             return jsonify({"error": "No JSON data provided"}), 400
-        
-        # Create allocation record with timestamp
-        allocation_record = {
-            "timestamp": sydney_now().isoformat(),
-            "request_data": data,
-            "client_email": data.get("client_email", ""),
-            "adviser_email": data.get("adviser_email", ""),
-            "allocation_result": data.get("allocation_result", ""),
-            "earliest_week": data.get("earliest_week", ""),
-            "agreement_start_date": data.get("agreement_start_date", ""),
-            "status": data.get("status", "received"),
-            "source": "webhook",
-            "ip_address": request.remote_addr,
-            "user_agent": request.headers.get("User-Agent", ""),
-        }
-        
-        # Store in Firestore
-        doc_ref = db.collection("allocation_requests").document()
-        doc_ref.set(allocation_record)
-        
-        return jsonify({
-            "success": True, 
-            "id": doc_ref.id,
-            "timestamp": allocation_record["timestamp"]
-        }), 201
-        
+
+        # Store using shared helper
+        doc_id = store_allocation_data(data, source="webhook")
+
+        if doc_id:
+            return jsonify({
+                "success": True,
+                "id": doc_id,
+                "timestamp": sydney_now().isoformat()
+            }), 201
+        else:
+            return jsonify({"error": "Failed to store allocation data"}), 500
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
