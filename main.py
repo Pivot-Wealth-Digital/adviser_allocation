@@ -64,8 +64,9 @@ def require_login():
     
     # List of routes that don't require authentication (by path)
     public_paths = [
-        '/webhook/allocation',  # HubSpot webhook
+        '/webhook/allocation',  # HubSpot webhook for testing
         '/_ah/warmup',         # App Engine warmup
+        '/post/allocate',    # Hubspot webhook
     ]
     
     # Check if current route is public
