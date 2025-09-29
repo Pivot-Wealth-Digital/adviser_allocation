@@ -725,20 +725,37 @@ def compute_capacity(user, min_week):
     return user
 
 
-def find_earliest_week(user, min_week):
+def find_earliest_week(user, min_week, agreement_start_date=None):
     """Compute the earliest week an adviser can take a new client.
 
     Maintains backlog of deals without Clarify and a slack_debt representing
     capacity overuse. Weekly spare (target - clarifies(prev+curr)) services
     slack_debt first, then reduces backlog. Requires two consecutive negative
     differences before confirming the earliest week.
+    
+    Args:
+        user: User object with capacity data
+        min_week: Baseline week for capacity calculations
+        agreement_start_date: Optional datetime for minimum agreement start constraint
     """
     user_name = user['properties']['hs_email'].split('@')[0].replace('.', ' ').title()
     print(f"🔍 Finding earliest available week for {user_name}...")
     now_week = week_monday_ordinal(sydney_today())
     min_allowed_week = now_week + FORTNIGHT_DAYS  # must be at least 2 weeks out
-    # Always start searching at or after the minimum allowed week
+    
+    # Consider agreement start date as additional constraint
+    agreement_start_week = None
+    if agreement_start_date:
+        if isinstance(agreement_start_date, datetime):
+            agreement_start_week = week_monday_ordinal(agreement_start_date.date())
+        elif hasattr(agreement_start_date, 'date'):
+            agreement_start_week = week_monday_ordinal(agreement_start_date.date())
+        print(f"📅 Agreement start constraint: {week_label_from_ordinal(agreement_start_week)}")
+    
+    # Always start searching at or after the minimum allowed week and agreement start week
     starting_week = max(min_week, min_allowed_week)
+    if agreement_start_week:
+        starting_week = max(starting_week, agreement_start_week)
 
     data = user["capacity"]
     sorted_weeks = sorted(data.keys())
@@ -835,6 +852,8 @@ def find_earliest_week(user, min_week):
         print(f"Clarify Accum: {clarify_accum}, Target Accum: {target_accum}")
         if remaining_backlog <= 0 and final_capacity_curr > 0.5 and target_accum > clarify_accum:
             candidate = max(wk, min_allowed_week)
+            if agreement_start_week:
+                candidate = max(candidate, agreement_start_week)
             user["earliest_open_week"] = candidate
             print(f"   ✅ Available week found: {week_label_from_ordinal(candidate)} (Capacity: {final_capacity_curr:.1f})")
             return user
@@ -844,6 +863,9 @@ def find_earliest_week(user, min_week):
     last_week = sorted_weeks[-1]
     fortnights_needed = int(ceil_div(max(remaining_backlog, 0), fortnight_target))
     final_week = max(last_week + FORTNIGHT_DAYS * fortnights_needed, min_allowed_week)
+    if agreement_start_week:
+        final_week = max(final_week, agreement_start_week)
+    
     # Try to find the first 2-week pair with negative differences at/after final_week
     sorted_weeks = sorted(data.keys())
     start_idx = _first_index_at_or_after(sorted_weeks, final_week)
@@ -857,7 +879,11 @@ def find_earliest_week(user, min_week):
             if diff_prev < 0 and diff_curr < 0:
                 chosen = wk
                 break
-    user["earliest_open_week"] = chosen if chosen else final_week
+    
+    result = chosen if chosen else final_week
+    if agreement_start_week:
+        result = max(result, agreement_start_week)
+    user["earliest_open_week"] = result
     print(f"   📊 Final earliest week: {week_label_from_ordinal(user['earliest_open_week'])}")
     return user
 
@@ -1019,7 +1045,13 @@ def get_adviser(service_package, agreement_start_date=None):
         print("-" * 60)
         display_data(user["capacity"])
         print()
-        user = find_earliest_week(user, effective_min_week)
+        
+        # Convert agreement_start_date to datetime for find_earliest_week
+        agreement_start_datetime = None
+        if agreement_start_date:
+            agreement_start_datetime = datetime.fromtimestamp(int(agreement_start_date) / 1000, tz=SYDNEY_TZ)
+        
+        user = find_earliest_week(user, effective_min_week, agreement_start_datetime)
 
         users_list[i] = user
         print(f"✅ {user_name} analysis complete")
@@ -1191,9 +1223,9 @@ def get_users_earliest_availability(agreement_start_date=None, include_no=True):
         # If timezone-aware but not Sydney, convert to Sydney
         agreement_start_date = agreement_start_date.astimezone(SYDNEY_TZ)
 
-    # Establish baseline week using the agreement start date (1 week ago Monday) 
-    agreement_date = agreement_start_date.date()
-    timestamp_milliseconds = get_monday_from_weeks_ago(input_date=agreement_date, n=1)
+    # Establish baseline week using current date (1 week ago Monday) - not agreement start date
+    # This ensures display weeks are consistent regardless of future agreement dates
+    timestamp_milliseconds = get_monday_from_weeks_ago(n=1)
     min_week = week_monday_ordinal(
         datetime.fromtimestamp((timestamp_milliseconds / 1000), tz=SYDNEY_TZ).date()
     )
@@ -1231,7 +1263,7 @@ def get_users_earliest_availability(agreement_start_date=None, include_no=True):
             availability_week = user.get("availability_start_week")
             effective_min_week = max(min_week, availability_week) if availability_week else min_week
             user = compute_capacity(user, effective_min_week)
-            user = find_earliest_week(user, effective_min_week)
+            user = find_earliest_week(user, effective_min_week, agreement_start_date)
 
             earliest_wk = user.get("earliest_open_week")
             results.append({
@@ -1303,9 +1335,9 @@ def compute_user_schedule_by_email(user_email: str, agreement_start_date=None):
         # If timezone-aware but not Sydney, convert to Sydney
         agreement_start_date = agreement_start_date.astimezone(SYDNEY_TZ)
 
-    # Establish baseline week using the agreement start date (1 week ago Monday) 
-    agreement_date = agreement_start_date.date()
-    timestamp_milliseconds = get_monday_from_weeks_ago(input_date=agreement_date, n=1)
+    # Establish baseline week using current date (1 week ago Monday) - not agreement start date
+    # This ensures display weeks are consistent regardless of future agreement dates
+    timestamp_milliseconds = get_monday_from_weeks_ago(n=1)
     min_week = week_monday_ordinal(
         datetime.fromtimestamp((timestamp_milliseconds / 1000), tz=SYDNEY_TZ).date()
     )
@@ -1326,7 +1358,7 @@ def compute_user_schedule_by_email(user_email: str, agreement_start_date=None):
     availability_week = user.get("availability_start_week")
     effective_min_week = max(min_week, availability_week) if availability_week else min_week
     user = compute_capacity(user, effective_min_week)
-    user = find_earliest_week(user, effective_min_week)
+    user = find_earliest_week(user, effective_min_week, agreement_start_date)
 
     return {
         "capacity": user.get("capacity", {}),

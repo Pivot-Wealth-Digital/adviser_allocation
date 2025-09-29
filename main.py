@@ -1195,8 +1195,12 @@ def availability_earliest():
                     if p not in seen:
                         seen.add(p)
                         tags.append(p)
-                # Canonicalize to title case for consistency across rows
-                tags = [t.title() for t in tags]
+                # Canonicalize to title case for consistency across rows, preserving special acronyms
+                def format_tag(tag):
+                    if tag.upper() == "IPO":
+                        return "IPO"
+                    return tag.title()
+                tags = [format_tag(t) for t in tags]
                 toc_raw = item.get("taking_on_clients")
                 # Normalize taking_on_clients to a boolean-like value and label
                 toc_bool = True if str(toc_raw).lower() == "true" else False
