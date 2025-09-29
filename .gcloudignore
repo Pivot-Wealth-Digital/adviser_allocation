@@ -10,10 +10,37 @@
 # If you would like to upload your .git directory, .gitignore file or files
 # from your .gitignore file, remove the corresponding line
 # below:
-# .git
-# .gitignore
+.git
+.gitignore
 
 # Python pycache:
 __pycache__/
 # Ignored by the build system
 /setup.cfg
+
+# Environment files
+.env
+.venv/
+env/
+venv/
+
+# Testing files
+test_*.py
+*_test.py
+tests/
+
+# Development files
+.pytest_cache/
+.coverage
+.mypy_cache/
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.log
+*.tmp
+*.temp

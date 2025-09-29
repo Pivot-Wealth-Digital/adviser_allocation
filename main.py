@@ -5,19 +5,8 @@ import logging
 from urllib.parse import urlencode
 from flask import Flask, redirect, request, session, jsonify, render_template, render_template_string, url_for
 import requests
-from zoneinfo import ZoneInfo
 
-# Sydney timezone constant
-SYDNEY_TZ = ZoneInfo("Australia/Sydney")
-
-def sydney_now() -> datetime:
-    """Return current datetime in Sydney timezone."""
-    return datetime.now(SYDNEY_TZ)
-
-def sydney_today() -> date:
-    """Return current date in Sydney timezone."""
-    return sydney_now().date()
-
+from utils.common import sydney_now, sydney_today, SYDNEY_TZ, USE_FIRESTORE, get_firestore_client
 from allocate import (
     get_adviser,
     get_employee_leaves_from_firestore,
@@ -37,18 +26,8 @@ load_dotenv()
 from utils.secrets import get_secret
     
 
-# Optional: persist tokens in Firestore (recommended on App Engine)
-USE_FIRESTORE = os.environ.get("USE_FIRESTORE", "true").lower() == "true"
-db = None
-if USE_FIRESTORE:
-    try:
-        from google.cloud import firestore
-        db = firestore.Client()  # Uses App Engine default credentials
-    except Exception as e:
-        # Fall back gracefully if Firestore is not available/configured
-        logging.warning(f"Firestore client init failed, falling back to session store: {e}")
-        db = None
-        USE_FIRESTORE = False
+# Initialize Firestore
+db = get_firestore_client()
 
 app = Flask(__name__)
 app.secret_key = get_secret("SESSION_SECRET") or "change-me-please"  # set in app.yaml or .env
@@ -142,11 +121,6 @@ def save_tokens(tokens: dict):
     else:
         session["eh_tokens"] = tokens
 
-# def load_tokens():
-#     if USE_FIRESTORE and db:
-#         doc = db.collection("eh_tokens").document(token_key()).get()
-#         return doc.to_dict() if doc.exists else None
-#     return session.get("eh_tokens")
 
 def load_tokens():
     """Load stored OAuth tokens from Firestore or session.

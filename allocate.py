@@ -1,42 +1,16 @@
 import os, time, logging
 from datetime import datetime, timedelta, date
 import requests
-
 from zoneinfo import ZoneInfo
 
-# Sydney timezone constant
-SYDNEY_TZ = ZoneInfo("Australia/Sydney")
-
-def sydney_now() -> datetime:
-    """Return current datetime in Sydney timezone."""
-    return datetime.now(SYDNEY_TZ)
-
-def sydney_today() -> date:
-    """Return current date in Sydney timezone."""
-    return sydney_now().date()
-
-def sydney_datetime_from_date(d: date) -> datetime:
-    """Convert a date to datetime at midnight in Sydney timezone."""
-    return datetime(d.year, d.month, d.day, tzinfo=SYDNEY_TZ)
+from utils.common import sydney_now, sydney_today, sydney_datetime_from_date, SYDNEY_TZ, USE_FIRESTORE, get_firestore_client
+from utils.secrets import get_secret
 
 # Weeks before an adviser's start date when they can begin receiving allocations
 PRESTART_WEEKS = int(os.environ.get("PRESTART_WEEKS", "3"))
 
-
-# Optional: persist tokens in Firestore (recommended on App Engine)
-USE_FIRESTORE = os.environ.get("USE_FIRESTORE", "true").lower() == "true"
-db = None
-if USE_FIRESTORE:
-    try:
-        from google.cloud import firestore
-        db = firestore.Client()  # Uses App Engine default credentials
-    except Exception as e:
-        logging.warning(f"Firestore client init failed in allocate.py: {e}")
-        db = None
-        USE_FIRESTORE = False
-
-
-from utils.secrets import get_secret
+# Initialize Firestore
+db = get_firestore_client()
 
 HUBSPOT_TOKEN = get_secret("HUBSPOT_TOKEN")
 HEADERS = {"Authorization": f"Bearer {HUBSPOT_TOKEN}", "Content-Type": "application/json"}
@@ -381,16 +355,6 @@ def get_user_client_limits(user, tenure_limit=90):
         user["availability_start_week"] = None
 
     return user
-
-
-# def get_user_leave_requests(user_email):
-#     url = f"https://pivot-digital-466902.ts.r.appspot.com/get/leave_requests_by_email?email={user_email}"
-#     response = requests.get(url)
-
-#     # pprint(user_email)
-#     # pprint(response.json())
-
-#     return response.json()["leave_requests"]
 
 
 def classify_leave_weeks(leave_requests):
