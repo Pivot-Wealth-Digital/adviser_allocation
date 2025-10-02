@@ -1,6 +1,8 @@
 import os, time, logging
 from datetime import datetime, timedelta, date
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from zoneinfo import ZoneInfo
 
 from utils.common import sydney_now, sydney_today, sydney_datetime_from_date, SYDNEY_TZ, USE_FIRESTORE, get_firestore_client
@@ -14,6 +16,26 @@ db = get_firestore_client()
 
 HUBSPOT_TOKEN = get_secret("HUBSPOT_TOKEN")
 HEADERS = {"Authorization": f"Bearer {HUBSPOT_TOKEN}", "Content-Type": "application/json"}
+
+def create_requests_session():
+    """Create a requests session with retry logic for network issues."""
+    session = requests.Session()
+    
+    # Define retry strategy
+    retry_strategy = Retry(
+        total=3,  # Total number of retries
+        status_forcelist=[429, 500, 502, 503, 504],  # HTTP status codes to retry on
+        allowed_methods=["HEAD", "GET", "POST", "PUT", "DELETE", "OPTIONS", "TRACE"],  # Updated parameter name
+        backoff_factor=1,  # Wait time between retries (1, 2, 4 seconds)
+        raise_on_status=False
+    )
+    
+    # Mount the adapter to both HTTP and HTTPS
+    adapter = HTTPAdapter(max_retries=retry_strategy)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    
+    return session
 
 
 CLARIFY_COL = 0
@@ -52,6 +74,51 @@ def _first_index_at_or_after(weeks_sorted, min_week_key: int):
         if wk >= min_week_key:
             return idx
     return None
+
+
+def _is_full_ooo_week(data, week_key: int) -> bool:
+    """Check if a week has Full OOO status."""
+    row = data.get(week_key, [])
+    if len(row) > LEAVE_COL:
+        return str(row[LEAVE_COL]).strip().lower() == "full"
+    return False
+
+
+def _find_next_non_full_ooo_week(data, sorted_weeks, start_week: int) -> int:
+    """Find the next week that doesn't have Full OOO status."""
+    start_idx = _first_index_at_or_after(sorted_weeks, start_week)
+    if start_idx is None:
+        return start_week
+    
+    for i in range(start_idx, len(sorted_weeks)):
+        week = sorted_weeks[i]
+        if not _is_full_ooo_week(data, week):
+            return week
+    
+    # If all remaining weeks are Full OOO, return the last week + 7 days
+    return sorted_weeks[-1] + 7 if sorted_weeks else start_week
+
+
+def _find_prev_non_full_ooo_week(data, sorted_weeks, start_week: int) -> int:
+    """Find the previous week that doesn't have Full OOO status."""
+    # Find the index of start_week or the closest week before it
+    start_idx = None
+    for i, week in enumerate(sorted_weeks):
+        if week >= start_week:
+            start_idx = i
+            break
+    
+    if start_idx is None:
+        start_idx = len(sorted_weeks)
+    
+    # Look backwards from start_idx
+    for i in range(start_idx - 1, -1, -1):
+        week = sorted_weeks[i]
+        if not _is_full_ooo_week(data, week):
+            return week
+    
+    # If no previous non-Full OOO week found, return the first week - 7 days
+    return sorted_weeks[0] - 7 if sorted_weeks else start_week - 7
 
 
 def ceil_div(a, b):
@@ -261,10 +328,18 @@ def get_user_meeting_details(user, timestamp_milliseconds):
     }
     if not HUBSPOT_TOKEN:
         raise RuntimeError("HUBSPOT_TOKEN is not configured")
-    result = requests.post(url, headers=HEADERS, json=payload, timeout=30)
-    result.raise_for_status()
-    user["meetings"] = result.json()
-    time.sleep(0.005)
+    
+    session = create_requests_session()
+    try:
+        result = session.post(url, headers=HEADERS, json=payload, timeout=30)
+        result.raise_for_status()
+        user["meetings"] = result.json()
+        time.sleep(0.005)
+    except requests.exceptions.RequestException as e:
+        logging.warning(f"Failed to fetch meetings for user: {e}")
+        user["meetings"] = {"results": []}  # Fallback to empty results
+    finally:
+        session.close()
 
     return user
 
@@ -557,11 +632,17 @@ def get_deals_no_clarify(user_email):
 
     if not HUBSPOT_TOKEN:
         raise RuntimeError("HUBSPOT_TOKEN is not configured")
-    response = requests.post(url, headers=HEADERS, json=data, timeout=30)
-    response.raise_for_status()
-    # print(response)
-    # pprint(response.json())
-    return response.json()["results"]
+    
+    session = create_requests_session()
+    try:
+        response = session.post(url, headers=HEADERS, json=data, timeout=30)
+        response.raise_for_status()
+        return response.json()["results"]
+    except requests.exceptions.RequestException as e:
+        logging.warning(f"Failed to fetch deals without clarify for user {user_email}: {e}")
+        return []  # Fallback to empty results
+    finally:
+        session.close()
 
 
 def classify_deals_list(data):
@@ -775,6 +856,11 @@ def find_earliest_week(user, min_week, agreement_start_date=None):
 
     print(f"Clarify Accum: {clarify_accum}, Target Accum: {target_accum}")
     for idx, wk in enumerate(sorted_weeks[starting_index:]):
+        # Check if this week has Full OOO status - skip entirely if so
+        if _is_full_ooo_week(data, wk):
+            print(f"  Week: {week_label_from_ordinal(wk)} - SKIPPING (Full OOO)")
+            continue
+        
         # starts at baseline_week current + 14 days
         # Add new deals for this week into the pending fortnight block
         new_deals = _get_col(data, wk - deal_no_clarify_delay, DEALS_NO_CLARIFY_COL, 0)
@@ -782,7 +868,7 @@ def find_earliest_week(user, min_week, agreement_start_date=None):
 
         # Only evaluate consumption at the end of each 2-week block
         # if idx % 2 == 1:
-        prev_wk = _prev_week(wk)
+        prev_wk = _find_prev_non_full_ooo_week(data, sorted_weeks, wk)
         clarify_curr = _get_col(data, wk, CLARIFY_COL, 0)
         clarify_prev = _get_col(data, prev_wk, CLARIFY_COL, 0)
 
@@ -790,14 +876,17 @@ def find_earliest_week(user, min_week, agreement_start_date=None):
         # Use the current week's target as the fortnight target reference (matches how 'difference' is computed)
         block_target = _get_col(data, wk, TARGET_CAPACITY_COL, fortnight_target)
         capacity_this_week = block_target - clarify_prev - clarify_curr - backlog_assigned_prev
-        capacity_next_week = -_get_col(data, wk + 7, DIFFERENCE_COL, 0)
+        
+        # Find the next non-Full OOO week for capacity calculation
+        next_available_week = _find_next_non_full_ooo_week(data, sorted_weeks, wk + 7)
+        capacity_next_week = -_get_col(data, next_available_week, DIFFERENCE_COL, 0)
 
         actual_capacity_this_week = min(capacity_this_week, capacity_next_week)
 
         week_limit = WEEKLY_HARD_LIMIT - clarify_curr
         diff_curr = _get_col(data, wk, DIFFERENCE_COL, 0)
-        diff_next = _get_col(data, wk + 7, DIFFERENCE_COL, 0)
-        diff_prev  = _get_col(data, prev_wk, DIFFERENCE_COL, 0)
+        diff_next = _get_col(data, next_available_week, DIFFERENCE_COL, 0)
+        diff_prev = _get_col(data, prev_wk, DIFFERENCE_COL, 0)
     
         backlog_assigned_curr = max(min(min(max(min(actual_capacity_this_week, week_limit), 0), remaining_backlog), max(-diff_prev, -diff_next)), 0)
         
@@ -818,6 +907,7 @@ def find_earliest_week(user, min_week, agreement_start_date=None):
             candidate = max(wk, min_allowed_week)
             if agreement_start_week:
                 candidate = max(candidate, agreement_start_week)
+            
             user["earliest_open_week"] = candidate
             print(f"   ✅ Available week found: {week_label_from_ordinal(candidate)} (Capacity: {final_capacity_curr:.1f})")
             return user
@@ -899,11 +989,44 @@ def get_user_ids_adviser():
     url = "https://api.hubapi.com/crm/v3/objects/users?properties=taking_on_clients,hs_email,hubspot_owner_id,adviser_start_date,pod_type,client_types&limit=100"  # include start date and ooo status
     if not HUBSPOT_TOKEN:
         raise RuntimeError("HUBSPOT_TOKEN is not configured")
-    response = requests.get(url, headers=HEADERS, timeout=30)
-    response.raise_for_status()
-    users = response.json().get("results", [])
-
-    return users
+    
+    session = create_requests_session()
+    
+    try:
+        print("🔗 Connecting to HubSpot API...")
+        response = session.get(url, headers=HEADERS, timeout=30)
+        response.raise_for_status()
+        users = response.json().get("results", [])
+        print(f"✅ Successfully loaded {len(users)} users from HubSpot")
+        return users
+        
+    except requests.exceptions.ConnectionError as e:
+        error_msg = f"Failed to connect to HubSpot API. Please check your internet connection and try again. Details: {str(e)}"
+        print(f"❌ Connection Error: {error_msg}")
+        raise RuntimeError(error_msg)
+        
+    except requests.exceptions.Timeout as e:
+        error_msg = f"HubSpot API request timed out. Please try again. Details: {str(e)}"
+        print(f"❌ Timeout Error: {error_msg}")
+        raise RuntimeError(error_msg)
+        
+    except requests.exceptions.HTTPError as e:
+        error_msg = f"HubSpot API returned an error: {e.response.status_code} - {e.response.text}"
+        print(f"❌ HTTP Error: {error_msg}")
+        raise RuntimeError(error_msg)
+        
+    except requests.exceptions.RequestException as e:
+        error_msg = f"An error occurred while connecting to HubSpot API: {str(e)}"
+        print(f"❌ Request Error: {error_msg}")
+        raise RuntimeError(error_msg)
+        
+    except Exception as e:
+        error_msg = f"An unexpected error occurred: {str(e)}"
+        print(f"❌ Unexpected Error: {error_msg}")
+        raise RuntimeError(error_msg)
+    
+    finally:
+        session.close()
 
 
 def get_adviser(service_package, agreement_start_date=None):
@@ -1136,15 +1259,24 @@ def get_users_taking_on_clients():
     url = "https://api.hubapi.com/crm/v3/objects/users?properties=taking_on_clients,hs_email,hubspot_owner_id,adviser_start_date,pod_type,client_types&limit=100"
     if not HUBSPOT_TOKEN:
         raise RuntimeError("HUBSPOT_TOKEN is not configured")
-    response = requests.get(url, headers=HEADERS, timeout=30)
-    response.raise_for_status()
-    users = response.json().get("results", [])
-    users_list = []
-    for user in users:
-        props = user.get("properties") or {}
-        if props.get("taking_on_clients") == "True":
-            users_list.append(user)
-    return users_list
+    
+    session = create_requests_session()
+    try:
+        response = session.get(url, headers=HEADERS, timeout=30)
+        response.raise_for_status()
+        users = response.json().get("results", [])
+        users_list = []
+        for user in users:
+            props = user.get("properties") or {}
+            if props.get("taking_on_clients") == "True":
+                users_list.append(user)
+        return users_list
+    except requests.exceptions.RequestException as e:
+        error_msg = f"Failed to load advisers taking on clients: {str(e)}"
+        print(f"❌ Error: {error_msg}")
+        raise RuntimeError(error_msg)
+    finally:
+        session.close()
 
 
 def get_users_earliest_availability(agreement_start_date=None, include_no=True):
