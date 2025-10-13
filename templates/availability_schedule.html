@@ -148,8 +148,19 @@
       const tdTarget  = tr.querySelector('td[data-field="target"]');
       const tdActual  = tr.querySelector('td[data-field="actual"]');
       const tdDiff    = tr.querySelector('td[data-field="diff"]');
+      const tdOoo     = tr.children[3];
+      const oooRaw    = (tdOoo ? tdOoo.textContent : '').trim().toLowerCase();
+      const isFull    = oooRaw.startsWith('full');
       const c = getNumFromCell(tdClarify);
       const t = getNumFromCell(tdTarget);
+
+      if (isFull) {
+        const diff = 0 - t;
+        if(tdActual) tdActual.textContent = '0';
+        if(tdDiff) tdDiff.textContent = String(diff);
+        return;
+      }
+
       const actual = c + prevClarify;
       const diff = actual - t;
       if(tdActual) tdActual.textContent = String(actual);

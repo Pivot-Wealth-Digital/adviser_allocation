@@ -790,17 +790,24 @@ def find_earliest_week(user, min_week, agreement_start_date=None):
     
     # Consider agreement start date as additional constraint
     agreement_start_week = None
+    agreement_allocation_week = None
     if agreement_start_date:
         if isinstance(agreement_start_date, datetime):
             agreement_start_week = week_monday_ordinal(agreement_start_date.date())
         elif hasattr(agreement_start_date, 'date'):
             agreement_start_week = week_monday_ordinal(agreement_start_date.date())
-        print(f"📅 Agreement start constraint: {week_label_from_ordinal(agreement_start_week)}")
+        if agreement_start_week is not None:
+            agreement_allocation_week = agreement_start_week + 7
+            allocation_label = week_label_from_ordinal(agreement_allocation_week)
+            print(
+                f"📅 Agreement start constraint: {week_label_from_ordinal(agreement_start_week)} "
+                f"(first allocations from {allocation_label})"
+            )
     
     # Always start searching at or after the minimum allowed week and agreement start week
     starting_week = max(min_week, min_allowed_week)
-    if agreement_start_week:
-        starting_week = max(starting_week, agreement_start_week)
+    if agreement_allocation_week:
+        starting_week = max(starting_week, agreement_allocation_week)
 
     data = user["capacity"]
     sorted_weeks = sorted(data.keys())
@@ -905,8 +912,8 @@ def find_earliest_week(user, min_week, agreement_start_date=None):
         print(f"Clarify Accum: {clarify_accum}, Target Accum: {target_accum}")
         if remaining_backlog <= 0 and final_capacity_curr > 0.5 and target_accum > clarify_accum:
             candidate = max(wk, min_allowed_week)
-            if agreement_start_week:
-                candidate = max(candidate, agreement_start_week)
+            if agreement_allocation_week:
+                candidate = max(candidate, agreement_allocation_week)
             
             user["earliest_open_week"] = candidate
             print(f"   ✅ Available week found: {week_label_from_ordinal(candidate)} (Capacity: {final_capacity_curr:.1f})")
@@ -917,8 +924,8 @@ def find_earliest_week(user, min_week, agreement_start_date=None):
     last_week = sorted_weeks[-1]
     fortnights_needed = int(ceil_div(max(remaining_backlog, 0), fortnight_target))
     final_week = max(last_week + FORTNIGHT_DAYS * fortnights_needed, min_allowed_week)
-    if agreement_start_week:
-        final_week = max(final_week, agreement_start_week)
+    if agreement_allocation_week:
+        final_week = max(final_week, agreement_allocation_week)
     
     # Try to find the first 2-week pair with negative differences at/after final_week
     sorted_weeks = sorted(data.keys())
@@ -935,8 +942,8 @@ def find_earliest_week(user, min_week, agreement_start_date=None):
                 break
     
     result = chosen if chosen else final_week
-    if agreement_start_week:
-        result = max(result, agreement_start_week)
+    if agreement_allocation_week:
+        result = max(result, agreement_allocation_week)
     user["earliest_open_week"] = result
     print(f"   📊 Final earliest week: {week_label_from_ordinal(user['earliest_open_week'])}")
     return user
@@ -1063,11 +1070,17 @@ def get_adviser(service_package, agreement_start_date=None):
 
     # Convert agreement_start_date from milliseconds to week ordinal
     agreement_start_week = None
+    agreement_allocation_week = None
     if agreement_start_date:
         agreement_start_week = week_monday_ordinal(
             datetime.fromtimestamp(int(agreement_start_date) / 1000, tz=SYDNEY_TZ).date()
         )
-        print(f"📊 Agreement Start Week: {week_label_from_ordinal(agreement_start_week)}")
+        if agreement_start_week is not None:
+            agreement_allocation_week = agreement_start_week + 7
+            print(
+                f"📊 Agreement Start Week: {week_label_from_ordinal(agreement_start_week)} "
+                f"(first allocations from {week_label_from_ordinal(agreement_allocation_week)})"
+            )
     print()
 
     for i, user in enumerate(users_list):
@@ -1161,17 +1174,17 @@ def get_adviser(service_package, agreement_start_date=None):
         print(f"   • {user_name}: {wk_label} ({earliest_date})")
     print()
 
-    # Filter advisers whose earliest_open_week is later than or equal to agreement_start_week
-    if agreement_start_week:
-        print(f"🔍 Filtering advisers available on/after {week_label_from_ordinal(agreement_start_week)}...")
+    # Filter advisers whose earliest_open_week is later than or equal to the first allocation week
+    if agreement_allocation_week:
+        print(f"🔍 Filtering advisers available on/after {week_label_from_ordinal(agreement_allocation_week)}...")
         eligible_users = []
         for user in users_list:
             earliest_week = user.get("earliest_open_week", float('inf'))
-            if isinstance(earliest_week, int) and earliest_week >= agreement_start_week:
+            if isinstance(earliest_week, int) and earliest_week >= agreement_allocation_week:
                 eligible_users.append(user)
 
         if not eligible_users:
-            raise RuntimeError("No advisers available for the requested agreement start date")
+            raise RuntimeError("No advisers available starting the week after the agreement start date")
 
         print(f"✅ {len(eligible_users)} advisers meet the agreement start date requirement")
         users_list = eligible_users
