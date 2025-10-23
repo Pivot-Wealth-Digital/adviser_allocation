@@ -9,14 +9,18 @@ import requests
 from utils.common import sydney_now, sydney_today, SYDNEY_TZ, USE_FIRESTORE, get_firestore_client
 from allocate import (
     get_adviser,
-    get_employee_leaves_from_firestore,
-    get_employee_id_from_firestore,
     get_users_earliest_availability,
     get_users_taking_on_clients,
     compute_user_schedule_by_email,
     week_label_from_ordinal,
-    get_user_ids_adviser
+    get_user_ids_adviser,
+    build_service_household_matrix,
 )
+from utils.firestore_helpers import (
+    get_employee_leaves as get_employee_leaves_from_firestore,
+    get_employee_id as get_employee_id_from_firestore,
+)
+from services.allocation_service import store_allocation_record
 
 from dotenv import load_dotenv
 
@@ -31,6 +35,8 @@ db = get_firestore_client()
 
 app = Flask(__name__)
 app.secret_key = get_secret("SESSION_SECRET") or "change-me-please"  # set in app.yaml or .env
+
+CHAT_WEBHOOK_URL = "https://chat.googleapis.com/v1/spaces/AAQAy57eveM/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=cF4kYM0bsQv198OBOtyvHICwyt41GLZK0gOi6EtY_MY"
 
 # ---- Admin auth config (for managing closures) ----
 ADMIN_USERNAME = get_secret("ADMIN_USERNAME") or os.environ.get("ADMIN_USERNAME")
@@ -197,8 +203,9 @@ def auth_start():
         # "scope": EH_SCOPES,
         "state": state,
     }
-    print(f"{EH_AUTHORIZE_URL}?{urlencode(params)}")
-    return redirect(f"{EH_AUTHORIZE_URL}?{urlencode(params)}")
+    authorize_url = f"{EH_AUTHORIZE_URL}?{urlencode(params)}"
+    logging.info("Redirecting to Employment Hero authorize URL: %s", authorize_url)
+    return redirect(authorize_url)
 
 @app.route("/auth/callback")
 def auth_callback():
@@ -396,36 +403,6 @@ def get_leave_requests():
     return (leave_requests, e.status_code, {"Content-Type": "application/json"})
 
 
-def get_employee_leaves_from_firestore(employee_id):
-    """
-    Queries Firestore to find all leave requests for a given employee ID.
-    
-    Args:
-        employee_id (str): The ID of the employee to search for.
-        
-    Returns:
-        list: A list of dictionaries, where each dictionary is a leave request.
-    """
-    list_leaves = []
-    
-    try:
-        # Get the collection reference and create the stream
-        if not db:
-            raise RuntimeError("Firestore is not configured; cannot read leave requests.")
-        leaves_ref = db.collection('employees').document(employee_id).collection('leave_requests')
-        docs = leaves_ref.stream()
-        
-        # Firestore returns a stream of documents, even if only one is expected
-        for doc in docs:
-            list_leaves.append(doc.to_dict())
-            
-    except Exception as e:
-        # Log the error for internal debugging
-        print(f"Firestore query failed: {e}")
-        
-    return list_leaves
-
-    
 @app.route("/get/employee_leave_requests")
 def get_employee_leave_requests():
     """HTTP endpoint to list leave requests by employee ID from Firestore.
@@ -724,51 +701,49 @@ def login():
     )
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
+# ---- Chat notification helper ----
+def _format_display_name(email: str) -> str:
+    local = (email or "").split("@")[0]
+    parts = re.split(r"[._-]+", local)
+    return " ".join(part.capitalize() for part in parts if part) or (email or "")
+
+
+def _format_tag_list(raw: str) -> list[str]:
+    parts = [p.strip() for p in re.split(r"[;,/|]+", raw or "") if p.strip()]
+    formatted = []
+    for part in parts:
+        formatted.append(part.upper() if part.upper() == "IPO" else part.title())
+    return formatted
+
+
+def send_chat_alert(payload: dict):
+    """Send a notification to Google Chat about the allocation."""
+    if not CHAT_WEBHOOK_URL:
+        return
+
+    try:
+        resp = requests.post(CHAT_WEBHOOK_URL, json=payload, timeout=10)
+        if resp.status_code >= 400:
+            logging.error("Chat webhook returned %s: %s", resp.status_code, resp.text)
+    except Exception as exc:  # pragma: no cover
+        logging.error("Failed to send chat alert: %s", exc)
+
+
+def build_chat_card_payload(title: str, sections: list[dict]) -> dict:
+    """Return Google Chat card payload."""
+    card_sections = []
+    for section in sections:
+        card_sections.append({
+            "header": section.get("header"),
+            "widgets": [{"textParagraph": {"text": text}} for text in section.get("lines", [])] or [],
+        })
+    return {"cards": [{"header": {"title": title}, "sections": card_sections}]}
+
 
 @app.route("/logout")
 def logout():
     session.pop("is_authenticated", None)
     return redirect("/login")
-
-
-# ---- Helper function to store allocation data ----
-def store_allocation_data(data, source="webhook"):
-    """Store allocation request data in Firestore.
-
-    Args:
-        data: Dictionary containing allocation data
-        source: Source of the request (e.g., "webhook", "hubspot_webhook")
-
-    Returns:
-        Document reference ID if successful, None otherwise
-    """
-    if not db:
-        logging.error("Firestore not configured; cannot store allocation data")
-        return None
-
-    try:
-        allocation_record = {
-            "timestamp": sydney_now().isoformat(),
-            "request_data": data,
-            "client_email": data.get("client_email", ""),
-            "adviser_email": data.get("adviser_email", ""),
-            "allocation_result": data.get("allocation_result", ""),
-            "earliest_week": data.get("earliest_week", ""),
-            "agreement_start_date": data.get("agreement_start_date", ""),
-            "status": data.get("status", "received"),
-            "source": source,
-            "ip_address": request.remote_addr,
-            "user_agent": request.headers.get("User-Agent", ""),
-        }
-
-        doc_ref = db.collection("allocation_requests").document()
-        doc_ref.set(allocation_record)
-        logging.info(f"Stored allocation record: {doc_ref.id}")
-        return doc_ref.id
-    except Exception as e:
-        logging.error(f"Failed to store allocation data: {e}")
-        return None
-
 
 # ---- assign adviser to open deal ----
 @app.route('/post/allocate', methods=['POST', 'GET'])
@@ -787,35 +762,42 @@ def handle_webhook():
 
     try:
         # Get the JSON data from the request body
-        print(request.json)
-        event = request.json
-        logging.info(f"Received event from HubSpot.")
-        logging.info(event)
-        
-        print("Deal ID: ", event.get('fields', {}).get('hs_deal_record_id', ''))
-        print("Service Package: ", event["fields"]["service_package"])
+        event = request.get_json()
+        logging.info("Received allocation payload: object=%s deal=%s", event.get('object'), event.get('fields', {}).get('hs_deal_record_id'))
         
         # Check for 'deal' object type as this is for a deal workflow.
         if event.get('object', {}).get('objectType', ''):
             service_package = event["fields"]["service_package"]
+            household_type = event["fields"].get("household_type", "")
             agreement_start_date = event.get('fields', {}).get('agreement_start_date', '')
-            user = get_adviser(service_package, agreement_start_date)
+            selected_user, candidate_list = get_adviser(service_package, agreement_start_date)
+            user = selected_user
+            chosen_email = (user.get("properties") or {}).get("hs_email")
             hubspot_owner_id = user["properties"]["hubspot_owner_id"]
-            print(hubspot_owner_id)
-            # hubspot_owner_id = '81859793'
             deal_id = event.get('fields', {}).get('hs_deal_record_id', '')
-            print(deal_id)
+            logging.info("Assigning deal %s to %s (%s)", deal_id, chosen_email, hubspot_owner_id)
 
             # Store initial allocation request
-            store_allocation_data({
-                "client_email": event.get('fields', {}).get('client_email', ''),
-                "adviser_email": user.get('properties', {}).get('hs_email', ''),
-                "deal_id": deal_id,
-                "service_package": service_package,
-                "agreement_start_date": agreement_start_date,
-                "allocation_result": "pending",
-                "status": "processing",
-            }, source="hubspot_webhook")
+            store_allocation_record(
+                db,
+                {
+                    "client_email": event.get('fields', {}).get('client_email', ''),
+                    "adviser_email": user.get('properties', {}).get('hs_email', ''),
+                    "adviser_hubspot_id": hubspot_owner_id,
+                    "deal_id": deal_id,
+                    "service_package": service_package,
+                    "household_type": household_type,
+                    "agreement_start_date": agreement_start_date,
+                    "allocation_result": "pending",
+                    "status": "processing",
+                },
+                source="hubspot_webhook",
+                raw_request=event,
+                extra_fields={
+                    "ip_address": request.remote_addr,
+                    "user_agent": request.headers.get("User-Agent", ""),
+                },
+            )
 
             try:
                 deal_update_url = f"https://api.hubapi.com/crm/v3/objects/deals/{deal_id}"
@@ -833,84 +815,133 @@ def handle_webhook():
                 response = requests.patch(deal_update_url, headers=HUBSPOT_HEADERS, data=json.dumps(payload), timeout=10)
                 response.raise_for_status()
 
-                logging.info(f"Successfully assigned deal ID {deal_id} to owner ID {hubspot_owner_id}.")
-                print(f"Successfully assigned deal ID {deal_id} to owner ID {hubspot_owner_id}.")
-                
-                # Store allocation in Firestore for history tracking
-                if db:
-                    try:
-                        allocation_record = {
-                            "timestamp": sydney_now().isoformat(),
-                            "request_data": event,
-                            "client_email": event.get('fields', {}).get('client_email', ''),
-                            "adviser_email": user.get('properties', {}).get('hs_email', ''),
-                            "adviser_hubspot_id": hubspot_owner_id,
-                            "deal_id": deal_id,
-                            "service_package": service_package,
-                            "agreement_start_date": agreement_start_date,
-                            "allocation_result": "success",
-                            "status": "completed",
-                            "source": "hubspot_webhook",
-                            "ip_address": request.remote_addr,
-                            "user_agent": request.headers.get("User-Agent", ""),
-                        }
-                        
-                        doc_ref = db.collection("allocation_requests").document()
-                        doc_ref.set(allocation_record)
-                        logging.info(f"Stored allocation record: {doc_ref.id}")
-                    except Exception as store_err:
-                        logging.error(f"Failed to store allocation record: {store_err}")
+                logging.info(
+                    "Successfully assigned deal %s to owner %s",
+                    deal_id,
+                    hubspot_owner_id,
+                )
+
+                store_allocation_record(
+                    db,
+                    {
+                        "client_email": event.get('fields', {}).get('client_email', ''),
+                        "adviser_email": user.get('properties', {}).get('hs_email', ''),
+                        "adviser_hubspot_id": hubspot_owner_id,
+                        "deal_id": deal_id,
+                        "service_package": service_package,
+                        "household_type": household_type,
+                        "agreement_start_date": agreement_start_date,
+                        "allocation_result": "success",
+                        "status": "completed",
+                    },
+                    source="hubspot_webhook",
+                    raw_request=event,
+                    extra_fields={
+                        "ip_address": request.remote_addr,
+                        "user_agent": request.headers.get("User-Agent", ""),
+                    },
+                )
+
+                adviser_props = user.get("properties") or {}
+                adviser_name = _format_display_name(chosen_email)
+                adviser_service_tags = _format_tag_list(adviser_props.get("client_types") or "")
+                adviser_household_tags = _format_tag_list(adviser_props.get("household_type") or "")
+                deal_service_display = ", ".join(_format_tag_list(service_package)) or (service_package or "Unknown")
+                deal_household_display = ", ".join(_format_tag_list(household_type)) or (household_type or "Not provided")
+
+                candidate_lines = []
+                for cand in candidate_list:
+                    cand_services = ", ".join(_format_tag_list(cand.get("service_packages"))) or "Not specified"
+                    cand_households = ", ".join(_format_tag_list(cand.get("household_type"))) or "Not specified"
+                    cand_earliest = cand.get("earliest_open_week_label") or "Unknown"
+                    candidate_lines.append(
+                        f"<b>{cand.get('name')}</b> ({cand.get('email')})<br>"
+                        f"<i>Services:</i> {cand_services}<br>"
+                        f"<i>Households:</i> {cand_households}<br>"
+                        f"<i>Earliest Week:</i> {cand_earliest}"
+                    )
+                if not candidate_lines:
+                    candidate_lines = ["No eligible advisers"]
+
+                selected_services = ", ".join(adviser_service_tags) if adviser_service_tags else "Not specified"
+                selected_households = ", ".join(adviser_household_tags) if adviser_household_tags else "Not specified"
+                selected_entry = next((c for c in candidate_list if c.get("email") == chosen_email), None)
+                selected_earliest = (
+                    selected_entry.get("earliest_open_week_label")
+                    if selected_entry else None
+                ) or "Unknown"
+
+                deal_section = [
+                    f"<b>Deal ID:</b> `{deal_id}`",
+                    f"<b>Service Package:</b> {deal_service_display}",
+                    f"<b>Household Type:</b> {deal_household_display}",
+                ]
+
+                selected_section = [
+                    f"<b>{adviser_name}</b> ({chosen_email})",
+                    f"<i>Service Packages:</i> {selected_services}",
+                    f"<i>Household Types:</i> {selected_households}",
+                    f"<i>Earliest Week:</i> {selected_earliest}",
+                ]
+
+                payload = build_chat_card_payload(
+                    "Deal Allocation",
+                    [
+                        {"header": "Deal Details", "lines": deal_section},
+                        {"header": "Eligible Advisers", "lines": candidate_lines},
+                        {"header": "Selected Adviser", "lines": selected_section},
+                    ],
+                )
+                send_chat_alert(payload)
             except requests.exceptions.HTTPError as http_err:
                 logging.error(f"HTTP error during deal update: {http_err}")
                 logging.error(f"Response content: {response.text}")
+                print(f"[post/allocate] HTTP error updating deal {deal_id}: {http_err}")
                 
-                # Store failed allocation in Firestore
-                if db:
-                    try:
-                        allocation_record = {
-                            "timestamp": sydney_now().isoformat(),
-                            "request_data": event,
-                            "client_email": event.get('fields', {}).get('client_email', ''),
-                            "adviser_email": user.get('properties', {}).get('hs_email', '') if 'user' in locals() else '',
-                            "deal_id": deal_id,
-                            "service_package": service_package,
-                            "agreement_start_date": agreement_start_date,
-                            "allocation_result": "http_error",
-                            "status": "failed",
-                            "error_message": str(http_err),
-                            "source": "hubspot_webhook",
-                            "ip_address": request.remote_addr,
-                            "user_agent": request.headers.get("User-Agent", ""),
-                        }
-                        
-                        db.collection("allocation_requests").document().set(allocation_record)
-                    except Exception as store_err:
-                        logging.error(f"Failed to store failed allocation record: {store_err}")
-                        
+                store_allocation_record(
+                    db,
+                    {
+                        "client_email": event.get('fields', {}).get('client_email', ''),
+                        "adviser_email": user.get('properties', {}).get('hs_email', '') if 'user' in locals() else '',
+                        "deal_id": deal_id,
+                        "service_package": service_package,
+                        "household_type": household_type,
+                        "agreement_start_date": agreement_start_date,
+                        "allocation_result": "http_error",
+                        "status": "failed",
+                        "error_message": str(http_err),
+                    },
+                    source="hubspot_webhook",
+                    raw_request=event,
+                    extra_fields={
+                        "ip_address": request.remote_addr,
+                        "user_agent": request.headers.get("User-Agent", ""),
+                    },
+                )
+            
             except Exception as err:
                 logging.error(f"An unexpected error occurred during deal update: {err}")
+                print(f"[post/allocate] Unexpected error updating deal {deal_id}: {err}")
                 
-                # Store failed allocation in Firestore
-                if db:
-                    try:
-                        allocation_record = {
-                            "timestamp": sydney_now().isoformat(),
-                            "request_data": event,
-                            "client_email": event.get('fields', {}).get('client_email', ''),
-                            "deal_id": deal_id if 'deal_id' in locals() else '',
-                            "service_package": service_package if 'service_package' in locals() else '',
-                            "agreement_start_date": agreement_start_date if 'agreement_start_date' in locals() else '',
-                            "allocation_result": "general_error",
-                            "status": "failed",
-                            "error_message": str(err),
-                            "source": "hubspot_webhook",
-                            "ip_address": request.remote_addr,
-                            "user_agent": request.headers.get("User-Agent", ""),
-                        }
-                        
-                        db.collection("allocation_requests").document().set(allocation_record)
-                    except Exception as store_err:
-                        logging.error(f"Failed to store failed allocation record: {store_err}")
+                store_allocation_record(
+                    db,
+                    {
+                        "client_email": event.get('fields', {}).get('client_email', ''),
+                        "deal_id": deal_id if 'deal_id' in locals() else '',
+                        "service_package": service_package if 'service_package' in locals() else '',
+                        "household_type": household_type if 'household_type' in locals() else '',
+                        "agreement_start_date": agreement_start_date if 'agreement_start_date' in locals() else '',
+                        "allocation_result": "general_error",
+                        "status": "failed",
+                        "error_message": str(err),
+                    },
+                    source="hubspot_webhook",
+                    raw_request=event,
+                    extra_fields={
+                        "ip_address": request.remote_addr,
+                        "user_agent": request.headers.get("User-Agent", ""),
+                    },
+                )
         
         # Return a success response. HubSpot expects a 200 OK.
         return jsonify({'message': 'Webhook received successfully'}), 200
@@ -1100,8 +1131,11 @@ def allocation_webhook():
         if not data:
             return jsonify({"error": "No JSON data provided"}), 400
 
-        # Store using shared helper
-        doc_id = store_allocation_data(data, source="webhook")
+        extra = {
+            "ip_address": request.remote_addr,
+            "user_agent": request.headers.get("User-Agent", ""),
+        }
+        doc_id = store_allocation_record(db, data, source="webhook", raw_request=data, extra_fields=extra)
 
         if doc_id:
             return jsonify({
@@ -1223,6 +1257,11 @@ def availability_earliest():
         # Only compute if requested
         rows = []
         if compute:
+            logging.info(
+                "availability_earliest requested with include_no=%s agreement_start_date=%s",
+                include_no,
+                agreement_start_date.isoformat() if agreement_start_date else "default",
+            )
             results = get_users_earliest_availability(agreement_start_date=agreement_start_date, include_no=include_no)
             results = sorted(results, key=lambda r: (r.get("email") or "").lower())
 
@@ -1251,8 +1290,10 @@ def availability_earliest():
                 toc_label = "Yes" if toc_bool else "No"
                 rows.append({
                     "email": item.get("email") or "",
+                    "name": _format_display_name(item.get("email") or ""),
                     "tags": tags,
                     "pod": item.get("pod_type") or "",
+                    "household_type": item.get("household_type") or "",
                     "limit": item.get("client_limit_monthly") or "",
                     "wk_label": item.get("earliest_open_week_label") or (item.get("error") or ""),
                     "monday": monday_str,
@@ -1282,8 +1323,21 @@ def availability_earliest():
                         next_idx += 1
 
             # Prepare rows with colored tags using the global map
+            household_cycle = ["orange", "pink", "teal", "purple", "green", "blue"]
+            household_color_map = {}
+            household_idx = 0
             for r in rows:
                 r["tag_items"] = [{"name": t, "cls": tag_color_map.get(t, color_cycle[0])} for t in (r.get("tags") or [])]
+                household_raw = r.get("household_type") or ""
+                household_parts = [p.strip() for p in re.split(r"[;]+", household_raw) if p.strip()]
+                items = []
+                for part in household_parts:
+                    key = part.lower()
+                    if key not in household_color_map:
+                        household_color_map[key] = household_cycle[household_idx % len(household_cycle)]
+                        household_idx += 1
+                    items.append({"name": part, "cls": household_color_map[key]})
+                r["household_items"] = items
 
         return render_template(
             "availability_earliest.html",
@@ -1346,18 +1400,35 @@ def availability_schedule():
     except Exception as e:
         return (f"<p>Failed to load advisers: {e}</p>", 500, {"Content-Type": "text/html; charset=utf-8"})
 
-    # Only get emails from advisers that match the include_no filter
-    emails = sorted([(u.get("properties") or {}).get("hs_email") or "" for u in advisers if (u.get("properties") or {}).get("hs_email")])
-
     def pretty_name(email: str) -> str:
         local = (email or "").split("@")[0]
         return " ".join(part.capitalize() for part in local.replace(".", " ").replace("_", " ").split()) or email
+
+    display_advisers = []
+    for user in advisers:
+        props = user.get("properties") or {}
+        email = props.get("hs_email") or ""
+        if not email:
+            continue
+        display_advisers.append({
+            "email": email,
+            "name": pretty_name(email),
+            "service_packages": props.get("client_types") or "",
+            "household_type": props.get("household_type") or "",
+        })
+
+    emails = sorted([item["email"] for item in display_advisers])
 
     selected = request.args.get("email")
 
     rows = []
     earliest_week = None
     if selected and compute:
+        logging.info(
+            "availability_schedule requested for %s (agreement_start_date=%s)",
+            selected,
+            agreement_start_date.isoformat() if agreement_start_date else "default",
+        )
         try:
             res = compute_user_schedule_by_email(selected, agreement_start_date=agreement_start_date)
             capacity = res.get("capacity") or {}
@@ -1379,10 +1450,12 @@ def availability_schedule():
             return (f"<p>Failed to compute schedule for {selected}: {e}</p>", 500, {"Content-Type": "text/html; charset=utf-8"})
 
     # Build the adviser dropdown options HTML (kept simple for template)
-    option_items = ["<option value=\"\">-- Select adviser --</option>"]
-    for e in emails:
-        sel_attr = " selected" if selected == e else ""
-        option_items.append(f"<option value=\"{e}\"{sel_attr}>{pretty_name(e)}</option>")
+            option_items = ["<option value=\"\">-- Select adviser --</option>"]
+            for entry in sorted(display_advisers, key=lambda item: item["name"].lower()):
+                e = entry["email"]
+                sel_attr = " selected" if selected == e else ""
+                label = f"{entry['name']}"
+                option_items.append(f"<option value=\"{e}\"{sel_attr}>{label}</option>")
     options_html = "".join(option_items)
 
     return render_template(
@@ -1395,6 +1468,49 @@ def availability_schedule():
         default_date=default_date,
         compute=compute,
     )
+
+
+@app.route("/availability/matrix")
+def availability_matrix():
+    try:
+        services, households, matrix = build_service_household_matrix()
+        rows = [
+            {
+                "service": svc,
+                "columns": [
+                    {"household": hh, "advisers": matrix.get(svc, {}).get(hh, [])}
+                    for hh in households
+                ],
+            }
+            for svc in services
+        ]
+        unique_advisers = {
+            adviser["email"]
+            for svc_map in matrix.values()
+            for advisers in svc_map.values()
+            for adviser in advisers
+        }
+        return render_template(
+            "availability_matrix.html",
+            services=services,
+            households=households,
+            matrix=matrix,
+            rows=rows,
+            adviser_count=len(unique_advisers),
+            today=sydney_today().isoformat(),
+            week_num=f"{sydney_today().isocalendar()[1]:02d}",
+        )
+    except Exception as e:
+        logging.error("Failed to build availability matrix: %s", e)
+        return render_template_string(
+            """
+            <div style=\"padding: 20px; text-align: center;\">
+                <h3>❌ Error Loading Availability Matrix</h3>
+                <p>{{ error }}</p>
+            </div>
+            """,
+            error=str(e),
+        ), 500
 
 # Healthcheck
 @app.route("/_ah/warmup")

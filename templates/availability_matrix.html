@@ -1,0 +1,53 @@
+{% extends 'layout.html' %}
+{% set title = 'Adviser Availability Matrix' %}
+
+{% block content %}
+<div class="topbar">
+  <div style="display:flex;align-items:center;gap:16px;">
+    <a href="/" style="color:#d0d7e2;text-decoration:none;font-size:0.9em;">← Home</a>
+    <h2>Adviser Availability Matrix</h2>
+  </div>
+  <div class="datebox"><span>Today: {{ today }}</span><span>Week: {{ week_num }}</span></div>
+</div>
+
+<div class="card">
+  <p class="muted">
+    Active advisers grouped by service package (rows) and household type (columns). Each cell lists
+    the advisers who can handle that combination. Total advisers shown: {{ adviser_count }}.
+  </p>
+</div>
+
+<div class="card" style="overflow-x:auto;">
+  <table>
+    <thead>
+      <tr>
+        <th>Service Package</th>
+        {% for household in households %}
+          <th>{{ household }}</th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for service in services %}
+        <tr>
+          <td>{{ service }}</td>
+          {% for household in households %}
+            {% set advisers = matrix[service][household] %}
+            <td>
+              {% if advisers %}
+                <div class="taglist" style="display:flex;flex-wrap:wrap;gap:6px;">
+                  {% for adv in advisers %}
+                    <span class="tag {{ adv.cls }}" title="{{ adv.name }}">{{ adv.name }}</span>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <span class="muted">—</span>
+              {% endif %}
+            </td>
+          {% endfor %}
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

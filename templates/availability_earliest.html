@@ -36,10 +36,11 @@
 <table>
   <thead>
     <tr>
-      <th>Email</th>
+      <th>Adviser</th>
       <th data-sort="num">Taking<br/>On Clients</th>
       <th>Service<br/>Packages</th>
       <th>Pod<br/>Type</th>
+      <th>Household<br/>Type</th>
       <th>Client<br/>Monthly Limit</th>
       <th>Earliest<br/>Open Week</th>
       <th class="nowrap">Monday Date</th>
@@ -49,7 +50,7 @@
     {% if compute and rows %}
       {% for r in rows %}
         <tr>
-          <td>{{ r.email }}</td>
+          <td>{{ r.name }}</td>
           <td data-value="{{ r.taking_on_clients_sort }}">{{ r.taking_on_clients }}</td>
           <td>
             <div class="taglist">
@@ -59,6 +60,13 @@
             </div>
           </td>
           <td>{{ r.pod }}</td>
+          <td>
+            <div class="taglist">
+              {% for t in r.household_items %}
+                <span class="tag {{ t.cls }}">{{ t.name }}</span>
+              {% endfor %}
+            </div>
+          </td>
           <td>{{ r.limit }}</td>
           <td>{{ r.wk_label }}</td>
           <td class="nowrap">{{ r.monday }}</td>

@@ -1,21 +1,32 @@
 import os, time, logging
 from datetime import datetime, timedelta, date
+import re
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from zoneinfo import ZoneInfo
 
-from utils.common import sydney_now, sydney_today, sydney_datetime_from_date, SYDNEY_TZ, USE_FIRESTORE, get_firestore_client
+from utils.common import sydney_now, sydney_today, sydney_datetime_from_date, SYDNEY_TZ
 from utils.secrets import get_secret
+from utils.firestore_helpers import (
+    get_employee_leaves as get_employee_leaves_from_firestore,
+    get_employee_id as get_employee_id_from_firestore,
+    get_global_closures as get_global_closures_from_firestore,
+)
 
-# Weeks before an adviser's start date when they can begin receiving allocations
-PRESTART_WEEKS = int(os.environ.get("PRESTART_WEEKS", "3"))
-
-# Initialize Firestore
-db = get_firestore_client()
+logger = logging.getLogger(__name__)
 
 HUBSPOT_TOKEN = get_secret("HUBSPOT_TOKEN")
 HEADERS = {"Authorization": f"Bearer {HUBSPOT_TOKEN}", "Content-Type": "application/json"}
+_SPECIAL_UPPER = {"ipo"}
+PRESTART_WEEKS = int(os.environ.get("PRESTART_WEEKS", "3"))
+_MATRIX_CACHE_TTL = int(os.environ.get("MATRIX_CACHE_TTL", "300"))
+_MATRIX_CACHE = {
+    "timestamp": 0.0,
+    "services": [],
+    "households": [],
+    "matrix": {},
+}
 
 def create_requests_session():
     """Create a requests session with retry logic for network issues."""
@@ -124,87 +135,6 @@ def _find_prev_non_full_ooo_week(data, sorted_weeks, start_week: int) -> int:
 def ceil_div(a, b):
     return -(-a // b)  # integer ceil without math.ceil
 
-
-def get_employee_leaves_from_firestore(employee_id):
-    """
-    Queries Firestore to find all leave requests for a given employee ID.
-    
-    Args:
-        employee_id (str): The ID of the employee to search for.
-        
-    Returns:
-        list: A list of dictionaries, where each dictionary is a leave request.
-    """
-    list_leaves = []
-    
-    try:
-        if not db:
-            return []
-        # Get the collection reference and create the stream
-        leaves_ref = db.collection('employees').document(employee_id).collection('leave_requests')
-        docs = leaves_ref.stream()
-        
-        # Firestore returns a stream of documents, even if only one is expected
-        for doc in docs:
-            list_leaves.append(doc.to_dict())
-            
-    except Exception as e:
-        # Log the error for internal debugging
-        print(f"Firestore query failed: {e}")
-        
-    return list_leaves
-
-
-def get_global_closures_from_firestore():
-    """
-    Fetch global holidays/office closures from Firestore.
-
-    Expected collection: 'office_closures' with documents containing
-    at least 'start_date' and 'end_date' as ISO dates (YYYY-MM-DD).
-
-    Returns a list of dicts compatible with classify_leave_weeks.
-    """
-    items = []
-    try:
-        if not db:
-            return []
-        docs = db.collection('office_closures').stream()
-        for doc in docs:
-            data = doc.to_dict() or {}
-            start_date = data.get('start_date')
-            end_date = data.get('end_date') or start_date
-            if start_date:
-                items.append({"start_date": start_date, "end_date": end_date})
-    except Exception as e:
-        logging.warning(f"Failed to load office closures: {e}")
-    return items
-
-
-def get_employee_id_from_firestore(search_email):
-    """
-    Queries Firestore to find an employee ID by their company email.
-    
-    Args:
-        search_email (str): The email address to search for.
-        
-    Returns:
-        str: The employee ID if found, otherwise None.
-    """
-    try:
-        if not db:
-            return None
-        docs = db.collection('employees').where('company_email', '==', search_email).stream()
-        
-        # We expect a single result, so we can return the first one found.
-        for doc in docs:
-            return doc.id
-        
-    except Exception as e:
-        # Log the error for internal debugging
-        print(f"Firestore query failed: {e}")
-        
-    return None
-    
 
 def get_first_monday_current_month(input_date=None, tz_name=None) -> int:
     """
@@ -390,14 +320,16 @@ def get_meeting_count(user_meetings, display_table=False):
         kickoff_count = weekly_kickoff_counts.get(week, 0)
         table_data.append([week_label_from_ordinal(week), total_count, kickoff_count])
 
-    # Print the table
+    # Optionally log the table for debugging
     if display_table:
+        lines = []
         for row in table_data:
-            if row == table_data[0]:  # Print header
-                print(f"{row[0]:<15} {row[1]:<16} {row[2]}")
-                print("-" * 50)  # Separator
+            if row == table_data[0]:
+                lines.append(f"{row[0]:<15} {row[1]:<16} {row[2]}")
+                lines.append("-" * 50)
             else:
-                print(f"{row[0]:<15} {row[1]:<16} {row[2]}")
+                lines.append(f"{row[0]:<15} {row[1]:<16} {row[2]}")
+        logger.debug("Meeting count table:\n%s", "\n".join(lines))
 
     return {
         w: [weekly_clarify_counts.get(w, 0), weekly_kickoff_counts.get(w, 0)]
@@ -784,7 +716,7 @@ def find_earliest_week(user, min_week, agreement_start_date=None):
         agreement_start_date: Optional datetime for minimum agreement start constraint
     """
     user_name = user['properties']['hs_email'].split('@')[0].replace('.', ' ').title()
-    print(f"🔍 Finding earliest available week for {user_name}...")
+    logger.info("Finding earliest week for %s", user_name)
     now_week = week_monday_ordinal(sydney_today())
     min_allowed_week = now_week + FORTNIGHT_DAYS  # must be at least 2 weeks out
     
@@ -799,9 +731,11 @@ def find_earliest_week(user, min_week, agreement_start_date=None):
         if agreement_start_week is not None:
             agreement_allocation_week = agreement_start_week + 7
             allocation_label = week_label_from_ordinal(agreement_allocation_week)
-            print(
-                f"📅 Agreement start constraint: {week_label_from_ordinal(agreement_start_week)} "
-                f"(first allocations from {allocation_label})"
+            logger.info(
+                "Agreement start constraint for %s: %s (allocations from %s)",
+                user_name,
+                week_label_from_ordinal(agreement_start_week),
+                allocation_label,
             )
     
     # Always start searching at or after the minimum allowed week and agreement start week
@@ -844,7 +778,12 @@ def find_earliest_week(user, min_week, agreement_start_date=None):
     # overflow for baseline week - 7 days
     remaining_backlog += _get_col(data, baseline_week - 7, CLARIFY_COL, 0) - _get_col(data, baseline_week - 7, TARGET_CAPACITY_COL, 0) / 2
 
-    print(f"Baseline Week: {week_label_from_ordinal(baseline_week)}, Initial Backlog: {remaining_backlog}")
+    logger.debug(
+        "Baseline week for %s: %s (initial backlog %.2f)",
+        user_name,
+        week_label_from_ordinal(baseline_week),
+        remaining_backlog,
+    )
     # Walk forward in non-overlapping fortnights: accumulate new deals for two weeks,
     # then consume using fortnight spare (target - clarifies(prev+curr)).
     fortnight_target = int((user.get("properties", {}).get("client_limit_monthly") or 0) // 2)
@@ -861,11 +800,16 @@ def find_earliest_week(user, min_week, agreement_start_date=None):
         v[TARGET_CAPACITY_COL] for k, v in data.items() if k <  baseline_week
     ) / 2
 
-    print(f"Clarify Accum: {clarify_accum}, Target Accum: {target_accum}")
+    logger.debug(
+        "Starting accumulators for %s -> clarify %.2f target %.2f",
+        user_name,
+        clarify_accum,
+        target_accum,
+    )
     for idx, wk in enumerate(sorted_weeks[starting_index:]):
         # Check if this week has Full OOO status - skip entirely if so
         if _is_full_ooo_week(data, wk):
-            print(f"  Week: {week_label_from_ordinal(wk)} - SKIPPING (Full OOO)")
+            logger.debug("Week %s skipped for %s (Full OOO)", week_label_from_ordinal(wk), user_name)
             continue
         
         # starts at baseline_week current + 14 days
@@ -908,15 +852,36 @@ def find_earliest_week(user, min_week, agreement_start_date=None):
         target_accum += block_target / 2
         clarify_accum += clarify_curr + new_deals
 
-        print(f"  Week: {week_label_from_ordinal(wk)}, New Deals: {new_deals}, Clarify Prev: {clarify_prev}, Clarify Curr: {clarify_curr}, Target: {block_target}, Capacity: {final_capacity_curr}, Assigned: {backlog_assigned_curr}, Backlog: {remaining_backlog},")
-        print(f"Clarify Accum: {clarify_accum}, Target Accum: {target_accum}")
+        logger.debug(
+            "Week %s (%s): new deals=%s clarify_prev=%s clarify_curr=%s target=%s capacity=%.2f assigned=%.2f backlog=%.2f",
+            week_label_from_ordinal(wk),
+            user_name,
+            new_deals,
+            clarify_prev,
+            clarify_curr,
+            block_target,
+            final_capacity_curr,
+            backlog_assigned_curr,
+            remaining_backlog,
+        )
+        logger.debug(
+            "Accumulators for %s -> clarify %.2f target %.2f",
+            user_name,
+            clarify_accum,
+            target_accum,
+        )
         if remaining_backlog <= 0 and final_capacity_curr > 0.5 and target_accum > clarify_accum:
             candidate = max(wk, min_allowed_week)
             if agreement_allocation_week:
                 candidate = max(candidate, agreement_allocation_week)
             
             user["earliest_open_week"] = candidate
-            print(f"   ✅ Available week found: {week_label_from_ordinal(candidate)} (Capacity: {final_capacity_curr:.1f})")
+            logger.info(
+                "Earliest week found for %s: %s (capacity %.1f)",
+                user_name,
+                week_label_from_ordinal(candidate),
+                final_capacity_curr,
+            )
             return user
             
 
@@ -945,7 +910,11 @@ def find_earliest_week(user, min_week, agreement_start_date=None):
     if agreement_allocation_week:
         result = max(result, agreement_allocation_week)
     user["earliest_open_week"] = result
-    print(f"   📊 Final earliest week: {week_label_from_ordinal(user['earliest_open_week'])}")
+    logger.info(
+        "Final earliest week for %s: %s",
+        user_name,
+        week_label_from_ordinal(user['earliest_open_week']),
+    )
     return user
 
 
@@ -973,63 +942,67 @@ def display_data(data):
             if len(item) > column_widths[i]:
                 column_widths[i] = len(item)
 
-    # Print the header row with dynamic spacing
+    lines = []
     header_row = " | ".join(
         header.ljust(width) for header, width in zip(headers, column_widths)
     )
-    print(header_row)
+    lines.append(header_row)
 
-    # Print the separator line
     separator = "-|-".join("-" * width for width in column_widths)
-    print(separator)
+    lines.append(separator)
 
-    # Print each data row with dynamic spacing
     for week in sorted_weeks:
         row_data = [week_label_from_ordinal(week)] + [str(item) for item in data[week]]
         data_row = " | ".join(
             item.ljust(width) for item, width in zip(row_data, column_widths)
         )
-        print(data_row)
+        lines.append(data_row)
+
+    logger.debug("Capacity table:\n%s", "\n".join(lines))
 
 
 def get_user_ids_adviser():
-    url = "https://api.hubapi.com/crm/v3/objects/users?properties=taking_on_clients,hs_email,hubspot_owner_id,adviser_start_date,pod_type,client_types&limit=100"  # include start date and ooo status
+    url = (
+        "https://api.hubapi.com/crm/v3/objects/users"
+        "?properties=taking_on_clients,hs_email,hubspot_owner_id,adviser_start_date,"
+        "pod_type,client_types,household_type&limit=100"
+    )
     if not HUBSPOT_TOKEN:
         raise RuntimeError("HUBSPOT_TOKEN is not configured")
     
     session = create_requests_session()
     
     try:
-        print("🔗 Connecting to HubSpot API...")
+        logger.info("Loading HubSpot users")
         response = session.get(url, headers=HEADERS, timeout=30)
         response.raise_for_status()
         users = response.json().get("results", [])
-        print(f"✅ Successfully loaded {len(users)} users from HubSpot")
+        logger.info("Loaded %d HubSpot users", len(users))
         return users
         
     except requests.exceptions.ConnectionError as e:
         error_msg = f"Failed to connect to HubSpot API. Please check your internet connection and try again. Details: {str(e)}"
-        print(f"❌ Connection Error: {error_msg}")
+        logger.error("HubSpot connection error: %s", error_msg)
         raise RuntimeError(error_msg)
         
     except requests.exceptions.Timeout as e:
         error_msg = f"HubSpot API request timed out. Please try again. Details: {str(e)}"
-        print(f"❌ Timeout Error: {error_msg}")
+        logger.error("HubSpot timeout: %s", error_msg)
         raise RuntimeError(error_msg)
         
     except requests.exceptions.HTTPError as e:
         error_msg = f"HubSpot API returned an error: {e.response.status_code} - {e.response.text}"
-        print(f"❌ HTTP Error: {error_msg}")
+        logger.error("HubSpot HTTP error: %s", error_msg)
         raise RuntimeError(error_msg)
         
     except requests.exceptions.RequestException as e:
         error_msg = f"An error occurred while connecting to HubSpot API: {str(e)}"
-        print(f"❌ Request Error: {error_msg}")
+        logger.error("HubSpot request error: %s", error_msg)
         raise RuntimeError(error_msg)
         
     except Exception as e:
         error_msg = f"An unexpected error occurred: {str(e)}"
-        print(f"❌ Unexpected Error: {error_msg}")
+        logger.error("HubSpot unexpected error: %s", error_msg)
         raise RuntimeError(error_msg)
     
     finally:
@@ -1037,33 +1010,49 @@ def get_user_ids_adviser():
 
 
 def get_adviser(service_package, agreement_start_date=None):
-    print("=" * 60)
-    print("🔍 ADVISER ALLOCATION PROCESS STARTED")
-    print("=" * 60)
-
-    # Display key parameters
-    print(f"📋 Service Package: {service_package}")
+    logger.info("Adviser allocation started for service package %s", service_package)
     if agreement_start_date:
         agreement_date = datetime.fromtimestamp(int(agreement_start_date) / 1000, tz=SYDNEY_TZ).date()
-        print(f"📅 Agreement Start Date: {agreement_date} ({agreement_date.strftime('%A, %B %d, %Y')})")
+        logger.info("Agreement start date provided: %s", agreement_date.isoformat())
     else:
-        print("📅 Agreement Start Date: Not specified")
+        logger.info("Agreement start date not provided")
 
-    print(f"🗓️  Current Date: {sydney_today()} ({sydney_today().strftime('%A, %B %d, %Y')})")
-    print()
-
-    print("🔍 Finding eligible advisers...")
+    logger.info("Finding eligible advisers for package %s", service_package)
     users = get_user_ids_adviser()
     users_list = []
     for user in users:
         props = user.get("properties") or {}
-        if props.get("taking_on_clients") == "True":
-            client_types = props.get("client_types") or ""
-            if service_package in client_types:
-                users_list.append(user)
+        if props.get("taking_on_clients") != "True":
+            continue
 
-    print(f"✅ Found {len(users_list)} advisers taking on {service_package} clients")
-    print()
+        client_types_raw = props.get("client_types") or ""
+        client_types = _normalized_set(client_types_raw)
+        logger.debug(
+            "Adviser %s client_types raw=%s parsed=%s",
+            props.get("hs_email"),
+            client_types_raw,
+            client_types,
+        )
+        if service_package.lower() not in client_types:
+            continue
+
+        household_pref = (props.get("household_type") or "")
+        logger.debug(
+            "Adviser %s household raw=%s",
+            props.get("hs_email"),
+            household_pref,
+        )
+        if not _matches_household(service_package, household_pref):
+            logger.debug(
+                "Skipping adviser %s for household mismatch (service %s, adviser household %s)",
+                props.get("hs_email"),
+                service_package,
+                household_pref,
+            )
+            continue
+
+        users_list.append(user)
+    logger.info("Advisers eligible for %s with household constraint: %d", service_package, len(users_list))
 
     # Load global closures once
     global_closures = classify_leave_weeks(get_global_closures_from_firestore())
@@ -1077,17 +1066,16 @@ def get_adviser(service_package, agreement_start_date=None):
         )
         if agreement_start_week is not None:
             agreement_allocation_week = agreement_start_week + 7
-            print(
-                f"📊 Agreement Start Week: {week_label_from_ordinal(agreement_start_week)} "
-                f"(first allocations from {week_label_from_ordinal(agreement_allocation_week)})"
+            logger.info(
+                "Agreement start week %s (allocations from %s)",
+                week_label_from_ordinal(agreement_start_week),
+                week_label_from_ordinal(agreement_allocation_week),
             )
-    print()
 
     for i, user in enumerate(users_list):
         user_email = user["properties"]["hs_email"]
         user_name = user_email.split('@')[0].replace('.', ' ').title()
-
-        print(f"👤 Processing Adviser {i+1}/{len(users_list)}: {user_name} ({user_email})")
+        logger.info("Processing adviser %d/%d: %s", i + 1, len(users_list), user_email)
 
         # get user approved leave requests from EH
         employee_id = get_employee_id_from_firestore(user_email)
@@ -1132,19 +1120,29 @@ def get_adviser(service_package, agreement_start_date=None):
         effective_min_week = max(min_week, availability_week) if availability_week else min_week
 
         # Display adviser-specific parameters
-        print(f"   📊 Client Limit (monthly): {user['properties']['client_limit_monthly']}")
+        logger.info(
+            "%s monthly client limit: %s",
+            user_email,
+            user['properties']['client_limit_monthly'],
+        )
         if availability_week:
             availability_date = date.fromordinal(availability_week)
-            print(f"   🚀 Adviser Start Date: {availability_date} (Week {week_label_from_ordinal(availability_week)})")
-        print(f"   📈 Analysis Period: {week_label_from_ordinal(min_week)} to {week_label_from_ordinal(effective_min_week + 26 * 7)}")
-        print()
+            logger.info(
+                "%s availability opens %s (week %s)",
+                user_email,
+                availability_date.isoformat(),
+                week_label_from_ordinal(availability_week),
+            )
+        logger.debug(
+            "%s analysis window: %s -> %s",
+            user_email,
+            week_label_from_ordinal(min_week),
+            week_label_from_ordinal(effective_min_week + 26 * 7),
+        )
 
         user = compute_capacity(user, effective_min_week)
 
-        print(f"📊 CAPACITY TABLE FOR {user_name.upper()}")
-        print("-" * 60)
         display_data(user["capacity"])
-        print()
         
         # Convert agreement_start_date to datetime for find_earliest_week
         agreement_start_datetime = None
@@ -1154,29 +1152,28 @@ def get_adviser(service_package, agreement_start_date=None):
         user = find_earliest_week(user, effective_min_week, agreement_start_datetime)
 
         users_list[i] = user
-        print(f"✅ {user_name} analysis complete")
-        print("=" * 60)
-        print()
+        logger.info("Completed adviser analysis for %s", user_email)
 
     if not users_list:
         raise RuntimeError("No eligible advisers found for the requested service package")
 
-    print("🎯 FINAL SELECTION PROCESS")
-    print("=" * 60)
+    logger.info("Evaluating final adviser selection")
 
     # Show all advisers and their earliest weeks
-    print("📋 All Adviser Availability:")
+    logger.debug("All adviser availability:")
     for user in users_list:
         user_name = user["properties"]["hs_email"].split('@')[0].replace('.', ' ').title()
         wk = user.get('earliest_open_week')
         wk_label = week_label_from_ordinal(wk) if isinstance(wk, int) else str(wk)
         earliest_date = date.fromordinal(wk).strftime('%B %d, %Y') if isinstance(wk, int) else "Unknown"
-        print(f"   • {user_name}: {wk_label} ({earliest_date})")
-    print()
+        logger.debug("  %s -> %s (%s)", user_name, wk_label, earliest_date)
 
     # Filter advisers whose earliest_open_week is later than or equal to the first allocation week
     if agreement_allocation_week:
-        print(f"🔍 Filtering advisers available on/after {week_label_from_ordinal(agreement_allocation_week)}...")
+        logger.info(
+            "Filtering advisers available on/after %s",
+            week_label_from_ordinal(agreement_allocation_week),
+        )
         eligible_users = []
         for user in users_list:
             earliest_week = user.get("earliest_open_week", float('inf'))
@@ -1186,9 +1183,8 @@ def get_adviser(service_package, agreement_start_date=None):
         if not eligible_users:
             raise RuntimeError("No advisers available starting the week after the agreement start date")
 
-        print(f"✅ {len(eligible_users)} advisers meet the agreement start date requirement")
+        logger.info("%d advisers meet the agreement start window", len(eligible_users))
         users_list = eligible_users
-        print()
 
     # Find the earliest week among remaining advisers
     earliest_week = min(user.get("earliest_open_week", float('inf')) for user in users_list)
@@ -1197,16 +1193,19 @@ def get_adviser(service_package, agreement_start_date=None):
     # Get all advisers tied for the earliest week
     tied_advisers = [user for user in users_list if user.get("earliest_open_week") == earliest_week]
 
-    print(f"🏆 Earliest Available Week: {week_label_from_ordinal(earliest_week)} ({earliest_date})")
-    print(f"👥 Advisers Available This Week: {len(tied_advisers)}")
-    print()
+    logger.info(
+        "Earliest availability selected: %s (%s) across %d advisers",
+        week_label_from_ordinal(earliest_week),
+        earliest_date,
+        len(tied_advisers),
+    )
 
     if len(tied_advisers) == 1:
         final_agent = tied_advisers[0]
         agent_name = final_agent["properties"]["hs_email"].split('@')[0].replace('.', ' ').title()
-        print(f"✅ Single adviser available: {agent_name}")
+        logger.info("Single adviser available: %s", agent_name)
     else:
-        print("⚖️  TIEBREAKER: Analyzing workload ratios...")
+        logger.info("Applying workload ratio tiebreaker")
 
         # Tiebreaker: select adviser with lowest ratio of accumulated clarify counts to target
         def calculate_tiebreaker_ratio(user):
@@ -1230,38 +1229,72 @@ def get_adviser(service_package, agreement_start_date=None):
         min_ratio = min(calculate_tiebreaker_ratio(user) for user in tied_advisers)
         ratio_tied_advisers = [user for user in tied_advisers if abs(calculate_tiebreaker_ratio(user) - min_ratio) < 1e-6]
 
-        print("📊 Workload Ratios (Clarify Count / Target Capacity):")
+        logger.debug("Workload ratios (clarify/target):")
         for user in tied_advisers:
             user_name = user["properties"]["hs_email"].split('@')[0].replace('.', ' ').title()
             ratio = calculate_tiebreaker_ratio(user)
             status = ""
             if user in ratio_tied_advisers:
                 status = " 🎯 (LOWEST)" if len(ratio_tied_advisers) == 1 else " 🎯 (TIED FOR LOWEST)"
-            print(f"   • {user_name}: {ratio:.3f}{status}")
-        print()
+            logger.debug("  %s -> %.3f%s", user_name, ratio, status)
 
         if len(ratio_tied_advisers) == 1:
             final_agent = ratio_tied_advisers[0]
             agent_name = final_agent["properties"]["hs_email"].split('@')[0].replace('.', ' ').title()
-            print(f"✅ Selected by workload ratio: {agent_name}")
+            logger.info("Selected by workload ratio: %s", agent_name)
         else:
             # Final tiebreaker: random selection
             import random
             final_agent = random.choice(ratio_tied_advisers)
             agent_name = final_agent["properties"]["hs_email"].split('@')[0].replace('.', ' ').title()
-            print(f"🎲 Final tie ({len(ratio_tied_advisers)} advisers), selecting randomly: {agent_name}")
+            logger.info(
+                "Random selection resolved tie of %d advisers: %s",
+                len(ratio_tied_advisers),
+                agent_name,
+            )
 
-    print()
-    print("🎉 ALLOCATION COMPLETE")
-    print("=" * 60)
+    logger.info("Allocation complete")
     final_agent_name = final_agent["properties"]["hs_email"].split('@')[0].replace('.', ' ').title()
     final_week_date = date.fromordinal(final_agent.get("earliest_open_week")).strftime('%B %d, %Y')
-    print(f"📋 Selected Adviser: {final_agent_name} ({final_agent['properties']['hs_email']})")
-    print(f"📅 Available Week: {week_label_from_ordinal(final_agent.get('earliest_open_week'))} ({final_week_date})")
-    print(f"🆔 HubSpot Owner ID: {final_agent['properties']['hubspot_owner_id']}")
-    print("=" * 60)
+    logger.info(
+        "Selected adviser %s (%s) for week %s (%s)",
+        final_agent_name,
+        final_agent['properties']['hs_email'],
+        week_label_from_ordinal(final_agent.get('earliest_open_week')),
+        final_week_date,
+    )
+    logger.debug("Selected adviser HubSpot owner id: %s", final_agent['properties']['hubspot_owner_id'])
 
-    return final_agent
+    candidates_summary = []
+    for user in users_list:
+        props = user.get("properties") or {}
+        email = props.get("hs_email") or ""
+        earliest_week_value = user.get("earliest_open_week")
+        earliest_label = (
+            week_label_from_ordinal(earliest_week_value)
+            if isinstance(earliest_week_value, int)
+            else None
+        )
+        candidates_summary.append(
+            {
+                "email": email,
+                "name": _pretty_email(email),
+                "service_packages": props.get("client_types") or "",
+                "household_type": props.get("household_type") or "",
+                "earliest_open_week": earliest_week_value,
+                "earliest_open_week_label": earliest_label,
+            }
+        )
+
+    candidates_summary.sort(
+        key=lambda c: (
+            c["earliest_open_week"]
+            if isinstance(c["earliest_open_week"], int)
+            else float("inf")
+        )
+    )
+
+    return final_agent, candidates_summary
 
 
 def get_users_taking_on_clients():
@@ -1269,7 +1302,11 @@ def get_users_taking_on_clients():
 
     Includes properties: hs_email, hubspot_owner_id, adviser_start_date, pod_type, client_types.
     """
-    url = "https://api.hubapi.com/crm/v3/objects/users?properties=taking_on_clients,hs_email,hubspot_owner_id,adviser_start_date,pod_type,client_types&limit=100"
+    url = (
+        "https://api.hubapi.com/crm/v3/objects/users"
+        "?properties=taking_on_clients,hs_email,hubspot_owner_id,adviser_start_date,"
+        "pod_type,client_types,household_type&limit=100"
+    )
     if not HUBSPOT_TOKEN:
         raise RuntimeError("HUBSPOT_TOKEN is not configured")
     
@@ -1286,7 +1323,7 @@ def get_users_taking_on_clients():
         return users_list
     except requests.exceptions.RequestException as e:
         error_msg = f"Failed to load advisers taking on clients: {str(e)}"
-        print(f"❌ Error: {error_msg}")
+        logger.error("HubSpot adviser load error: %s", error_msg)
         raise RuntimeError(error_msg)
     finally:
         session.close()
@@ -1304,8 +1341,10 @@ def get_users_earliest_availability(agreement_start_date=None, include_no=True):
 
     Returns a list of concise dicts per user suitable for API output.
     """
+    logging.info("Starting earliest availability computation (include_no=%s)", include_no)
     # Use the helper that already filters to advisers taking on clients
     users = get_user_ids_adviser()
+    logging.info("Fetched %d HubSpot users for availability check", len(users))
     # Filter advisers based on include_no parameter BEFORE computation
     users_list = []
     for user in users:
@@ -1325,6 +1364,7 @@ def get_users_earliest_availability(agreement_start_date=None, include_no=True):
             # Only include advisers who are taking on clients
             if taking_on_clients:
                 users_list.append(user)
+    logging.info("Advisers after filtering: %d", len(users_list))
     
     results = []
 
@@ -1348,13 +1388,15 @@ def get_users_earliest_availability(agreement_start_date=None, include_no=True):
     # Load global closures once for this computation
     global_closures = classify_leave_weeks(get_global_closures_from_firestore())
 
-    for user in users_list:
+    for idx, user in enumerate(users_list, start=1):
         try:
-            # Pull EH leave (from Firestore cache if available)
             user_email = user["properties"].get("hs_email")
+            logging.info("Processing adviser %d/%d: %s", idx, len(users_list), user_email)
+            # Pull EH leave (from Firestore cache if available)
             employee_id = get_employee_id_from_firestore(user_email)
             employee_leaves = get_employee_leaves_from_firestore(employee_id) if employee_id else []
             user["leave_requests"] = employee_leaves
+            logging.debug("  Leave records retrieved: %d", len(employee_leaves))
 
             # Classify leave weeks
             user["leave_requests_list"] = classify_leave_weeks(user["leave_requests"])
@@ -1366,10 +1408,12 @@ def get_users_earliest_availability(agreement_start_date=None, include_no=True):
             user = get_user_meeting_details(user, timestamp_milliseconds)
             user_meetings = (user.get("meetings") or {}).get("results", [])
             user["meeting_count_list"] = get_meeting_count(user_meetings)
+            logging.debug("  Meetings retrieved: %d", len(user_meetings))
 
             # Deals without Clarify
             user["deals_no_clarify"] = get_deals_no_clarify(user_email)
             user["deals_no_clarify_list"] = classify_deals_list(user["deals_no_clarify"])
+            logging.debug("  Deals without clarify: %d", len(user["deals_no_clarify"]))
 
             # Merge into schedule (include global closures) and compute capacity
             user["global_closure_weeks"] = global_closures
@@ -1381,6 +1425,7 @@ def get_users_earliest_availability(agreement_start_date=None, include_no=True):
             user = find_earliest_week(user, effective_min_week, agreement_start_date)
 
             earliest_wk = user.get("earliest_open_week")
+            logging.info("Finished adviser %s: earliest week %s", user_email, week_label_from_ordinal(earliest_wk) if isinstance(earliest_wk, int) else "n/a")
             results.append({
                 "email": user["properties"].get("hs_email"),
                 "pod_type": user["properties"].get("pod_type"),
@@ -1388,6 +1433,7 @@ def get_users_earliest_availability(agreement_start_date=None, include_no=True):
                 "hubspot_owner_id": user["properties"].get("hubspot_owner_id"),
                 "client_limit_monthly": user["properties"].get("client_limit_monthly"),
                 "taking_on_clients": user["properties"].get("taking_on_clients"),
+                "household_type": user["properties"].get("household_type"),
                 "availability_start_week": user.get("availability_start_week"),
                 "earliest_open_week": earliest_wk,
                 "earliest_open_week_label": week_label_from_ordinal(earliest_wk) if isinstance(earliest_wk, int) else None,
@@ -1399,6 +1445,7 @@ def get_users_earliest_availability(agreement_start_date=None, include_no=True):
                 "service_packages": (user.get("properties", {}).get("client_types") or ""),
                 "pod_type": user.get("properties", {}).get("pod_type"),
                 "hubspot_owner_id": user.get("properties", {}).get("hubspot_owner_id"),
+                "household_type": user.get("properties", {}).get("household_type"),
                 "error": str(e),
             })
 
@@ -1425,6 +1472,7 @@ def compute_user_schedule_by_email(user_email: str, agreement_start_date=None):
     Returns a dict with keys: 'capacity' (dict keyed by Monday ordinal),
     'earliest_open_week' (int), and 'min_week' (int baseline used).
     """
+    logging.info("Computing schedule for %s", user_email)
     user = get_user_by_email(user_email)
     if not user:
         raise ValueError("User not found or not taking on clients")
@@ -1433,6 +1481,7 @@ def compute_user_schedule_by_email(user_email: str, agreement_start_date=None):
     employee_id = get_employee_id_from_firestore(user_email)
     employee_leaves = get_employee_leaves_from_firestore(employee_id) if employee_id else []
     user["leave_requests"] = employee_leaves
+    logging.debug("  Leave records retrieved: %d", len(employee_leaves))
 
     # Classify leave weeks
     user["leave_requests_list"] = classify_leave_weeks(user["leave_requests"])
@@ -1459,10 +1508,12 @@ def compute_user_schedule_by_email(user_email: str, agreement_start_date=None):
     user = get_user_meeting_details(user, timestamp_milliseconds)
     user_meetings = (user.get("meetings") or {}).get("results", [])
     user["meeting_count_list"] = get_meeting_count(user_meetings)
+    logging.debug("  Meetings retrieved: %d", len(user_meetings))
 
     # Deals without Clarify
     user["deals_no_clarify"] = get_deals_no_clarify(user_email)
     user["deals_no_clarify_list"] = classify_deals_list(user["deals_no_clarify"])
+    logging.debug("  Deals without clarify: %d", len(user["deals_no_clarify"]))
 
     # Global closures
     user["global_closure_weeks"] = classify_leave_weeks(get_global_closures_from_firestore())
@@ -1474,7 +1525,11 @@ def compute_user_schedule_by_email(user_email: str, agreement_start_date=None):
     effective_min_week = max(min_week, availability_week) if availability_week else min_week
     user = compute_capacity(user, effective_min_week)
     user = find_earliest_week(user, effective_min_week, agreement_start_date)
-
+    logging.info(
+        "Computed schedule for %s: earliest week %s",
+        user_email,
+        week_label_from_ordinal(user.get("earliest_open_week")) if isinstance(user.get("earliest_open_week"), int) else "n/a",
+    )
     return {
         "capacity": user.get("capacity", {}),
         "earliest_open_week": user.get("earliest_open_week"),
@@ -1497,3 +1552,177 @@ def week_label_from_ordinal(wk: int) -> str:
     monday = date.fromordinal(wk)
     iso_year, iso_week, _ = monday.isocalendar()
     return f"{iso_year}-W{iso_week:02d}"
+HOUSEHOLD_RULES = {
+    "series a": {"single", "couple"},
+    "seed": {"single", "couple"},
+}
+
+
+def _normalized_set(raw: str) -> set[str]:
+    """Split a semi-structured CRM string into normalized lowercase values."""
+    return {p.strip().lower() for p in re.split(r"[;,/|]+", raw or "") if p.strip()}
+
+
+def _matches_household(service_package: str, adviser_household: str) -> bool:
+    """Return True if adviser household matches requirement for service package."""
+    service_lower = (service_package or "").strip().lower()
+    allowed = HOUSEHOLD_RULES.get(service_lower)
+    if not allowed:
+        return True  # No household constraint for this package
+
+    adviser_values = _normalized_set(adviser_household)
+    logger.debug(
+        "Household matching check: service=%s allowed=%s adviser_raw=%s adviser_normalised=%s",
+        service_package,
+        allowed,
+        adviser_household,
+        adviser_values,
+    )
+    if not adviser_values:
+        return True  # Adviser unspecified; treat as available
+
+    return bool(adviser_values & allowed)
+
+
+def _format_service_label(token: str) -> str:
+    token = (token or "").strip()
+    if not token:
+        return ""
+    lower = token.lower()
+    if lower in _SPECIAL_UPPER:
+        return token.upper()
+    return lower.title()
+
+
+def _format_household_label(token: str) -> str:
+    token = (token or "").strip()
+    if not token:
+        return ""
+    lower = token.lower()
+    if lower in _SPECIAL_UPPER:
+        return token.upper()
+    return lower.title()
+
+
+def _pretty_email(email: str) -> str:
+    local = (email or "").split("@")[0]
+    parts = re.split(r"[._-]+", local)
+    return " ".join(p.capitalize() for p in parts if p) or (email or "")
+
+
+def build_service_household_matrix():
+    """Return sorted service/household labels with adviser allocations."""
+    now = time.time()
+    cache = _MATRIX_CACHE
+    if cache["timestamp"] and now - cache["timestamp"] < _MATRIX_CACHE_TTL:
+        cached_matrix = {
+            svc: {hh: list(entries) for hh, entries in hh_map.items()}
+            for svc, hh_map in cache["matrix"].items()
+        }
+        return list(cache["services"]), list(cache["households"]), cached_matrix
+
+    users = get_user_ids_adviser()
+
+    services_map: dict[str, str] = {}
+    household_map: dict[str, str] = {}
+    all_households_norm: set[str] = set()
+    for allowed in HOUSEHOLD_RULES.values():
+        all_households_norm.update(allowed)
+
+    adviser_payload = []
+    adviser_color_cycle = ["blue", "green", "purple", "orange", "pink", "teal"]
+    adviser_color_map: dict[str, str] = {}
+
+    for user in users:
+        props = user.get("properties") or {}
+        if str(props.get("taking_on_clients")).lower() != "true":
+            continue
+
+        email = props.get("hs_email") or ""
+        service_norms = _normalized_set(props.get("client_types"))
+        if not service_norms:
+            continue
+
+        household_norms = _normalized_set(props.get("household_type"))
+        all_households_norm.update(household_norms)
+
+        for svc in service_norms:
+            services_map.setdefault(svc, _format_service_label(svc))
+        for hh in household_norms:
+            household_map.setdefault(hh, _format_household_label(hh))
+
+        adviser_payload.append(
+            {
+                "email": email,
+                "name": _pretty_email(email),
+                "service_norms": service_norms,
+                "household_norms": household_norms,
+                "household_raw": props.get("household_type") or "",
+            }
+        )
+
+    if not services_map:
+        return [], [], {}
+
+    if not household_map and all_households_norm:
+        for hh in all_households_norm:
+            household_map.setdefault(hh, _format_household_label(hh))
+
+    service_items = sorted(services_map.items(), key=lambda item: item[1].lower())
+    household_items = sorted(household_map.items(), key=lambda item: item[1].lower()) if household_map else []
+
+    for hh in sorted(all_households_norm):
+        display = household_map.setdefault(hh, _format_household_label(hh))
+        if (hh, display) not in household_items:
+            household_items.append((hh, display))
+    household_items.sort(key=lambda item: item[1].lower())
+
+    matrix = {
+        svc_display: {hh_display: [] for _, hh_display in household_items}
+        for _, svc_display in service_items
+    }
+
+    for adviser in adviser_payload:
+        email = adviser["email"]
+        name = adviser["name"]
+        household_norms = adviser["household_norms"]
+        household_raw = adviser["household_raw"]
+
+        for svc_norm, svc_display in service_items:
+            if svc_norm not in adviser["service_norms"]:
+                continue
+            allowed_households = HOUSEHOLD_RULES.get(svc_norm)
+
+            for hh_norm, hh_display in household_items:
+                if allowed_households and hh_norm not in allowed_households:
+                    continue
+                if household_norms and hh_norm not in household_norms:
+                    continue
+                if not _matches_household(svc_display, household_raw):
+                    continue
+
+                bucket = matrix[svc_display][hh_display]
+                colour = adviser_color_map.setdefault(
+                    email,
+                    adviser_color_cycle[len(adviser_color_map) % len(adviser_color_cycle)],
+                )
+                entry = {"email": email, "name": name, "cls": colour}
+                if entry not in bucket:
+                    bucket.append(entry)
+
+    for svc_display in matrix:
+        for hh_display in matrix[svc_display]:
+            matrix[svc_display][hh_display].sort(key=lambda item: item["name"].lower())
+
+    services_list = [svc_display for _, svc_display in service_items]
+    households_list = [hh_display for _, hh_display in household_items]
+
+    cache["timestamp"] = now
+    cache["services"] = list(services_list)
+    cache["households"] = list(households_list)
+    cache["matrix"] = {
+        svc: {hh: list(entries) for hh, entries in hh_map.items()}
+        for svc, hh_map in matrix.items()
+    }
+
+    return services_list, households_list, matrix
