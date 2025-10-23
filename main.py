@@ -787,7 +787,10 @@ def handle_webhook():
     try:
         # Get the JSON data from the request body
         event = request.get_json()
-        logging.info("Received allocation payload: object=%s deal=%s", event.get('object'), event.get('fields', {}).get('hs_deal_record_id'))
+        logging.info(
+            "Received allocation payload: %s",
+            json.dumps(event, indent=2, sort_keys=True),
+        )
         
         # Check for 'deal' object type as this is for a deal workflow.
         if event.get('object', {}).get('objectType', ''):
