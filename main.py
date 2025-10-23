@@ -37,7 +37,7 @@ db = get_firestore_client()
 app = Flask(__name__)
 app.secret_key = get_secret("SESSION_SECRET") or "change-me-please"  # set in app.yaml or .env
 
-CHAT_WEBHOOK_URL = "https://chat.googleapis.com/v1/spaces/AAQAy57eveM/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=cF4kYM0bsQv198OBOtyvHICwyt41GLZK0gOi6EtY_MY"
+CHAT_WEBHOOK_URL = get_secret("CHAT_WEBHOOK_URL") or os.environ.get("CHAT_WEBHOOK_URL")
 
 # ---- Admin auth config (for managing closures) ----
 ADMIN_USERNAME = get_secret("ADMIN_USERNAME") or os.environ.get("ADMIN_USERNAME")
