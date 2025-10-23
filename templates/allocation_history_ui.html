@@ -11,6 +11,118 @@
 </div>
 
 <div class="card">
+  <h3>Dashboard Overview</h3>
+  <div class="row" style="gap:12px; flex-wrap:wrap;">
+    <div class="stat-card">
+      <strong>{{ dashboard_counts.total }}</strong>
+      <small class="muted">Total Requests</small>
+    </div>
+    <div class="stat-card">
+      <strong>{{ dashboard_counts.completed }}</strong>
+      <small class="muted">Completed</small>
+    </div>
+    <div class="stat-card">
+      <strong>{{ dashboard_counts.failed }}</strong>
+      <small class="muted">Failed</small>
+    </div>
+    <div class="stat-card">
+      <strong>{{ dashboard_counts.processing }}</strong>
+      <small class="muted">In Progress</small>
+    </div>
+    <div class="stat-card">
+      <strong>{{ dashboard_counts.unique_advisers }}</strong>
+      <small class="muted">Active Advisers</small>
+    </div>
+    <div class="stat-card">
+      <strong>{{ dashboard_counts.unique_deals }}</strong>
+      <small class="muted">Unique Deals</small>
+    </div>
+    <div class="stat-card">
+      <strong>{{ dashboard_counts.unique_clients }}</strong>
+      <small class="muted">Clients</small>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-top:16px;">
+    <div style="border:1px solid var(--border);border-radius:8px;padding:12px;background:var(--card);">
+      <h4>Status Breakdown</h4>
+      {% if status_stats %}
+        <ul style="list-style:none;margin:0;padding:0;">
+          {% for item in status_stats %}
+            <li style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);">
+              <span>{{ item.label }}</span>
+              <span style="font-weight:600;">{{ item.count }}</span>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="muted">No data yet</p>
+      {% endif %}
+    </div>
+    <div style="border:1px solid var(--border);border-radius:8px;padding:12px;background:var(--card);">
+      <h4>Top Service Packages</h4>
+      {% if service_stats %}
+        <ul style="list-style:none;margin:0;padding:0;">
+          {% for item in service_stats %}
+            <li style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);">
+              <span>{{ item.label }}</span>
+              <span style="font-weight:600;">{{ item.count }}</span>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="muted">No data yet</p>
+      {% endif %}
+    </div>
+    <div style="border:1px solid var(--border);border-radius:8px;padding:12px;background:var(--card);">
+      <h4>Top Household Types</h4>
+      {% if household_stats %}
+        <ul style="list-style:none;margin:0;padding:0;">
+          {% for item in household_stats %}
+            <li style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);">
+              <span>{{ item.label }}</span>
+              <span style="font-weight:600;">{{ item.count }}</span>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="muted">No data yet</p>
+      {% endif %}
+    </div>
+    <div style="border:1px solid var(--border);border-radius:8px;padding:12px;background:var(--card);">
+      <h4>Top Advisers</h4>
+      {% if adviser_stats %}
+        <ul style="list-style:none;margin:0;padding:0;">
+          {% for item in adviser_stats %}
+            <li style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);">
+              <span>{{ item.label }}</span>
+              <span style="font-weight:600;">{{ item.count }}</span>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="muted">No data yet</p>
+      {% endif %}
+    </div>
+    <div style="border:1px solid var(--border);border-radius:8px;padding:12px;background:var(--card);">
+      <h4>Source Breakdown</h4>
+      {% if source_stats %}
+        <ul style="list-style:none;margin:0;padding:0;">
+          {% for item in source_stats %}
+            <li style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);">
+              <span>{{ item.label }}</span>
+              <span style="font-weight:600;">{{ item.count }}</span>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="muted">No data yet</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="card">
   <h3>Filter Allocation Requests</h3>
   <div class="row" style="margin-bottom: 16px;">
     <div>
@@ -55,6 +167,14 @@
         {% endfor %}
       </select>
     </div>
+    <div>
+      <label for="pageSizeSelect">Rows per page</label>
+      <select id="pageSizeSelect" onchange="applyFilters()">
+        {% for size in [10, 25, 50, 100, 200] %}
+          <option value="{{ size }}" {% if page_size == size %}selected{% endif %}>{{ size }}</option>
+        {% endfor %}
+      </select>
+    </div>
     <div style="display: flex; gap: 8px; align-items: end;">
       <button onclick="clearFilters()" class="secondary">Clear Filters</button>
       <button onclick="exportData()" class="secondary">📊 Export</button>
@@ -65,9 +185,9 @@
 <div class="card">
   <h3>Allocation Requests</h3>
   <p class="muted">
-    Showing <strong>{{ total_count }}</strong> 
-    {% if status_filter or deal_filter or adviser_filter %}filtered{% endif %} 
-    allocation requests from the last <strong>{{ days_filter }} days</strong>
+    Showing <strong>{{ start_record }}</strong>–<strong>{{ end_record }}</strong> of <strong>{{ total_count }}</strong>
+    {% if status_filter or deal_filter or adviser_filter %}filtered{% endif %} allocation requests
+    from the last <strong>{{ days_filter }} days</strong>
   </p>
   
   {% if total_count == 0 %}
@@ -94,6 +214,7 @@
       <th>Status</th>
       <th>Agreement Start Date</th>
       <th>Service Package</th>
+      <th>Household Type</th>
       <th>Source</th>
       <th>Actions</th>
     </tr>
@@ -121,11 +242,13 @@
         {% endif %}
       </td>
       <td>
-        {% if allocation.adviser_email %}
-          <strong>{{ allocation.adviser_email }}</strong>
+        {% if allocation.adviser_name %}
+          <strong>{{ allocation.adviser_name }}</strong>
           {% if allocation.adviser_hubspot_id %}
             <br><small class="muted">ID: {{ allocation.adviser_hubspot_id }}</small>
           {% endif %}
+        {% elif allocation.adviser_email %}
+          <strong>{{ allocation.adviser_email }}</strong>
         {% else %}
           <span class="muted">Not assigned</span>
         {% endif %}
@@ -158,15 +281,36 @@
         {% endif %}
       </td>
       <td>
-        {% if allocation.service_package %}
-          <span class="tag blue">{{ allocation.service_package }}</span>
+        {% set svc_values = (allocation.service_package or '').split(',') %}
+        {% if svc_values %}
+          <div class="taglist">
+            {% for token in svc_values %}
+              {% if token.strip() %}
+                <span class="tag blue">{{ token.strip() }}</span>
+              {% endif %}
+            {% endfor %}
+          </div>
+        {% else %}
+          <span class="muted">N/A</span>
+        {% endif %}
+      </td>
+      <td>
+        {% set hh_values = (allocation.household_type or '').split(',') %}
+        {% if hh_values %}
+          <div class="taglist">
+            {% for token in hh_values %}
+              {% if token.strip() %}
+                <span class="tag purple">{{ token.strip() }}</span>
+              {% endif %}
+            {% endfor %}
+          </div>
         {% else %}
           <span class="muted">N/A</span>
         {% endif %}
       </td>
       <td>
         <span class="tag">{{ allocation.source or 'webhook' }}</span>
-        {% if allocation.ip_address %}
+        {% if allocation.ip_address and allocation.ip_address != '127.0.0.1' %}
           <br><small class="muted">{{ allocation.ip_address }}</small>
         {% endif %}
       </td>
@@ -179,6 +323,14 @@
     {% endfor %}
   </tbody>
 </table>
+{% endif %}
+
+{% if total_pages > 1 %}
+<div class="pagination-controls">
+  <button onclick="changePage({{ page - 1 }})" class="secondary" {% if page <= 1 %}disabled{% endif %}>&laquo; Prev</button>
+  <span style="margin:0 12px;">Page <strong>{{ page }}</strong> of <strong>{{ total_pages }}</strong></span>
+  <button onclick="changePage({{ page + 1 }})" class="secondary" {% if page >= total_pages %}disabled{% endif %}>Next &raquo;</button>
+</div>
 {% endif %}
 
 <div class="card" style="margin-top: 24px;">
@@ -273,6 +425,19 @@
     color: var(--muted);
     font-size: 0.8em;
   }
+
+  .pagination-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 20px 0;
+    gap: 16px;
+  }
+
+  .pagination-controls button[disabled] {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
   
   /* Modal Styles */
   .modal {
@@ -352,11 +517,19 @@
       margin: 10% auto;
     }
     
-    .stat-card {
-      min-width: auto;
-      flex: 1;
-    }
+  .stat-card {
+    min-width: auto;
+    flex: 1;
   }
+
+  .pagination-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 16px 0;
+    gap: 12px;
+  }
+}
 </style>
 {% endblock %}
 
@@ -427,21 +600,29 @@ function applyFilters() {
   const status = document.getElementById('statusFilter').value;
   const deal = document.getElementById('dealFilter').value;
   const adviser = document.getElementById('adviserFilter').value;
-  
+  const pageSize = document.getElementById('pageSizeSelect') ? document.getElementById('pageSizeSelect').value : '';
+
   const params = new URLSearchParams();
   if (days) params.set('days', days);
   if (status) params.set('status', status);
   if (deal) params.set('deal', deal);
   if (adviser) params.set('adviser', adviser);
-  
-  // Show loading state
-  document.body.classList.add('loading');
-  
+  if (pageSize) params.set('page_size', pageSize);
+  params.set('page', '1');
+
   window.location.href = '?' + params.toString();
 }
 
 function clearFilters() {
   window.location.href = window.location.pathname;
+}
+
+function changePage(newPage) {
+  const params = new URLSearchParams(window.location.search);
+  const pageSizeSelect = document.getElementById('pageSizeSelect');
+  if (pageSizeSelect) params.set('page_size', pageSizeSelect.value);
+  params.set('page', newPage);
+  window.location.href = '?' + params.toString();
 }
 
 // Details modal functions

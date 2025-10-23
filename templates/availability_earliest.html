@@ -20,8 +20,8 @@
     <div>
       <label>Include Non-Taking Advisers</label>
       <select id="includeNo">
-        <option value="1" {% if include_no %}selected{% endif %}>Yes</option>
         <option value="0" {% if not include_no %}selected{% endif %}>No</option>
+        <option value="1" {% if include_no %}selected{% endif %}>Yes</option>
       </select>
     </div>
     <div>
@@ -123,6 +123,10 @@
   const includeNoSelect = document.getElementById('includeNo');
   const loadingDiv = document.getElementById('loading');
 
+  if (includeNoSelect && !includeNoSelect.value) {
+    includeNoSelect.value = '0';
+  }
+
   if (computeBtn && agreementDateInput && includeNoSelect) {
     computeBtn.addEventListener('click', function() {
       const agreementDate = agreementDateInput.value;
@@ -142,7 +146,7 @@
       const params = new URLSearchParams({
         compute: '1',
         agreement_start_date: agreementDate,
-        include_no: includeNo
+        include_no: includeNo || '0'
       });
 
       // Redirect to same page with compute parameters

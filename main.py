@@ -1,6 +1,7 @@
 import os, time, secrets, json, re
 from datetime import datetime, date, timedelta
 import logging
+from collections import Counter
 
 from urllib.parse import urlencode
 from flask import Flask, redirect, request, session, jsonify, render_template, render_template_string, url_for
@@ -740,6 +741,26 @@ def build_chat_card_payload(title: str, sections: list[dict]) -> dict:
     return {"cards": [{"header": {"title": title}, "sections": card_sections}]}
 
 
+def format_agreement_start(agreement_value):
+    if not agreement_value:
+        return ""
+    try:
+        value = str(agreement_value).strip()
+        if not value:
+            return ""
+        if value.isdigit():
+            dt = datetime.fromtimestamp(int(value) / 1000, tz=SYDNEY_TZ)
+        else:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=SYDNEY_TZ)
+            dt = parsed.astimezone(SYDNEY_TZ)
+        return dt.date().isoformat()
+    except Exception as exc:  # pragma: no cover
+        logging.warning("Failed to parse agreement_start_date '%s': %s", agreement_value, exc)
+        return ""
+
+
 @app.route("/logout")
 def logout():
     session.pop("is_authenticated", None)
@@ -777,27 +798,13 @@ def handle_webhook():
             deal_id = event.get('fields', {}).get('hs_deal_record_id', '')
             logging.info("Assigning deal %s to %s (%s)", deal_id, chosen_email, hubspot_owner_id)
 
-            # Store initial allocation request
-            store_allocation_record(
-                db,
-                {
-                    "client_email": event.get('fields', {}).get('client_email', ''),
-                    "adviser_email": user.get('properties', {}).get('hs_email', ''),
-                    "adviser_hubspot_id": hubspot_owner_id,
-                    "deal_id": deal_id,
-                    "service_package": service_package,
-                    "household_type": household_type,
-                    "agreement_start_date": agreement_start_date,
-                    "allocation_result": "pending",
-                    "status": "processing",
-                },
-                source="hubspot_webhook",
-                raw_request=event,
-                extra_fields={
-                    "ip_address": request.remote_addr,
-                    "user_agent": request.headers.get("User-Agent", ""),
-                },
-            )
+            adviser_props = user.get("properties") or {}
+            adviser_name = _format_display_name(chosen_email)
+            adviser_service_tags = _format_tag_list(adviser_props.get("client_types") or "")
+            adviser_household_tags = _format_tag_list(adviser_props.get("household_type") or "")
+            deal_service_display = ", ".join(_format_tag_list(service_package)) or (service_package or "Unknown")
+            deal_household_display = ", ".join(_format_tag_list(household_type)) or (household_type or "Not provided")
+            agreement_start_display = format_agreement_start(agreement_start_date)
 
             try:
                 deal_update_url = f"https://api.hubapi.com/crm/v3/objects/deals/{deal_id}"
@@ -825,13 +832,19 @@ def handle_webhook():
                     db,
                     {
                         "client_email": event.get('fields', {}).get('client_email', ''),
-                        "adviser_email": user.get('properties', {}).get('hs_email', ''),
+                        "adviser_email": chosen_email,
+                        "adviser_name": adviser_name,
                         "adviser_hubspot_id": hubspot_owner_id,
+                        "adviser_service_packages": adviser_service_tags,
+                        "adviser_household_types": adviser_household_tags,
                         "deal_id": deal_id,
-                        "service_package": service_package,
-                        "household_type": household_type,
-                        "agreement_start_date": agreement_start_date,
-                        "allocation_result": "success",
+                        "service_package": deal_service_display,
+                        "service_package_raw": service_package,
+                        "household_type": deal_household_display,
+                        "household_type_raw": household_type,
+                        "agreement_start_date": agreement_start_display,
+                        "agreement_start_raw": agreement_start_date,
+                        "allocation_result": "completed",
                         "status": "completed",
                     },
                     source="hubspot_webhook",
@@ -841,13 +854,6 @@ def handle_webhook():
                         "user_agent": request.headers.get("User-Agent", ""),
                     },
                 )
-
-                adviser_props = user.get("properties") or {}
-                adviser_name = _format_display_name(chosen_email)
-                adviser_service_tags = _format_tag_list(adviser_props.get("client_types") or "")
-                adviser_household_tags = _format_tag_list(adviser_props.get("household_type") or "")
-                deal_service_display = ", ".join(_format_tag_list(service_package)) or (service_package or "Unknown")
-                deal_household_display = ", ".join(_format_tag_list(household_type)) or (household_type or "Not provided")
 
                 candidate_lines = []
                 for cand in candidate_list:
@@ -896,18 +902,24 @@ def handle_webhook():
             except requests.exceptions.HTTPError as http_err:
                 logging.error(f"HTTP error during deal update: {http_err}")
                 logging.error(f"Response content: {response.text}")
-                print(f"[post/allocate] HTTP error updating deal {deal_id}: {http_err}")
-                
+
                 store_allocation_record(
                     db,
                     {
                         "client_email": event.get('fields', {}).get('client_email', ''),
-                        "adviser_email": user.get('properties', {}).get('hs_email', '') if 'user' in locals() else '',
+                        "adviser_email": chosen_email,
+                        "adviser_name": adviser_name,
+                        "adviser_hubspot_id": hubspot_owner_id,
+                        "adviser_service_packages": adviser_service_tags,
+                        "adviser_household_types": adviser_household_tags,
                         "deal_id": deal_id,
-                        "service_package": service_package,
-                        "household_type": household_type,
-                        "agreement_start_date": agreement_start_date,
-                        "allocation_result": "http_error",
+                        "service_package": deal_service_display,
+                        "service_package_raw": service_package,
+                        "household_type": deal_household_display,
+                        "household_type_raw": household_type,
+                        "agreement_start_date": agreement_start_display,
+                        "agreement_start_raw": agreement_start_date,
+                        "allocation_result": "failed",
                         "status": "failed",
                         "error_message": str(http_err),
                     },
@@ -918,20 +930,27 @@ def handle_webhook():
                         "user_agent": request.headers.get("User-Agent", ""),
                     },
                 )
-            
+
             except Exception as err:
                 logging.error(f"An unexpected error occurred during deal update: {err}")
-                print(f"[post/allocate] Unexpected error updating deal {deal_id}: {err}")
-                
+
                 store_allocation_record(
                     db,
                     {
                         "client_email": event.get('fields', {}).get('client_email', ''),
+                        "adviser_email": chosen_email if chosen_email else '',
+                        "adviser_name": adviser_name if 'adviser_name' in locals() else '',
+                        "adviser_hubspot_id": hubspot_owner_id if 'hubspot_owner_id' in locals() else '',
+                        "adviser_service_packages": adviser_service_tags if 'adviser_service_tags' in locals() else [],
+                        "adviser_household_types": adviser_household_tags if 'adviser_household_tags' in locals() else [],
                         "deal_id": deal_id if 'deal_id' in locals() else '',
-                        "service_package": service_package if 'service_package' in locals() else '',
-                        "household_type": household_type if 'household_type' in locals() else '',
-                        "agreement_start_date": agreement_start_date if 'agreement_start_date' in locals() else '',
-                        "allocation_result": "general_error",
+                        "service_package": deal_service_display if 'deal_service_display' in locals() else (service_package if 'service_package' in locals() else ''),
+                        "service_package_raw": service_package if 'service_package' in locals() else '',
+                        "household_type": deal_household_display if 'deal_household_display' in locals() else (household_type if 'household_type' in locals() else ''),
+                        "household_type_raw": household_type if 'household_type' in locals() else '',
+                        "agreement_start_date": agreement_start_display if 'agreement_start_display' in locals() else format_agreement_start(agreement_start_date) if 'agreement_start_date' in locals() else '',
+                        "agreement_start_raw": agreement_start_date if 'agreement_start_date' in locals() else '',
+                        "allocation_result": "failed",
                         "status": "failed",
                         "error_message": str(err),
                     },
@@ -1151,82 +1170,159 @@ def allocation_webhook():
 
 @app.route("/allocations/history")
 def allocation_history_ui():
-    """UI to view allocation request history from Firestore."""
+    """Dashboard view of allocation history with pagination."""
     try:
         if not db:
-            return render_template_string("""
-                <div style="padding: 20px; text-align: center;">
+            return render_template_string(
+                """
+                <div style=\"padding: 20px; text-align: center;\">
                     <h3>⚠️ Firestore Not Configured</h3>
                     <p>Database connection is not available.</p>
                 </div>
-            """), 500
-        
-        # Get filter parameters
-        status_filter = request.args.get('status', '')
-        deal_filter = request.args.get('deal', '')
-        adviser_filter = request.args.get('adviser', '')
-        days_filter = int(request.args.get('days', 30))  # Default to last 30 days
-        
-        # Calculate date filter
+                """
+            ), 500
+
+        status_filter = request.args.get("status", "")
+        deal_filter = request.args.get("deal", "")
+        adviser_filter = request.args.get("adviser", "")
+        days_filter = int(request.args.get("days", 30) or 30)
+        page = max(1, int(request.args.get("page", 1) or 1))
+        try:
+            page_size = int(request.args.get("page_size", 25) or 25)
+        except ValueError:
+            page_size = 25
+        page_size = max(5, min(page_size, 200))
+
         cutoff_date = sydney_now() - timedelta(days=days_filter)
-        
-        # Fetch allocation requests from Firestore
+
         allocations_ref = db.collection("allocation_requests")
-        
-        # Get all matching documents (remove date filter for now to debug)
-        allocations = []
+        allocations: list[dict] = []
+
         for doc in allocations_ref.order_by("timestamp", direction="DESCENDING").stream():
-            allocation_data = doc.to_dict()
-            allocation_data['doc_id'] = doc.id
-            
-            # Apply date filter manually for debugging
-            doc_timestamp = allocation_data.get('timestamp', '')
-            if doc_timestamp:
+            row = doc.to_dict() or {}
+            row["doc_id"] = doc.id
+
+            ts_value = row.get("timestamp")
+            if ts_value:
                 try:
-                    doc_date = datetime.fromisoformat(doc_timestamp.replace('Z', '+00:00'))
-                    if doc_date < cutoff_date:
-                        continue  # Skip old records
-                except:
-                    pass  # Include records with invalid timestamps for debugging
-            
-            # Apply additional filters
-            if status_filter and allocation_data.get('status', '').lower() != status_filter.lower():
+                    parsed_ts = datetime.fromisoformat(str(ts_value).replace("Z", "+00:00"))
+                    if parsed_ts < cutoff_date:
+                        continue
+                except Exception:
+                    pass
+
+            if status_filter and (row.get("status") or "").lower() != status_filter.lower():
                 continue
-            if deal_filter and str(allocation_data.get('deal_id', '')) != deal_filter:
+            if deal_filter and str(row.get("deal_id") or "") != deal_filter:
                 continue
-            if adviser_filter and adviser_filter.lower() not in allocation_data.get('adviser_email', '').lower():
-                continue
-                
-            allocations.append(allocation_data)
-        
-        # Get unique deals and advisers for filter dropdowns
-        unique_deals = sorted(set([str(a.get('deal_id', '')) for a in allocations if a.get('deal_id')]))
-        unique_advisers = sorted(set([a.get('adviser_email', '') for a in allocations if a.get('adviser_email')]))
-        unique_statuses = sorted(set([a.get('status', '') for a in allocations if a.get('status')]))
-        
-        return render_template(
-            "allocation_history_ui.html",
-            allocations=allocations,
-            unique_deals=unique_deals,
-            unique_advisers=unique_advisers,
-            unique_statuses=unique_statuses,
-            status_filter=status_filter,
-            deal_filter=deal_filter,
-            adviser_filter=adviser_filter,
-            days_filter=days_filter,
-            today=sydney_today().isoformat(),
-            week_num=f"{sydney_today().isocalendar()[1]:02d}",
-            total_count=len(allocations),
-            hubspot_portal_id=os.getenv('HUBSPOT_PORTAL_ID', '21983344')  # Add HubSpot portal ID for deal links
-        )
-        
+            if adviser_filter:
+                searchable = " ".join([
+                    row.get("adviser_name", ""),
+                    row.get("adviser_email", ""),
+                ]).lower()
+                if adviser_filter.lower() not in searchable:
+                    continue
+
+            allocations.append(row)
+
+        total_count = len(allocations)
+        total_pages = max(1, (total_count + page_size - 1) // page_size)
+        page = min(page, total_pages)
+        start_idx = (page - 1) * page_size
+        end_idx = start_idx + page_size
+        paged_allocations = allocations[start_idx:end_idx]
+
+        status_counter = Counter()
+        service_counter = Counter()
+        household_counter = Counter()
+        adviser_counter = Counter()
+        source_counter = Counter()
+        client_emails = set()
+
+        for row in allocations:
+            status_raw = (row.get("status") or "").strip()
+            if status_raw:
+                lower = status_raw.lower()
+                if lower in ("completed", "success"):
+                    status_label = "Completed"
+                elif lower in ("failed", "error"):
+                    status_label = "Failed"
+                elif lower in ("processing", "pending"):
+                    status_label = "Processing"
+                else:
+                    status_label = status_raw.replace("_", " ").title()
+                status_counter[status_label] += 1
+
+            for svc in _format_tag_list(row.get("service_package_raw") or row.get("service_package")):
+                service_counter[svc] += 1
+
+            for hh in _format_tag_list(row.get("household_type_raw") or row.get("household_type")):
+                household_counter[hh] += 1
+
+            adviser_label = row.get("adviser_name") or _format_display_name(row.get("adviser_email") or "")
+            if adviser_label:
+                adviser_counter[adviser_label] += 1
+
+            source_label = row.get("source") or "webhook"
+            source_counter[source_label] += 1
+
+            if row.get("client_email"):
+                client_emails.add(row["client_email"].lower())
+
+        unique_statuses = sorted({(row.get("status") or "").lower() for row in allocations if row.get("status")})
+        unique_deals = sorted({str(row.get("deal_id")) for row in allocations if row.get("deal_id")})
+        unique_advisers = sorted(adviser_counter.keys())
+
+        dashboard_counts = {
+            "total": total_count,
+            "completed": status_counter.get("Completed", 0),
+            "failed": status_counter.get("Failed", 0),
+            "processing": status_counter.get("Processing", 0),
+            "unique_advisers": len(adviser_counter),
+            "unique_deals": len(unique_deals),
+            "unique_clients": len(client_emails),
+        }
+
+        start_record = start_idx + 1 if total_count else 0
+        end_record = min(end_idx, total_count)
+
+        context = {
+            "allocations": paged_allocations,
+            "unique_deals": unique_deals,
+            "unique_advisers": unique_advisers,
+            "unique_statuses": unique_statuses,
+            "status_filter": status_filter,
+            "deal_filter": deal_filter,
+            "adviser_filter": adviser_filter,
+            "days_filter": days_filter,
+            "today": sydney_today().isoformat(),
+            "week_num": f"{sydney_today().isocalendar()[1]:02d}",
+            "total_count": total_count,
+            "page": page,
+            "total_pages": total_pages,
+            "page_size": page_size,
+            "start_record": start_record,
+            "end_record": end_record,
+            "hubspot_portal_id": os.getenv('HUBSPOT_PORTAL_ID', '21983344'),
+            "dashboard_counts": dashboard_counts,
+            "status_stats": [{"label": label, "count": count} for label, count in status_counter.most_common()],
+            "service_stats": [{"label": label, "count": count} for label, count in service_counter.most_common(5)],
+            "household_stats": [{"label": label, "count": count} for label, count in household_counter.most_common(5)],
+            "adviser_stats": [{"label": label, "count": count} for label, count in adviser_counter.most_common(5)],
+            "source_stats": [{"label": label.replace('_', ' ').title(), "count": count} for label, count in source_counter.most_common()],
+        }
+
+        return render_template("allocation_history_ui.html", **context)
+
     except Exception as e:
-        return render_template_string(f"""
-            <div style="padding: 20px; text-align: center;">
+        return render_template_string(
+            f"""
+            <div style=\"padding: 20px; text-align: center;\">
                 <h3>❌ Error Loading Allocation History</h3>
                 <p>{str(e)}</p>
             </div>
-        """), 500
+            """
+        ), 500
 
 
 # ---- Availability ----
@@ -1238,7 +1334,7 @@ def availability_earliest():
         compute = request.args.get("compute") == "1"
         
         # Toggle: include users not taking on clients (default ON to display everyone)
-        include_no = str(request.args.get("include_no", "1")).lower() in ("1", "true", "yes", "on")
+        include_no = str(request.args.get("include_no", "0")).lower() in ("1", "true", "yes", "on")
 
         # Parse agreement_start_date parameter (default to Sydney now if not provided)
         agreement_start_date_param = request.args.get("agreement_start_date")
@@ -1450,12 +1546,12 @@ def availability_schedule():
             return (f"<p>Failed to compute schedule for {selected}: {e}</p>", 500, {"Content-Type": "text/html; charset=utf-8"})
 
     # Build the adviser dropdown options HTML (kept simple for template)
-            option_items = ["<option value=\"\">-- Select adviser --</option>"]
-            for entry in sorted(display_advisers, key=lambda item: item["name"].lower()):
-                e = entry["email"]
-                sel_attr = " selected" if selected == e else ""
-                label = f"{entry['name']}"
-                option_items.append(f"<option value=\"{e}\"{sel_attr}>{label}</option>")
+    option_items = ["<option value=\"\">-- Select adviser --</option>"]
+    for entry in sorted(display_advisers, key=lambda item: item["name"].lower()):
+        e = entry["email"]
+        sel_attr = " selected" if selected == e else ""
+        label = f"{entry['name']}"
+        option_items.append(f"<option value=\"{e}\"{sel_attr}>{label}</option>")
     options_html = "".join(option_items)
 
     return render_template(

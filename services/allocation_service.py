@@ -38,14 +38,22 @@ def store_allocation_record(
         "request_data": raw_request if raw_request is not None else data,
         "client_email": data.get("client_email", ""),
         "adviser_email": data.get("adviser_email", ""),
+        "adviser_name": data.get("adviser_name", ""),
         "adviser_hubspot_id": data.get("adviser_hubspot_id", ""),
+        "adviser_service_packages": data.get("adviser_service_packages", []),
+        "adviser_household_types": data.get("adviser_household_types", []),
         "deal_id": data.get("deal_id", ""),
         "service_package": data.get("service_package", ""),
+        "service_package_raw": data.get("service_package_raw", ""),
+        "household_type": data.get("household_type", ""),
+        "household_type_raw": data.get("household_type_raw", ""),
         "agreement_start_date": data.get("agreement_start_date", ""),
+        "agreement_start_raw": data.get("agreement_start_raw", ""),
         "allocation_result": data.get("allocation_result", ""),
         "earliest_week": data.get("earliest_week", ""),
         "status": data.get("status", "received"),
         "source": source,
+        "error_message": data.get("error_message", ""),
     }
 
     if extra_fields:
