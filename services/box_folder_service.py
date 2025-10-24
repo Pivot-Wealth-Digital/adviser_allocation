@@ -203,6 +203,7 @@ BOX_API_BASE_URL = os.environ.get("BOX_API_BASE_URL", DEFAULT_BOX_API_BASE_URL)
 BOX_TEMPLATE_PATH = os.environ.get(
     "BOX_TEMPLATE_PATH", "Team Advice/Pivot Clients/2025 Client Box Folder Template"
 )
+# Note: "1. Active Clients" folder ID is 89432789614
 BOX_ACTIVE_CLIENTS_PATH = os.environ.get(
     "BOX_ACTIVE_CLIENTS_PATH", "Team Advice/Pivot Clients/1. Active Clients"
 )
@@ -244,6 +245,11 @@ BOX_JWT_CONFIG_JSON = _load_box_jwt_config_json()
 BOX_IMPERSONATION_USER = (
     get_secret("BOX_IMPERSONATION_USER") or os.environ.get("BOX_IMPERSONATION_USER")
 )
+
+if not BOX_IMPERSONATION_USER:
+    logger.warning(
+        "BOX_IMPERSONATION_USER not configured; Box operations will use service account credentials"
+    )
 HUBSPOT_TOKEN = get_secret("HUBSPOT_TOKEN") or os.environ.get("HUBSPOT_TOKEN")
 HUBSPOT_HEADERS = {
     "Authorization": f"Bearer {HUBSPOT_TOKEN}" if HUBSPOT_TOKEN else None,
