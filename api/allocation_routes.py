@@ -22,10 +22,8 @@ HUBSPOT_HEADERS = {
     "Authorization": f"Bearer {HUBSPOT_TOKEN}" if HUBSPOT_TOKEN else None,
     "Content-Type": "application/json",
 }
-CHAT_WEBHOOK_URL = (
-    get_secret("PIVOT-DIGITAL-CHAT-WEBHOOK-URL-ADVISER-ALGO")
-    or os.environ.get("CHAT_WEBHOOK_URL")
-)
+# Google Chat webhook for allocation alerts (hardcoded)
+CHAT_WEBHOOK_URL = "https://chat.googleapis.com/v1/spaces/AAQADqcOrjo/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=TICoV6PHW8ED_C_9RQUV0JftTn9SKCfk7Ns9euSWnAw"
 
 _db = None
 
