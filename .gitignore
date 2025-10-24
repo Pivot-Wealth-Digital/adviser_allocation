@@ -22,6 +22,7 @@ pip-wheel-metadata/
 .env
 .env.*
 .envrc
+config/box_jwt_config.json
 
 # Coverage/Reports
 .coverage

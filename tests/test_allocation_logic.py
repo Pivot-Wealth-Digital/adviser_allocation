@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 os.environ.setdefault("USE_FIRESTORE", "false")
 
-import allocate  # noqa: E402
+from core import allocation as allocate  # noqa: E402
 
 
 class AllocationLogicTests(unittest.TestCase):

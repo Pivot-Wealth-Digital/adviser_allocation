@@ -8,7 +8,7 @@ from flask import Flask, redirect, request, session, jsonify, render_template, r
 import requests
 
 from utils.common import sydney_now, sydney_today, SYDNEY_TZ, USE_FIRESTORE, get_firestore_client
-from allocate import (
+from core.allocation import (
     get_adviser,
     get_users_earliest_availability,
     get_users_taking_on_clients,
@@ -22,6 +22,8 @@ from utils.firestore_helpers import (
     get_employee_id as get_employee_id_from_firestore,
 )
 from services.allocation_service import store_allocation_record
+from api.box_routes import box_bp
+from api.allocation_routes import init_allocation_routes
 
 from dotenv import load_dotenv
 
@@ -29,13 +31,21 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from utils.secrets import get_secret
-    
+
+LOG_LEVEL_NAME = (os.environ.get("LOG_LEVEL") or "INFO").upper()
+LOG_FORMAT = os.environ.get("LOG_FORMAT", "[%(asctime)s] %(levelname)s in %(module)s: %(message)s")
+LOG_LEVEL = getattr(logging, LOG_LEVEL_NAME, logging.INFO)
+logging.basicConfig(level=LOG_LEVEL, format=LOG_FORMAT)
+logging.getLogger().setLevel(LOG_LEVEL)
 
 # Initialize Firestore
 db = get_firestore_client()
 
 app = Flask(__name__)
 app.secret_key = get_secret("SESSION_SECRET") or "change-me-please"  # set in app.yaml or .env
+
+app.register_blueprint(box_bp)
+app.register_blueprint(init_allocation_routes(db))
 
 CHAT_WEBHOOK_URL = (
     get_secret("PIVOT-DIGITAL-CHAT-WEBHOOK-URL-ADVISER-ALGO")
@@ -769,214 +779,6 @@ def logout():
     session.pop("is_authenticated", None)
     return redirect("/login")
 
-# ---- assign adviser to open deal ----
-@app.route('/post/allocate', methods=['POST', 'GET'])
-def handle_webhook():
-    """
-    Endpoint to receive and handle the HubSpot webhook payload.
-    """
-
-    if request.method == 'GET':
-        return {"message": "Hi, please use POST request."}, 200
-
-    # Check for the correct Content-Type
-    if not request.is_json:
-        logging.error("Invalid Content-Type: Must be application/json")
-        return jsonify({'message': 'Invalid Content-Type'}), 415
-
-    try:
-        # Get the JSON data from the request body
-        event = request.get_json()
-        logging.info(
-            "Received allocation payload: %s",
-            json.dumps(event, indent=2, sort_keys=True),
-        )
-        
-        # Check for 'deal' object type as this is for a deal workflow.
-        if event.get('object', {}).get('objectType', ''):
-            service_package = event["fields"]["service_package"]
-            household_type = event["fields"].get("household_type", "")
-            agreement_start_date = event.get('fields', {}).get('agreement_start_date', '')
-            selected_user, candidate_list = get_adviser(service_package, agreement_start_date)
-            user = selected_user
-            chosen_email = (user.get("properties") or {}).get("hs_email")
-            hubspot_owner_id = user["properties"]["hubspot_owner_id"]
-            deal_id = event.get('fields', {}).get('hs_deal_record_id', '')
-            logging.info("Assigning deal %s to %s (%s)", deal_id, chosen_email, hubspot_owner_id)
-
-            adviser_props = user.get("properties") or {}
-            adviser_name = _format_display_name(chosen_email)
-            adviser_service_tags = _format_tag_list(adviser_props.get("client_types") or "")
-            adviser_household_tags = _format_tag_list(adviser_props.get("household_type") or "")
-            deal_service_display = ", ".join(_format_tag_list(service_package)) or (service_package or "Unknown")
-            deal_household_display = ", ".join(_format_tag_list(household_type)) or (household_type or "Not provided")
-            agreement_start_display = format_agreement_start(agreement_start_date)
-
-            try:
-                deal_update_url = f"https://api.hubapi.com/crm/v3/objects/deals/{deal_id}"
-
-                # Prepare the payload to update the deal owner
-                payload = {
-                    "properties": {
-                        "advisor": hubspot_owner_id
-                    }
-                }
-
-                # Make the PATCH request to update the deal
-                if not HUBSPOT_TOKEN:
-                    raise RuntimeError("HUBSPOT_TOKEN is not configured")
-                response = requests.patch(deal_update_url, headers=HUBSPOT_HEADERS, data=json.dumps(payload), timeout=10)
-                response.raise_for_status()
-
-                logging.info(
-                    "Successfully assigned deal %s to owner %s",
-                    deal_id,
-                    hubspot_owner_id,
-                )
-
-                store_allocation_record(
-                    db,
-                    {
-                        "client_email": event.get('fields', {}).get('client_email', ''),
-                        "adviser_email": chosen_email,
-                        "adviser_name": adviser_name,
-                        "adviser_hubspot_id": hubspot_owner_id,
-                        "adviser_service_packages": adviser_service_tags,
-                        "adviser_household_types": adviser_household_tags,
-                        "deal_id": deal_id,
-                        "service_package": deal_service_display,
-                        "service_package_raw": service_package,
-                        "household_type": deal_household_display,
-                        "household_type_raw": household_type,
-                        "agreement_start_date": agreement_start_display,
-                        "agreement_start_raw": agreement_start_date,
-                        "allocation_result": "completed",
-                        "status": "completed",
-                    },
-                    source="hubspot_webhook",
-                    raw_request=event,
-                    extra_fields={
-                        "ip_address": request.remote_addr,
-                        "user_agent": request.headers.get("User-Agent", ""),
-                    },
-                )
-
-                candidate_lines = []
-                for cand in candidate_list:
-                    cand_services = ", ".join(_format_tag_list(cand.get("service_packages"))) or "Not specified"
-                    cand_households = ", ".join(_format_tag_list(cand.get("household_type"))) or "Not specified"
-                    cand_earliest = cand.get("earliest_open_week_label") or "Unknown"
-                    candidate_lines.append(
-                        f"<b>{cand.get('name')}</b> ({cand.get('email')})<br>"
-                        f"<i>Services:</i> {cand_services}<br>"
-                        f"<i>Households:</i> {cand_households}<br>"
-                        f"<i>Earliest Week:</i> {cand_earliest}"
-                    )
-                if not candidate_lines:
-                    candidate_lines = ["No eligible advisers"]
-
-                selected_services = ", ".join(adviser_service_tags) if adviser_service_tags else "Not specified"
-                selected_households = ", ".join(adviser_household_tags) if adviser_household_tags else "Not specified"
-                selected_entry = next((c for c in candidate_list if c.get("email") == chosen_email), None)
-                selected_earliest = (
-                    selected_entry.get("earliest_open_week_label")
-                    if selected_entry else None
-                ) or "Unknown"
-
-                deal_section = [
-                    f"<b>Deal ID:</b> `{deal_id}`",
-                    f"<b>Service Package:</b> {deal_service_display}",
-                    f"<b>Household Type:</b> {deal_household_display}",
-                ]
-
-                selected_section = [
-                    f"<b>{adviser_name}</b> ({chosen_email})",
-                    f"<i>Service Packages:</i> {selected_services}",
-                    f"<i>Household Types:</i> {selected_households}",
-                    f"<i>Earliest Week:</i> {selected_earliest}",
-                ]
-
-                payload = build_chat_card_payload(
-                    "Deal Allocation",
-                    [
-                        {"header": "Deal Details", "lines": deal_section},
-                        {"header": "Eligible Advisers", "lines": candidate_lines},
-                        {"header": "Selected Adviser", "lines": selected_section},
-                    ],
-                )
-                send_chat_alert(payload)
-            except requests.exceptions.HTTPError as http_err:
-                logging.error(f"HTTP error during deal update: {http_err}")
-                logging.error(f"Response content: {response.text}")
-
-                store_allocation_record(
-                    db,
-                    {
-                        "client_email": event.get('fields', {}).get('client_email', ''),
-                        "adviser_email": chosen_email,
-                        "adviser_name": adviser_name,
-                        "adviser_hubspot_id": hubspot_owner_id,
-                        "adviser_service_packages": adviser_service_tags,
-                        "adviser_household_types": adviser_household_tags,
-                        "deal_id": deal_id,
-                        "service_package": deal_service_display,
-                        "service_package_raw": service_package,
-                        "household_type": deal_household_display,
-                        "household_type_raw": household_type,
-                        "agreement_start_date": agreement_start_display,
-                        "agreement_start_raw": agreement_start_date,
-                        "allocation_result": "failed",
-                        "status": "failed",
-                        "error_message": str(http_err),
-                    },
-                    source="hubspot_webhook",
-                    raw_request=event,
-                    extra_fields={
-                        "ip_address": request.remote_addr,
-                        "user_agent": request.headers.get("User-Agent", ""),
-                    },
-                )
-
-            except Exception as err:
-                logging.error(f"An unexpected error occurred during deal update: {err}")
-
-                store_allocation_record(
-                    db,
-                    {
-                        "client_email": event.get('fields', {}).get('client_email', ''),
-                        "adviser_email": chosen_email if chosen_email else '',
-                        "adviser_name": adviser_name if 'adviser_name' in locals() else '',
-                        "adviser_hubspot_id": hubspot_owner_id if 'hubspot_owner_id' in locals() else '',
-                        "adviser_service_packages": adviser_service_tags if 'adviser_service_tags' in locals() else [],
-                        "adviser_household_types": adviser_household_tags if 'adviser_household_tags' in locals() else [],
-                        "deal_id": deal_id if 'deal_id' in locals() else '',
-                        "service_package": deal_service_display if 'deal_service_display' in locals() else (service_package if 'service_package' in locals() else ''),
-                        "service_package_raw": service_package if 'service_package' in locals() else '',
-                        "household_type": deal_household_display if 'deal_household_display' in locals() else (household_type if 'household_type' in locals() else ''),
-                        "household_type_raw": household_type if 'household_type' in locals() else '',
-                        "agreement_start_date": agreement_start_display if 'agreement_start_display' in locals() else format_agreement_start(agreement_start_date) if 'agreement_start_date' in locals() else '',
-                        "agreement_start_raw": agreement_start_date if 'agreement_start_date' in locals() else '',
-                        "allocation_result": "failed",
-                        "status": "failed",
-                        "error_message": str(err),
-                    },
-                    source="hubspot_webhook",
-                    raw_request=event,
-                    extra_fields={
-                        "ip_address": request.remote_addr,
-                        "user_agent": request.headers.get("User-Agent", ""),
-                    },
-                )
-        
-        # Return a success response. HubSpot expects a 200 OK.
-        return jsonify({'message': 'Webhook received successfully'}), 200
-
-    except Exception as e:
-        logging.error(f"Failed to process webhook: {e}")
-    return jsonify({'message': 'Internal Server Error'}), 500
-
-
-
 # ---- Example API call ----
 @app.route("/test/organisations")
 def list_orgs():
@@ -1336,10 +1138,7 @@ def allocation_history_ui():
 def availability_earliest():
     """Uniform templated view of earliest availability with tags and topbar."""
     try:
-        # Check if computation is requested
         compute = request.args.get("compute") == "1"
-        
-        # Toggle: include users not taking on clients (default ON to display everyone)
         include_no = str(request.args.get("include_no", "0")).lower() in ("1", "true", "yes", "on")
 
         # Parse agreement_start_date parameter (default to Sydney now if not provided)
@@ -1354,18 +1153,27 @@ def availability_earliest():
                 agreement_start_date = datetime(parsed_date.year, parsed_date.month, parsed_date.day, tzinfo=SYDNEY_TZ)
                 default_date = agreement_start_date_param
             except ValueError:
+                logging.warning(
+                    "availability_earliest invalid agreement_start_date parameter: %s",
+                    agreement_start_date_param,
+                )
                 return jsonify({"error": "Invalid agreement_start_date format. Use YYYY-MM-DD"}), 400
+
+        logging.info(
+            "availability_earliest request compute=%s include_no=%s agreement_start_date=%s",
+            compute,
+            include_no,
+            agreement_start_date.isoformat() if agreement_start_date else "default",
+        )
 
         # Only compute if requested
         rows = []
         if compute:
-            logging.info(
-                "availability_earliest requested with include_no=%s agreement_start_date=%s",
-                include_no,
-                agreement_start_date.isoformat() if agreement_start_date else "default",
-            )
             results = get_users_earliest_availability(agreement_start_date=agreement_start_date, include_no=include_no)
             results = sorted(results, key=lambda r: (r.get("email") or "").lower())
+            logging.debug(
+                "availability_earliest retrieved %d adviser rows", len(results)
+            )
 
             # Build rows for template
             for item in results:
@@ -1440,6 +1248,13 @@ def availability_earliest():
                         household_idx += 1
                     items.append({"name": part, "cls": household_color_map[key]})
                 r["household_items"] = items
+
+            logging.info(
+                "availability_earliest computed %d rows for rendering",
+                len(rows),
+            )
+        else:
+            logging.debug("availability_earliest compute flag not set; returning cached form")
 
         return render_template(
             "availability_earliest.html",

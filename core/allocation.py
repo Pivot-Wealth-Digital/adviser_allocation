@@ -20,7 +20,9 @@ HUBSPOT_TOKEN = get_secret("HUBSPOT_TOKEN")
 HEADERS = {"Authorization": f"Bearer {HUBSPOT_TOKEN}", "Content-Type": "application/json"}
 _SPECIAL_UPPER = {"ipo"}
 PRESTART_WEEKS = int(os.environ.get("PRESTART_WEEKS", "3"))
-_MATRIX_CACHE_TTL = int(os.environ.get("MATRIX_CACHE_TTL", "300"))
+# Fetch fresh data from HubSpot every time (set to 0 to disable caching)
+# Can be overridden with MATRIX_CACHE_TTL environment variable
+_MATRIX_CACHE_TTL = int(os.environ.get("MATRIX_CACHE_TTL", "0"))
 _MATRIX_CACHE = {
     "timestamp": 0.0,
     "services": [],
@@ -1009,7 +1011,7 @@ def get_user_ids_adviser():
         session.close()
 
 
-def get_adviser(service_package, agreement_start_date=None):
+def get_adviser(service_package, agreement_start_date=None, household_type=None):
     logger.info("Adviser allocation started for service package %s", service_package)
     if agreement_start_date:
         agreement_date = datetime.fromtimestamp(int(agreement_start_date) / 1000, tz=SYDNEY_TZ).date()
@@ -1018,41 +1020,34 @@ def get_adviser(service_package, agreement_start_date=None):
         logger.info("Agreement start date not provided")
 
     logger.info("Finding eligible advisers for package %s", service_package)
+    service_lower = (service_package or "").strip().lower()
+    household_lower = (household_type or "").strip().lower()
     users = get_user_ids_adviser()
     users_list = []
+
     for user in users:
         props = user.get("properties") or {}
         if props.get("taking_on_clients") != "True":
             continue
-
         client_types_raw = props.get("client_types") or ""
         client_types = _normalized_set(client_types_raw)
-        logger.debug(
-            "Adviser %s client_types raw=%s parsed=%s",
-            props.get("hs_email"),
-            client_types_raw,
-            client_types,
-        )
-        if service_package.lower() not in client_types:
+        if service_lower not in client_types:
             continue
 
-        household_pref = (props.get("household_type") or "")
-        logger.debug(
-            "Adviser %s household raw=%s",
-            props.get("hs_email"),
-            household_pref,
-        )
-        if not _matches_household(service_package, household_pref):
-            logger.debug(
-                "Skipping adviser %s for household mismatch (service %s, adviser household %s)",
-                props.get("hs_email"),
-                service_package,
-                household_pref,
-            )
-            continue
+        # Filter by household type if the service package requires it
+        if should_filter_by_household(service_lower) and household_lower:
+            # For service packages that require household filtering (Series A, Seed)
+            # the adviser must support the specific household type of this deal
+            adviser_household_norms = _normalized_set(props.get("household_type") or "")
+
+            # If adviser has household preferences, the deal's household type must be in them
+            if adviser_household_norms and household_lower not in adviser_household_norms:
+                # Adviser doesn't support this specific household type for this deal
+                continue
 
         users_list.append(user)
-    logger.info("Advisers eligible for %s with household constraint: %d", service_package, len(users_list))
+
+    logger.info("Advisers eligible for %s (household=%s): %d", service_package, household_lower or "<any>", len(users_list))
 
     # Load global closures once
     global_closures = classify_leave_weeks(get_global_closures_from_firestore())
@@ -1552,36 +1547,40 @@ def week_label_from_ordinal(wk: int) -> str:
     monday = date.fromordinal(wk)
     iso_year, iso_week, _ = monday.isocalendar()
     return f"{iso_year}-W{iso_week:02d}"
+
+
+# Package types that require household type filtering
 HOUSEHOLD_RULES = {
     "series a": {"single", "couple"},
     "seed": {"single", "couple"},
+    "series c": None,  # Ignore household type
+    "ipo": None,  # Ignore household type
 }
+
+
+def should_filter_by_household(package_type: str) -> bool:
+    """
+    Check if a package type should be filtered by household type.
+
+    Returns True if household type filtering should be applied.
+    Returns False if household type should be ignored (e.g., Series C, IPO).
+
+    Args:
+        package_type: Normalized (lowercase) package type string
+
+    Returns:
+        bool: True if household filtering applies, False if should ignore household type
+    """
+    if package_type not in HOUSEHOLD_RULES:
+        return True  # Default to filtering for unknown types
+
+    rules = HOUSEHOLD_RULES[package_type]
+    return rules is not None  # None means ignore household type
 
 
 def _normalized_set(raw: str) -> set[str]:
     """Split a semi-structured CRM string into normalized lowercase values."""
     return {p.strip().lower() for p in re.split(r"[;,/|]+", raw or "") if p.strip()}
-
-
-def _matches_household(service_package: str, adviser_household: str) -> bool:
-    """Return True if adviser household matches requirement for service package."""
-    service_lower = (service_package or "").strip().lower()
-    allowed = HOUSEHOLD_RULES.get(service_lower)
-    if not allowed:
-        return True  # No household constraint for this package
-
-    adviser_values = _normalized_set(adviser_household)
-    logger.debug(
-        "Household matching check: service=%s allowed=%s adviser_raw=%s adviser_normalised=%s",
-        service_package,
-        allowed,
-        adviser_household,
-        adviser_values,
-    )
-    if not adviser_values:
-        return True  # Adviser unspecified; treat as available
-
-    return bool(adviser_values & allowed)
 
 
 def _format_service_label(token: str) -> str:
@@ -1627,7 +1626,8 @@ def build_service_household_matrix():
     household_map: dict[str, str] = {}
     all_households_norm: set[str] = set()
     for allowed in HOUSEHOLD_RULES.values():
-        all_households_norm.update(allowed)
+        if allowed is not None:  # Skip None values (e.g., Series C, IPO)
+            all_households_norm.update(allowed)
 
     adviser_payload = []
     adviser_color_cycle = ["blue", "green", "purple", "orange", "pink", "teal"]
@@ -1658,6 +1658,7 @@ def build_service_household_matrix():
                 "service_norms": service_norms,
                 "household_norms": household_norms,
                 "household_raw": props.get("household_type") or "",
+                "service_packages": service_norms,  # Store for later filtering
             }
         )
 
@@ -1691,24 +1692,45 @@ def build_service_household_matrix():
         for svc_norm, svc_display in service_items:
             if svc_norm not in adviser["service_norms"]:
                 continue
-            allowed_households = HOUSEHOLD_RULES.get(svc_norm)
 
-            for hh_norm, hh_display in household_items:
-                if allowed_households and hh_norm not in allowed_households:
-                    continue
-                if household_norms and hh_norm not in household_norms:
-                    continue
-                if not _matches_household(svc_display, household_raw):
-                    continue
+            # Check if this service package requires household filtering
+            if not should_filter_by_household(svc_norm):
+                # No household filtering by service rules, but still respect adviser's household preferences
+                # For Series C/IPO: add adviser to columns matching their household preferences
+                for hh_norm, hh_display in household_items:
+                    # Only add if adviser has no preferences OR their preferences include this household
+                    if household_norms and hh_norm not in household_norms:
+                        continue
 
-                bucket = matrix[svc_display][hh_display]
-                colour = adviser_color_map.setdefault(
-                    email,
-                    adviser_color_cycle[len(adviser_color_map) % len(adviser_color_cycle)],
-                )
-                entry = {"email": email, "name": name, "cls": colour}
-                if entry not in bucket:
-                    bucket.append(entry)
+                    bucket = matrix[svc_display][hh_display]
+                    colour = adviser_color_map.setdefault(
+                        email,
+                        adviser_color_cycle[len(adviser_color_map) % len(adviser_color_cycle)],
+                    )
+                    entry = {"email": email, "name": name, "cls": colour}
+                    if entry not in bucket:
+                        bucket.append(entry)
+            else:
+                # Household filtering required - match adviser's household preferences
+                allowed_households = HOUSEHOLD_RULES.get(svc_norm)
+
+                for hh_norm, hh_display in household_items:
+                    # Check if household type is allowed for this service
+                    if allowed_households and hh_norm not in allowed_households:
+                        continue
+                    # Check if adviser has this household preference
+                    # If adviser has no household preferences, include them for all allowed types
+                    if household_norms and hh_norm not in household_norms:
+                        continue
+
+                    bucket = matrix[svc_display][hh_display]
+                    colour = adviser_color_map.setdefault(
+                        email,
+                        adviser_color_cycle[len(adviser_color_map) % len(adviser_color_cycle)],
+                    )
+                    entry = {"email": email, "name": name, "cls": colour}
+                    if entry not in bucket:
+                        bucket.append(entry)
 
     for svc_display in matrix:
         for hh_display in matrix[svc_display]:

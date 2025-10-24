@@ -40,6 +40,15 @@ pip install -r requirements.txt
 - `EH_SCOPES`: EH scopes. Example defaults: `urn:mainapp:organisations:read urn:mainapp:employees:read urn:mainapp:leave_requests:read`
 - `REDIRECT_URI`: Public callback URL for OAuth (e.g., `https://<PROJECT-ID>.appspot.com/auth/callback` or local tunnel)
 - `HUBSPOT_TOKEN`: HubSpot Private App token (Bearer token)
+- `BOX_DEVELOPER_TOKEN`: Optional Box developer token for quick local testing (omit in production)
+- `BOX_TEMPLATE_PATH`: Box path to the client folder template (default `Team Advice/Pivot Clients/2025 Client Box Folder Template`)
+- `BOX_ACTIVE_CLIENTS_PATH`: Box path where client folders should be created (default `Team Advice/Pivot Clients/1. Active Clients`)
+- `BOX_API_BASE_URL`: Optional override for the Box API base URL (default `https://api.box.com/2.0`)
+- `BOX_REQUEST_TIMEOUT_SECONDS`: Optional HTTP timeout for Box requests (default `20`)
+- `BOX_WEBHOOK_PRIMARY_SECRET`: Secret used to validate callbacks from Box webhooks
+- `BOX_JWT_CONFIG_PATH`: Optional local path to the Box JWT JSON file (default `config/box_jwt_config.json`)
+- `BOX_JWT_CONFIG_JSON`: Optional JSON string containing the Box JWT configuration (useful when sourcing from Secret Manager)
+- `BOX_IMPERSONATION_USER`: Box user email/ID to impersonate so the service account sees shared folders
 - `PORT`: Optional port (default `8080`)
 - `PRESTART_WEEKS`: Weeks before an adviser's `adviser_start_date` that they can receive allocations (default `3`).
 
@@ -166,9 +175,18 @@ curl -X POST http://localhost:8080/post/allocate \
 - `GET /` → Basic status and route list
 - `GET /test/organisations` → EH organisations (requires OAuth)
 - `GET /get/leave_requests_list` → Raw EH leave requests listing
+- `POST /post/create_box_folder` → HubSpot-triggered Box client folder creation (contact-based naming, template copy)
 - `GET /availability/earliest` → HTML table of earliest week availability for all advisers taking on clients. Columns: Email, Service Packages, Pod Type, Client Monthly Limit, Earliest Open Week.
 - `GET /availability/schedule` → UI to pick an adviser by email and view a weekly schedule table (Week label, Monday Date, Clarify Count, OOO, Deal No Clarify, Target, Actual). Highlights the earliest available week.
 - `GET /_ah/warmup` → Healthcheck
+
+
+## Box Integration
+
+- The allocation webhook (`POST /post/allocate`) creates a Box folder by default; pass `?create_box_folder=false` to skip it when needed.
+- A standalone webhook (`POST /post/create_box_folder`) is available for HubSpot or manual triggers that only need the folder provisioning step.
+- Local development: copy your Box JWT app JSON into `config/box_jwt_config.json` (git-ignored) or set `BOX_JWT_CONFIG_PATH` to an alternate location. Ensure the impersonated Box user (`BOX_IMPERSONATION_USER`) has access to both the template and destination folders.
+- Production: store the same JSON in Secret Manager (e.g. `box-jwt-config`) and expose it via `BOX_JWT_CONFIG_JSON` or `BOX_JWT_CONFIG_PATH`. Also provide `BOX_WEBHOOK_PRIMARY_SECRET` and any other Box env vars via app.yaml or your deployment pipeline.
 
 
 ## Scheduling (Recommended)
