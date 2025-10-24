@@ -319,6 +319,7 @@ def ensure_box_service() -> Optional[BoxFolderService]:
     if not config_data:
         _BOX_SERVICE_INITIALISED = True
         _BOX_FOLDER_SERVICE = None
+        logger.error("Box JWT config not found; Box automation disabled")
         return None
 
     try:
@@ -326,20 +327,26 @@ def ensure_box_service() -> Optional[BoxFolderService]:
         access_token = auth.authenticate_instance()
         logger.info("Fetched Box access token via JWT service account")
         impersonated_user_id = None
+
         if BOX_IMPERSONATION_USER:
+            logger.info("Attempting to find Box user: %s", BOX_IMPERSONATION_USER)
             client = Client(auth)
             impersonated_user_id = _find_box_user_id(client, BOX_IMPERSONATION_USER)
             if impersonated_user_id:
                 logger.info(
-                    "Impersonating Box user '%s' (id=%s)",
+                    "✅ Impersonating Box user '%s' (id=%s)",
                     BOX_IMPERSONATION_USER,
                     impersonated_user_id,
                 )
             else:
                 logger.error(
-                    "Box impersonation user '%s' was not found; proceeding without impersonation",
+                    "❌ Box impersonation user '%s' was not found; proceeding without impersonation",
                     BOX_IMPERSONATION_USER,
                 )
+        else:
+            logger.warning(
+                "⚠️  BOX_IMPERSONATION_USER not configured; using service account (limited permissions)"
+            )
         _BOX_FOLDER_SERVICE = BoxFolderService(
             token=access_token,
             template_path=BOX_TEMPLATE_PATH,
