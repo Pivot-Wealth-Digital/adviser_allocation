@@ -1,0 +1,22 @@
+runtime: python312
+
+instance_class: F1
+
+automatic_scaling:
+  min_instances: 0
+  max_instances: 10
+
+env_variables:
+  # Secret Manager references (App Engine will fetch these automatically)
+  HUBSPOT_TOKEN: projects/pivot-digital-466902/secrets/HUBSPOT_TOKEN/versions/latest
+  EH_CLIENT_ID: projects/pivot-digital-466902/secrets/EH_CLIENT_ID/versions/latest
+  EH_CLIENT_SECRET: projects/pivot-digital-466902/secrets/EH_CLIENT_SECRET/versions/latest
+  SESSION_SECRET: projects/pivot-digital-466902/secrets/HUBSPOT_SESSION_SECRET/versions/latest
+  ADMIN_USERNAME: projects/pivot-digital-466902/secrets/ADMIN_USERNAME/versions/latest
+  ADMIN_PASSWORD: projects/pivot-digital-466902/secrets/ADMIN_PASSWORD/versions/latest
+  BOX_IMPERSONATION_USER: projects/pivot-digital-466902/secrets/BOX_IMPERSONATION_USER/versions/latest
+  # Non-secret environment variables
+  USE_FIRESTORE: "true"
+  EH_SCOPES: "urn:mainapp:leave_requests:read"
+  REDIRECT_URI: "https://pivot-digital-466902.ts.r.appspot.com/auth/callback"
+  HUBSPOT_PORTAL_ID: "25026844"
