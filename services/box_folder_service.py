@@ -212,8 +212,34 @@ BOX_JWT_CONFIG_PATH = os.environ.get("BOX_JWT_CONFIG_PATH") or Path(__file__).re
 # Try multiple ways to load Box JWT config:
 # 1. Environment variable "box-jwt-config" (points to Secret Manager path or direct value)
 # 2. Environment variable "BOX_JWT_CONFIG_JSON" (points to Secret Manager path or direct value)
-# 3. Local file at BOX_JWT_CONFIG_PATH (fallback)
-BOX_JWT_CONFIG_JSON = get_secret("box-jwt-config") or get_secret("BOX_JWT_CONFIG_JSON")
+# 3. Direct fetch from Google Secret Manager secret "box-jwt-config"
+# 4. Local file at BOX_JWT_CONFIG_PATH (fallback)
+def _load_box_jwt_config_json() -> Optional[str]:
+    """Load Box JWT config from various sources in priority order."""
+    # Try environment variables first
+    config = get_secret("box-jwt-config") or get_secret("BOX_JWT_CONFIG_JSON")
+    if config:
+        return config
+
+    # Try direct Secret Manager fetch for 'box-jwt-config' secret
+    try:
+        from google.cloud import secretmanager
+        import google.auth
+
+        credentials, project_id = google.auth.default()
+        if project_id and secretmanager:
+            client = secretmanager.SecretManagerServiceClient(credentials=credentials)
+            secret_path = f"projects/{project_id}/secrets/box-jwt-config/versions/latest"
+            response = client.access_secret_version(request={"name": secret_path})
+            config = response.payload.data.decode("utf-8")
+            logger.info("Loaded Box JWT config from Google Secret Manager")
+            return config
+    except Exception as e:
+        logger.debug("Could not load box-jwt-config from Secret Manager: %s", e)
+
+    return None
+
+BOX_JWT_CONFIG_JSON = _load_box_jwt_config_json()
 
 BOX_IMPERSONATION_USER = (
     get_secret("BOX_IMPERSONATION_USER") or os.environ.get("BOX_IMPERSONATION_USER")
