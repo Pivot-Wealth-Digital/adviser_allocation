@@ -208,7 +208,13 @@ BOX_ACTIVE_CLIENTS_PATH = os.environ.get(
 )
 BOX_REQUEST_TIMEOUT = int(os.environ.get("BOX_REQUEST_TIMEOUT_SECONDS", "20"))
 BOX_JWT_CONFIG_PATH = os.environ.get("BOX_JWT_CONFIG_PATH") or Path(__file__).resolve().parent.parent / "config" / "box_jwt_config.json"
-BOX_JWT_CONFIG_JSON = get_secret("BOX_JWT_CONFIG_JSON") or os.environ.get("BOX_JWT_CONFIG_JSON")
+
+# Try multiple ways to load Box JWT config:
+# 1. Environment variable "box-jwt-config" (points to Secret Manager path or direct value)
+# 2. Environment variable "BOX_JWT_CONFIG_JSON" (points to Secret Manager path or direct value)
+# 3. Local file at BOX_JWT_CONFIG_PATH (fallback)
+BOX_JWT_CONFIG_JSON = get_secret("box-jwt-config") or get_secret("BOX_JWT_CONFIG_JSON")
+
 BOX_IMPERSONATION_USER = (
     get_secret("BOX_IMPERSONATION_USER") or os.environ.get("BOX_IMPERSONATION_USER")
 )
