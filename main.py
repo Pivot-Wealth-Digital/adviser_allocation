@@ -33,10 +33,22 @@ load_dotenv()
 from utils.secrets import get_secret
 
 LOG_LEVEL_NAME = (os.environ.get("LOG_LEVEL") or "INFO").upper()
-LOG_FORMAT = os.environ.get("LOG_FORMAT", "[%(asctime)s] %(levelname)s in %(module)s: %(message)s")
 LOG_LEVEL = getattr(logging, LOG_LEVEL_NAME, logging.INFO)
-logging.basicConfig(level=LOG_LEVEL, format=LOG_FORMAT)
-logging.getLogger().setLevel(LOG_LEVEL)
+
+# Use Google Cloud Logging format for App Engine
+try:
+    import google.cloud.logging
+    from google.cloud.logging.handlers import CloudLoggingHandler
+
+    cloud_logging_client = google.cloud.logging.Client()
+    cloud_handler = CloudLoggingHandler(cloud_logging_client)
+    logging.root.addHandler(cloud_handler)
+    logging.root.setLevel(LOG_LEVEL)
+except (ImportError, Exception):
+    # Fallback to standard logging if Cloud Logging not available
+    LOG_FORMAT = os.environ.get("LOG_FORMAT", "[%(asctime)s] %(levelname)s in %(module)s: %(message)s")
+    logging.basicConfig(level=LOG_LEVEL, format=LOG_FORMAT)
+    logging.getLogger().setLevel(LOG_LEVEL)
 
 # Initialize Firestore
 db = get_firestore_client()
