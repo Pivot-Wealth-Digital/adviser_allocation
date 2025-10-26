@@ -57,14 +57,26 @@ class BoxFolderService:
     def ensure_client_folder(self, folder_name: str) -> dict:
         sanitized = sanitize_folder_name(folder_name)
         parent_id = self._resolve_path(self._destination_path)
+
+        # Check if folder already exists, and if so, create with numbered suffix
         existing = self._find_child_folder(parent_id, sanitized)
         if existing:
             logger.info(
-                "Box folder already exists for '%s' (id=%s)",
+                "Box folder '%s' already exists (id=%s), creating new folder with number suffix",
                 sanitized,
                 existing.get("id"),
             )
-            return existing
+            # Find an available numbered folder name
+            counter = 2
+            max_attempts = 100
+            while counter <= max_attempts:
+                numbered_name = f"{sanitized} ({counter})"
+                existing_numbered = self._find_child_folder(parent_id, numbered_name)
+                if not existing_numbered:
+                    sanitized = numbered_name
+                    logger.info("Creating folder with suffix: %s", sanitized)
+                    break
+                counter += 1
 
         template_id = self._resolve_path(self._template_path)
         payload = {"name": sanitized, "parent": {"id": parent_id}}
