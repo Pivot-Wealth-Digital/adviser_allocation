@@ -128,6 +128,13 @@ def create_box_folder_webhook():
     deal_id = str(deal_id)
     folder_name_override = (payload.get("folder_name") or "").strip() or None
     metadata_override = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else None
+    override_keys = sorted(metadata_override.keys()) if metadata_override else []
+    logger.info(
+        "Received Box folder request for deal %s (folder override=%s, metadata override keys=%s)",
+        deal_id,
+        folder_name_override or "<auto>",
+        override_keys,
+    )
     try:
         metadata = _fetch_deal_metadata(deal_id)
         merged_metadata = _merge_metadata(metadata, metadata_override)
@@ -138,6 +145,12 @@ def create_box_folder_webhook():
             "box": result,
             "deal_id": deal_id,
         }
+        logger.info(
+            "Box folder response for deal %s status=%s folder_id=%s",
+            deal_id,
+            status,
+            result.get("folder", {}).get("id") if isinstance(result, dict) else None,
+        )
         if status in {"created", "existing"}:
             return jsonify(response_body), 200
         return jsonify(response_body), 202

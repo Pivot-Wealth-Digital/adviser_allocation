@@ -232,6 +232,17 @@ class BoxFolderService:
         url = f"{self._api_base_url}/folders/{folder_id}/metadata/{self._metadata_scope}/{self._metadata_template_key}"
         headers = self._headers("application/json")
 
+        additions = sorted(prepared.keys())
+        removals = sorted(removal_candidates)
+        logger.info(
+            "Applying Box metadata template %s/%s to folder %s (add=%s, remove=%s)",
+            self._metadata_scope,
+            self._metadata_template_key,
+            folder_id,
+            additions,
+            removals,
+        )
+
         try:
             resp = requests.post(url, headers=headers, json=prepared, timeout=self._timeout)
             if resp.status_code == 409:
@@ -277,6 +288,54 @@ class BoxFolderService:
             )
         except requests.RequestException as exc:
             raise BoxAutomationError(f"Box metadata apply failed for folder {folder_id}: {exc}") from exc
+
+    def find_folder_by_deal_metadata(self, deal_id: str) -> Optional[dict]:
+        """Return existing folder metadata entry for given deal id."""
+        if not self._metadata_scope or not self._metadata_template_key:
+            logger.debug(
+                "Metadata scope/template not configured; cannot query existing folder for deal %s",
+                deal_id,
+            )
+            return None
+
+        query_url = f"{self._api_base_url}/metadata_queries/execute_read"
+        payload = {
+            "from": f"{self._metadata_scope}.{self._metadata_template_key}",
+            "query": "dealRecordId = :deal_id",
+            "query_params": {"deal_id": str(deal_id)},
+            "limit": 1,
+        }
+        logger.debug(
+            "Executing metadata query for deal %s using template %s/%s",
+            deal_id,
+            self._metadata_scope,
+            self._metadata_template_key,
+        )
+        try:
+            resp = requests.post(
+                query_url,
+                headers=self._headers("application/json"),
+                json=payload,
+                timeout=self._timeout,
+            )
+            if resp.status_code == 404:
+                logger.debug("Metadata query returned 404 for deal %s", deal_id)
+                return None
+            resp.raise_for_status()
+            entries = resp.json().get("entries", [])
+            logger.debug(
+                "Metadata query for deal %s returned %d entrie(s)",
+                deal_id,
+                len(entries),
+            )
+            return entries[0] if entries else None
+        except requests.RequestException as exc:
+            logger.warning(
+                "Failed to query existing metadata for deal %s: %s",
+                deal_id,
+                exc,
+            )
+            return None
 
     def _headers(self, content_type: Optional[str] = None) -> dict:
         headers = {
@@ -684,6 +743,12 @@ def create_box_folder_for_deal(
         logger.warning('No metadata provided for deal %s', deal_id)
 
     status = "existing" if existing_entry else "created"
+    logger.info(
+        "Finished Box folder processing for deal %s with status=%s (folder_id=%s)",
+        deal_id,
+        status,
+        folder.get("id") if folder else None,
+    )
     return {
         "status": status,
         "folder": {
