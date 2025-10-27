@@ -374,6 +374,7 @@ BOX_METADATA_FIELD_MAP = {
 }
 BOX_REQUEST_TIMEOUT = int(os.environ.get("BOX_REQUEST_TIMEOUT_SECONDS", "20"))
 BOX_JWT_CONFIG_PATH = os.environ.get("BOX_JWT_CONFIG_PATH") or Path(__file__).resolve().parent.parent / "config" / "box_jwt_config.json"
+HUBSPOT_PORTAL_ID = (os.environ.get("HUBSPOT_PORTAL_ID") or "").strip()
 
 
 def _format_metadata_value_for_template(key: str, value) -> Optional[str]:
@@ -405,6 +406,9 @@ def _format_metadata_value_for_template(key: str, value) -> Optional[str]:
                     extra_parts.append(email)
                 if contact_id:
                     extra_parts.append(f"ID: {contact_id}")
+                    if HUBSPOT_PORTAL_ID:
+                        link = f"https://app.hubspot.com/contacts/{HUBSPOT_PORTAL_ID}/record/0-1/{contact_id}"
+                        extra_parts.append(f"Link: {link}")
                 if extra_parts:
                     lines.append(f"{display} ({' | '.join(extra_parts)})")
                 else:
@@ -759,6 +763,9 @@ def create_box_folder_for_deal(
     )
     parent_path = BOX_ACTIVE_CLIENTS_PATH
     full_path = None
+    folder_url = None
+    if folder_id:
+        folder_url = f"https://app.box.com/folder/{folder_id}"
     if parent_path and resolved_folder_name:
         full_path = f"{parent_path.rstrip('/')}/{resolved_folder_name}"
 
@@ -775,6 +782,7 @@ def create_box_folder_for_deal(
             "name": resolved_folder_name,
             "parent_path": parent_path,
             "path": full_path,
+            "url": folder_url,
         },
         "contacts": formatted_contacts,
         "metadata": metadata_payload,
