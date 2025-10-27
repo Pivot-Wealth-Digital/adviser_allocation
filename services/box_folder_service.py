@@ -636,23 +636,35 @@ def create_box_folder_for_deal(
 
     logger.info('Starting Box folder creation for deal %s', deal_id)
     contacts = get_hubspot_deal_contacts(deal_id)
-    if folder_name_override and folder_name_override.strip():
-        folder_name = folder_name_override.strip()
+    formatted_contacts = [name for name in (_format_contact_display(c) for c in contacts) if name]
+
+    existing_entry = service.find_folder_by_deal_metadata(deal_id)
+    folder = None
+    folder_name = None
+    if existing_entry:
+        folder = existing_entry.get("item") or existing_entry
+        folder_name = folder.get("name")
         logger.info(
-            "Using custom folder name '%s' for deal %s under %s",
-            folder_name,
+            "Found existing Box folder for deal %s (id=%s); skipping creation",
             deal_id,
-            BOX_ACTIVE_CLIENTS_PATH,
+            folder.get("id"),
         )
     else:
-        folder_name = build_client_folder_name(deal_id, contacts)
-        logger.info('Using folder name %s under %s', folder_name, BOX_ACTIVE_CLIENTS_PATH)
-    folder = service.ensure_client_folder(folder_name)
-    formatted_contacts = [name for name in (_format_contact_display(c) for c in contacts) if name]
-    logger.info('Created Box folder for deal %s (id=%s)', deal_id, folder.get('id'))
+        if folder_name_override and folder_name_override.strip():
+            folder_name = folder_name_override.strip()
+            logger.info(
+                "Using custom folder name '%s' for deal %s under %s",
+                folder_name,
+                deal_id,
+                BOX_ACTIVE_CLIENTS_PATH,
+            )
+        else:
+            folder_name = build_client_folder_name(deal_id, contacts)
+            logger.info('Using folder name %s under %s', folder_name, BOX_ACTIVE_CLIENTS_PATH)
+        folder = service.ensure_client_folder(folder_name)
+        logger.info('Created Box folder for deal %s (id=%s)', deal_id, folder.get('id'))
 
-    # Upload metadata file if provided
-    folder_id = folder.get('id')
+    folder_id = folder.get('id') if folder else None
     if deal_metadata and folder_id:
         try:
             service.apply_metadata_template(folder_id, deal_metadata)
@@ -671,11 +683,12 @@ def create_box_folder_for_deal(
     else:
         logger.warning('No metadata provided for deal %s', deal_id)
 
+    status = "existing" if existing_entry else "created"
     return {
-        "status": "created",
+        "status": status,
         "folder": {
-            "id": folder.get("id"),
-            "name": folder.get("name", folder_name),
+            "id": folder.get("id") if folder else None,
+            "name": folder.get("name") if folder else folder_name,
             "parent_path": BOX_ACTIVE_CLIENTS_PATH,
         },
         "contacts": formatted_contacts,

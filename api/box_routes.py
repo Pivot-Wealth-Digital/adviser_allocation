@@ -138,7 +138,7 @@ def create_box_folder_webhook():
             "box": result,
             "deal_id": deal_id,
         }
-        if status == "created":
+        if status in {"created", "existing"}:
             return jsonify(response_body), 200
         return jsonify(response_body), 202
     except BoxAutomationError as exc:

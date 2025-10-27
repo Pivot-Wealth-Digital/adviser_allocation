@@ -10,7 +10,6 @@ from flask import Blueprint, jsonify, request
 
 from core.allocation import get_adviser
 from services.allocation_service import store_allocation_record
-from services.box_folder_service import create_box_folder_for_deal, BoxAutomationError
 from utils.common import SYDNEY_TZ, sydney_now
 from utils.secrets import get_secret
 
@@ -168,17 +167,12 @@ def handle_allocation():
             "Received allocation payload: %s",
             json.dumps(event, indent=2, sort_keys=True),
         )
-        box_creation_result = None
 
         if event.get("object", {}).get("objectType", ""):
             service_package = event["fields"]["service_package"]
             household_type = event["fields"].get("household_type", "")
             agreement_start_date = event.get("fields", {}).get("agreement_start_date", "")
             selected_user, candidate_list = get_adviser(service_package, agreement_start_date, household_type)
-            create_box_folder_flag = (
-                str(request.args.get("create_box_folder", "1")).lower()
-                not in ("0", "false", "no", "off")
-            )
             send_chat_alert_flag = (
                 str(request.args.get("send_chat_alert", "1")).lower()
                 not in ("0", "false", "no", "off")
@@ -231,33 +225,6 @@ def handle_allocation():
                     deal_id,
                     hubspot_owner_id,
                 )
-                logger.info(
-                    "create_box_folder flag=%s",
-                    create_box_folder_flag,
-                )
-
-                if deal_id and create_box_folder_flag:
-                    try:
-                        # Fetch deal metadata for Box folder
-                        deal_metadata = _fetch_deal_metadata(deal_id)
-                        box_creation_result = create_box_folder_for_deal(deal_id, deal_metadata)
-                        logger.info(
-                            "Box folder result for deal %s: %s",
-                            deal_id,
-                            box_creation_result,
-                        )
-                    except BoxAutomationError as exc:
-                        logger.error(
-                            "Box folder creation failed for deal %s: %s",
-                            deal_id,
-                            exc,
-                        )
-                        box_creation_result = {"status": "error", "error": str(exc)}
-                elif not create_box_folder_flag:
-                    logger.info(
-                        "Skipping Box folder creation for deal %s due to request flag",
-                        deal_id,
-                    )
 
                 logger.info("Persisting allocation record for deal %s", deal_id)
                 store_allocation_record(
@@ -284,7 +251,6 @@ def handle_allocation():
                     extra_fields={
                         "ip_address": request.remote_addr,
                         "user_agent": request.headers.get("User-Agent", ""),
-                        "box_folder": box_creation_result,
                     },
                 )
 
@@ -383,7 +349,6 @@ def handle_allocation():
                     extra_fields={
                         "ip_address": request.remote_addr,
                         "user_agent": request.headers.get("User-Agent", ""),
-                        "box_folder": box_creation_result,
                     },
                 )
 
@@ -445,7 +410,6 @@ def handle_allocation():
                     extra_fields={
                         "ip_address": request.remote_addr,
                         "user_agent": request.headers.get("User-Agent", ""),
-                        "box_folder": box_creation_result,
                     },
                 )
 

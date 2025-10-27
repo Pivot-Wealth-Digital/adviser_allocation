@@ -183,7 +183,7 @@ curl -X POST http://localhost:8080/post/allocate \
 
 ## Box Integration
 
-- The allocation webhook (`POST /post/allocate`) creates a Box folder by default; pass `?create_box_folder=false` to skip it when needed.
+- The allocation webhook (`POST /post/allocate`) no longer provisions Box folders; trigger `POST /post/create_box_folder` separately from workflows that need the folder.
 - A standalone webhook (`POST /post/create_box_folder`) is available for HubSpot or manual triggers that only need the folder provisioning step.
 - Local development: copy your Box JWT app JSON into `config/box_jwt_config.json` (git-ignored) or set `BOX_JWT_CONFIG_PATH` to an alternate location. Ensure the impersonated Box user (`BOX_IMPERSONATION_USER`) has access to both the template and destination folders.
 - Production: store the same JSON in Secret Manager (e.g. `box-jwt-config`) and expose it via `BOX_JWT_CONFIG_JSON` or `BOX_JWT_CONFIG_PATH`. Also provide `BOX_WEBHOOK_PRIMARY_SECRET` and any other Box env vars via app.yaml or your deployment pipeline.
