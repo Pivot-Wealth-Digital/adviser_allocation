@@ -532,7 +532,11 @@ def _upload_metadata_file(service: BoxFolderService, folder_id: str, metadata: d
         logger.error('Unexpected error uploading metadata.json to folder %s: %s', folder_id, exc)
 
 
-def create_box_folder_for_deal(deal_id: str, deal_metadata: Optional[dict] = None) -> dict:
+def create_box_folder_for_deal(
+    deal_id: str,
+    deal_metadata: Optional[dict] = None,
+    folder_name_override: Optional[str] = None,
+) -> dict:
     """Create Box folder for a deal and upload metadata.
 
     Args:
@@ -545,6 +549,7 @@ def create_box_folder_for_deal(deal_id: str, deal_metadata: Optional[dict] = Non
             - hs_spouse_id
             - hs_contact_id
             - deal_salutation
+        folder_name_override: Optional folder name to use instead of the default
 
     Returns:
         Dict with folder creation result
@@ -559,8 +564,17 @@ def create_box_folder_for_deal(deal_id: str, deal_metadata: Optional[dict] = Non
 
     logger.info('Starting Box folder creation for deal %s', deal_id)
     contacts = get_hubspot_deal_contacts(deal_id)
-    folder_name = build_client_folder_name(deal_id, contacts)
-    logger.info('Using folder name %s under %s', folder_name, BOX_ACTIVE_CLIENTS_PATH)
+    if folder_name_override and folder_name_override.strip():
+        folder_name = folder_name_override.strip()
+        logger.info(
+            "Using custom folder name '%s' for deal %s under %s",
+            folder_name,
+            deal_id,
+            BOX_ACTIVE_CLIENTS_PATH,
+        )
+    else:
+        folder_name = build_client_folder_name(deal_id, contacts)
+        logger.info('Using folder name %s under %s', folder_name, BOX_ACTIVE_CLIENTS_PATH)
     folder = service.ensure_client_folder(folder_name)
     formatted_contacts = [name for name in (_format_contact_display(c) for c in contacts) if name]
     logger.info('Created Box folder for deal %s (id=%s)', deal_id, folder.get('id'))

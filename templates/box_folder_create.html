@@ -1,0 +1,262 @@
+{% extends "layout.html" %}
+{% set title = "Create Box Folder" %}
+
+{% block content %}
+<div class="topbar">
+  <div style="display: flex; align-items: center; gap: 16px;">
+    <a href="/" style="color: #d0d7e2; text-decoration: none; font-size: 0.9em;">← Home</a>
+    <h2>Box Folder Provisioning</h2>
+  </div>
+  <div class="datebox">
+    <span>Status:</span>
+    <span id="last-status" class="muted">Awaiting preview</span>
+  </div>
+</div>
+
+<div class="card">
+  <h3>1. Look Up Deal</h3>
+  <p class="muted">
+    Enter a HubSpot deal ID to preview the folder name and metadata before creating it in
+    <code>Team Advice/Pivot Clients/1. Active Clients</code>.
+  </p>
+  <form id="box-folder-form" class="box-form">
+    <div>
+      <label for="deal-id">Deal ID</label>
+      <input
+        id="deal-id"
+        name="deal-id"
+        type="text"
+        placeholder="e.g. 47110952883"
+        autocomplete="off"
+        required
+      />
+    </div>
+    <div class="row">
+      <button type="submit" class="primary">Preview Folder Details</button>
+      <button type="button" class="secondary" id="reset-form">Clear</button>
+    </div>
+  </form>
+</div>
+
+<div id="preview-card" class="card hidden">
+  <h3>2. Confirm Details</h3>
+  <div class="stack">
+    <div>
+      <label for="folder-name">Folder Name</label>
+      <input id="folder-name" type="text" autocomplete="off" />
+      <p class="muted small">
+        Edit the folder name if required. Illegal characters are replaced automatically during creation.
+      </p>
+    </div>
+    <div>
+      <strong>Contacts:</strong>
+      <span id="contacts-list" class="muted"></span>
+    </div>
+    <div>
+      <strong>Metadata:</strong>
+      <pre id="metadata-json" class="code-block muted">No metadata</pre>
+    </div>
+    <div class="row">
+      <button type="button" class="primary" id="confirm-create">Create Folder</button>
+      <button type="button" class="secondary" id="cancel-preview">Back</button>
+    </div>
+  </div>
+</div>
+
+<div id="result-card" class="card hidden">
+  <h3>3. Box API Response</h3>
+  <pre id="result-json" class="code-block"></pre>
+</div>
+{% endblock %}
+
+{% block head %}
+<style>
+  .box-form {
+    display: grid;
+    gap: 12px;
+    max-width: 420px;
+  }
+
+  .box-form input {
+    width: 100%;
+  }
+
+  .box-form .row {
+    justify-content: flex-start;
+  }
+
+  .stack {
+    display: grid;
+    gap: 16px;
+  }
+
+  .code-block {
+    background: #f6f8fa;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    font-family: SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .hidden {
+    display: none !important;
+  }
+
+  .small {
+    font-size: 0.85em;
+  }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const form = document.getElementById('box-folder-form');
+  const dealInput = document.getElementById('deal-id');
+  const submitButton = form.querySelector('button[type="submit"]');
+  const resetButton = document.getElementById('reset-form');
+  const previewCard = document.getElementById('preview-card');
+  const folderNameInput = document.getElementById('folder-name');
+  const contactsList = document.getElementById('contacts-list');
+  const metadataJson = document.getElementById('metadata-json');
+  const confirmButton = document.getElementById('confirm-create');
+  const cancelPreviewButton = document.getElementById('cancel-preview');
+  const resultCard = document.getElementById('result-card');
+  const resultJson = document.getElementById('result-json');
+  const lastStatus = document.getElementById('last-status');
+
+  let lastPreviewDealId = null;
+
+  function showResult(payload) {
+    resultJson.textContent = JSON.stringify(payload, null, 2);
+    resultCard.classList.remove('hidden');
+  }
+
+  function summarise(statusCode, data) {
+    if (!data) {
+      return `HTTP ${statusCode}`;
+    }
+    if (statusCode === 200 || statusCode === 202) {
+      const folder = data.box?.folder;
+      if (folder?.name && folder?.id) {
+        return `HTTP ${statusCode} · ${folder.name} (#${folder.id})`;
+      }
+      return `HTTP ${statusCode} · ${data.message || 'Success'}`;
+    }
+    return `HTTP ${statusCode} · ${data.error || data.message || 'Error'}`;
+  }
+
+  function renderMetadata(metadata) {
+    if (!metadata || Object.keys(metadata).length === 0) {
+      metadataJson.textContent = 'No metadata found for this deal.';
+      return;
+    }
+    metadataJson.textContent = JSON.stringify(metadata, null, 2);
+  }
+
+  function renderContacts(contacts) {
+    if (!contacts || contacts.length === 0) {
+      contactsList.textContent = 'No associated contacts';
+      return;
+    }
+    contactsList.textContent = contacts.join(', ');
+  }
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const dealId = dealInput.value.trim();
+    if (!dealId) {
+      lastStatus.textContent = 'Validation error · Please provide a deal ID';
+      return;
+    }
+
+    submitButton.disabled = true;
+    submitButton.textContent = 'Loading…';
+    lastStatus.textContent = 'Fetching preview…';
+    resultCard.classList.add('hidden');
+    previewCard.classList.add('hidden');
+
+    try {
+      const response = await fetch('/post/create_box_folder/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deal_id: dealId }),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        lastStatus.textContent = summarise(response.status, data);
+        showResult({ status: response.status, body: data });
+        return;
+      }
+
+      lastPreviewDealId = dealId;
+      folderNameInput.value = data.folder_name || '';
+      renderContacts(data.contacts);
+      renderMetadata(data.metadata);
+      previewCard.classList.remove('hidden');
+      lastStatus.textContent = 'Preview ready · review folder details below';
+    } catch (error) {
+      const message = error?.message || String(error);
+      lastStatus.textContent = `Network error · ${message}`;
+      showResult({ status: 'network_error', error: message });
+    } finally {
+      submitButton.disabled = false;
+      submitButton.textContent = 'Preview Folder Details';
+    }
+  });
+
+  confirmButton.addEventListener('click', async () => {
+    const dealId = lastPreviewDealId;
+    const folderName = folderNameInput.value.trim();
+
+    if (!dealId) {
+      lastStatus.textContent = 'No preview available. Please look up a deal first.';
+      return;
+    }
+    if (!folderName) {
+      lastStatus.textContent = 'Validation error · Folder name cannot be empty';
+      return;
+    }
+
+    confirmButton.disabled = true;
+    confirmButton.textContent = 'Creating…';
+    lastStatus.textContent = 'Creating folder…';
+    resultCard.classList.add('hidden');
+
+    try {
+      const response = await fetch('/post/create_box_folder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deal_id: dealId, folder_name: folderName }),
+      });
+      const data = await response.json();
+      lastStatus.textContent = summarise(response.status, data);
+      showResult({ status: response.status, body: data });
+    } catch (error) {
+      const message = error?.message || String(error);
+      lastStatus.textContent = `Network error · ${message}`;
+      showResult({ status: 'network_error', error: message });
+    } finally {
+      confirmButton.disabled = false;
+      confirmButton.textContent = 'Create Folder';
+    }
+  });
+
+  resetButton.addEventListener('click', () => {
+    dealInput.value = '';
+    lastPreviewDealId = null;
+    previewCard.classList.add('hidden');
+    resultCard.classList.add('hidden');
+    lastStatus.textContent = 'Awaiting preview';
+    dealInput.focus();
+  });
+
+  cancelPreviewButton.addEventListener('click', () => {
+    previewCard.classList.add('hidden');
+    resultCard.classList.add('hidden');
+    lastStatus.textContent = 'Preview dismissed';
+  });
+</script>
+{% endblock %}
