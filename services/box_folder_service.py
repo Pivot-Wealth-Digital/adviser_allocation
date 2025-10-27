@@ -752,6 +752,16 @@ def create_box_folder_for_deal(
         logger.warning('No metadata provided for deal %s', deal_id)
 
     status = "existing" if existing_entry else "created"
+    resolved_folder_name = (
+        (folder.get("name") if folder else None)
+        or folder_name
+        or build_client_folder_name(deal_id, contacts)
+    )
+    parent_path = BOX_ACTIVE_CLIENTS_PATH
+    full_path = None
+    if parent_path and resolved_folder_name:
+        full_path = f"{parent_path.rstrip('/')}/{resolved_folder_name}"
+
     logger.info(
         "Finished Box folder processing for deal %s with status=%s (folder_id=%s)",
         deal_id,
@@ -762,8 +772,9 @@ def create_box_folder_for_deal(
         "status": status,
         "folder": {
             "id": folder.get("id") if folder else None,
-            "name": folder.get("name") if folder else folder_name,
-            "parent_path": BOX_ACTIVE_CLIENTS_PATH,
+            "name": resolved_folder_name,
+            "parent_path": parent_path,
+            "path": full_path,
         },
         "contacts": formatted_contacts,
         "metadata": metadata_payload,
