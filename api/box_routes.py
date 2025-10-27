@@ -144,6 +144,7 @@ def create_box_folder_webhook():
             "message": "Processed Box folder request",
             "box": result,
             "deal_id": deal_id,
+            "metadata_keys": sorted((result or {}).get("metadata", {}).keys()) if isinstance(result, dict) else [],
         }
         logger.info(
             "Box folder response for deal %s status=%s folder_id=%s",

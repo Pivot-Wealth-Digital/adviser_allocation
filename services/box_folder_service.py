@@ -723,10 +723,19 @@ def create_box_folder_for_deal(
         folder = service.ensure_client_folder(folder_name)
         logger.info('Created Box folder for deal %s (id=%s)', deal_id, folder.get('id'))
 
+    metadata_payload = dict(deal_metadata or {})
+    if not metadata_payload.get("hs_deal_record_id"):
+        metadata_payload["hs_deal_record_id"] = deal_id
+    logger.debug(
+        "Prepared metadata payload for deal %s with keys=%s",
+        deal_id,
+        sorted(metadata_payload.keys()),
+    )
+
     folder_id = folder.get('id') if folder else None
-    if deal_metadata and folder_id:
+    if metadata_payload and folder_id:
         try:
-            service.apply_metadata_template(folder_id, deal_metadata)
+            service.apply_metadata_template(folder_id, metadata_payload)
         except BoxAutomationError as exc:
             logger.error(
                 "Failed to apply Box metadata template for deal %s (folder %s): %s",
@@ -734,12 +743,12 @@ def create_box_folder_for_deal(
                 folder_id,
                 exc,
             )
-    elif deal_metadata and not folder_id:
+    elif metadata_payload and not folder_id:
         logger.error(
             "Cannot apply metadata template for deal %s because folder id is missing in response",
             deal_id,
         )
-    else:
+    elif not metadata_payload:
         logger.warning('No metadata provided for deal %s', deal_id)
 
     status = "existing" if existing_entry else "created"
@@ -757,6 +766,7 @@ def create_box_folder_for_deal(
             "parent_path": BOX_ACTIVE_CLIENTS_PATH,
         },
         "contacts": formatted_contacts,
+        "metadata": metadata_payload,
     }
 
 
