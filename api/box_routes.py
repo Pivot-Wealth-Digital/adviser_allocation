@@ -55,15 +55,41 @@ def _fetch_deal_metadata(deal_id: str) -> Optional[dict]:
             return None
         resp.raise_for_status()
         props = resp.json().get("properties", {})
+        contacts = box_service.get_hubspot_deal_contacts(deal_id)
+        associated_contact_ids = []
+        associated_contacts = []
+        for idx, contact in enumerate(contacts):
+            contact_id = contact.get("id")
+            if contact_id:
+                associated_contact_ids.append(contact_id)
+            props_contact = contact.get("properties") or {}
+            associated_contacts.append(
+                {
+                    "id": contact_id,
+                    "firstname": props_contact.get("firstname"),
+                    "lastname": props_contact.get("lastname"),
+                    "email": props_contact.get("email"),
+                    "display_name": box_service._format_contact_display(contact, position=idx),
+                }
+            )
+
+        primary_contact_id = props.get("hs_contact_id") or (
+            associated_contact_ids[0] if associated_contact_ids else None
+        )
+
         metadata = {
             "hs_deal_record_id": props.get("hs_deal_record_id") or deal_id,
             "service_package": props.get("service_package"),
             "agreement_start_date": props.get("agreement_start_date"),
             "household_type": props.get("household_type"),
             "hs_spouse_id": props.get("hs_spouse_id"),
-            "hs_contact_id": props.get("hs_contact_id"),
+            "hs_contact_id": primary_contact_id,
             "deal_salutation": props.get("deal_salutation"),
         }
+        if associated_contact_ids:
+            metadata["associated_contact_ids"] = associated_contact_ids
+            metadata["associated_contacts"] = associated_contacts
+
         logger.info("Fetched HubSpot metadata for deal %s: %s", deal_id, metadata)
         return metadata
     except requests.RequestException as exc:
@@ -72,6 +98,15 @@ def _fetch_deal_metadata(deal_id: str) -> Optional[dict]:
     except RuntimeError:
         logger.error("HubSpot configuration missing; metadata upload skipped for deal %s", deal_id)
         return None
+
+
+def _merge_metadata(base: Optional[dict], override: Optional[dict]) -> Optional[dict]:
+    if not override:
+        return base
+    merged = dict(base or {})
+    for key, value in override.items():
+        merged[key] = value
+    return merged
 
 
 @box_bp.route("/post/create_box_folder", methods=["POST", "GET"])
@@ -92,9 +127,11 @@ def create_box_folder_webhook():
 
     deal_id = str(deal_id)
     folder_name_override = (payload.get("folder_name") or "").strip() or None
+    metadata_override = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else None
     try:
         metadata = _fetch_deal_metadata(deal_id)
-        result = create_box_folder_for_deal(deal_id, metadata, folder_name_override)
+        merged_metadata = _merge_metadata(metadata, metadata_override)
+        result = create_box_folder_for_deal(deal_id, merged_metadata, folder_name_override)
         status = result.get("status") if isinstance(result, dict) else "unknown"
         response_body = {
             "message": "Processed Box folder request",

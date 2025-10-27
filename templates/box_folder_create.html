@@ -52,9 +52,45 @@
       <strong>Contacts:</strong>
       <span id="contacts-list" class="muted"></span>
     </div>
-    <div>
-      <strong>Metadata:</strong>
-      <pre id="metadata-json" class="code-block muted">No metadata</pre>
+    <div class="metadata-section">
+      <h4>Metadata Details</h4>
+      <div class="metadata-grid">
+        <label>
+          <span>Deal Record ID</span>
+          <input id="metadata-hs-deal-record-id" type="text" autocomplete="off" />
+        </label>
+        <label>
+          <span>Service Package</span>
+          <input id="metadata-service-package" type="text" autocomplete="off" />
+        </label>
+        <label>
+          <span>Agreement Start (ISO)</span>
+          <input id="metadata-agreement-start-date" type="text" autocomplete="off" placeholder="YYYY-MM-DD" />
+        </label>
+        <label>
+          <span>Household Type</span>
+          <input id="metadata-household-type" type="text" autocomplete="off" />
+        </label>
+        <label>
+          <span>Primary Contact ID</span>
+          <input id="metadata-hs-contact-id" type="text" autocomplete="off" />
+        </label>
+        <label>
+          <span>Spouse Contact ID</span>
+          <input id="metadata-hs-spouse-id" type="text" autocomplete="off" />
+        </label>
+        <label class="full-width">
+          <span>Deal Salutation</span>
+          <input id="metadata-deal-salutation" type="text" autocomplete="off" />
+        </label>
+      </div>
+      <p class="muted small">
+        Metadata updates apply to the uploaded <code>metadata.json</code>. Associated contacts remain read-only.
+      </p>
+      <details class="metadata-preview">
+        <summary>JSON Preview</summary>
+        <pre id="metadata-json" class="code-block muted">No metadata</pre>
+      </details>
     </div>
     <div class="row">
       <button type="button" class="primary" id="confirm-create">Create Folder</button>
@@ -90,6 +126,45 @@
     gap: 16px;
   }
 
+  .metadata-section h4 {
+    margin: 0 0 8px 0;
+  }
+
+  .metadata-grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  }
+
+  .metadata-grid label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .metadata-grid input {
+    font-weight: 400;
+  }
+
+  .metadata-grid label span {
+    font-size: 0.85em;
+    color: var(--muted);
+    font-weight: 500;
+  }
+
+  .metadata-grid label.full-width {
+    grid-column: 1 / -1;
+  }
+
+  .metadata-preview summary {
+    cursor: pointer;
+    font-weight: 600;
+    color: var(--brand-600);
+    margin-bottom: 8px;
+  }
+
   .code-block {
     background: #f6f8fa;
     border: 1px solid var(--border);
@@ -120,6 +195,15 @@
   const folderNameInput = document.getElementById('folder-name');
   const contactsList = document.getElementById('contacts-list');
   const metadataJson = document.getElementById('metadata-json');
+  const metadataInputs = {
+    hs_deal_record_id: document.getElementById('metadata-hs-deal-record-id'),
+    service_package: document.getElementById('metadata-service-package'),
+    agreement_start_date: document.getElementById('metadata-agreement-start-date'),
+    household_type: document.getElementById('metadata-household-type'),
+    hs_contact_id: document.getElementById('metadata-hs-contact-id'),
+    hs_spouse_id: document.getElementById('metadata-hs-spouse-id'),
+    deal_salutation: document.getElementById('metadata-deal-salutation'),
+  };
   const confirmButton = document.getElementById('confirm-create');
   const cancelPreviewButton = document.getElementById('cancel-preview');
   const resultCard = document.getElementById('result-card');
@@ -127,6 +211,9 @@
   const lastStatus = document.getElementById('last-status');
 
   let lastPreviewDealId = null;
+  let lastPreviewMetadata = null;
+  let lastPreviewAssociatedIds = [];
+  let lastPreviewAssociatedContacts = [];
 
   function showResult(payload) {
     resultJson.textContent = JSON.stringify(payload, null, 2);
@@ -147,13 +234,49 @@
     return `HTTP ${statusCode} · ${data.error || data.message || 'Error'}`;
   }
 
+  function setMetadataInputs(metadata, fallbackDealId) {
+    metadataInputs.hs_deal_record_id.value =
+      (metadata && metadata.hs_deal_record_id) || fallbackDealId || '';
+    metadataInputs.service_package.value = metadata?.service_package || '';
+    metadataInputs.agreement_start_date.value = metadata?.agreement_start_date || '';
+    metadataInputs.household_type.value = metadata?.household_type || '';
+    metadataInputs.hs_contact_id.value = metadata?.hs_contact_id || '';
+    metadataInputs.hs_spouse_id.value = metadata?.hs_spouse_id || '';
+    metadataInputs.deal_salutation.value = metadata?.deal_salutation || '';
+  }
+
+  function collectMetadataFromInputs() {
+    const payload = {};
+    Object.entries(metadataInputs).forEach(([key, input]) => {
+      const value = input.value.trim();
+      payload[key] = value ? value : null;
+    });
+    if (lastPreviewAssociatedIds.length) {
+      payload.associated_contact_ids = lastPreviewAssociatedIds;
+    }
+    if (lastPreviewAssociatedContacts.length) {
+      payload.associated_contacts = lastPreviewAssociatedContacts;
+    }
+    return payload;
+  }
+
   function renderMetadata(metadata) {
-    if (!metadata || Object.keys(metadata).length === 0) {
+    const value = metadata && Object.keys(metadata).length ? metadata : null;
+    if (!value) {
       metadataJson.textContent = 'No metadata found for this deal.';
       return;
     }
-    metadataJson.textContent = JSON.stringify(metadata, null, 2);
+    metadataJson.textContent = JSON.stringify(value, null, 2);
   }
+
+  function refreshMetadataPreview() {
+    const metadata = collectMetadataFromInputs();
+    renderMetadata(metadata);
+  }
+
+  Object.values(metadataInputs).forEach((input) => {
+    input.addEventListener('input', refreshMetadataPreview);
+  });
 
   function renderContacts(contacts) {
     if (!contacts || contacts.length === 0) {
@@ -192,9 +315,13 @@
       }
 
       lastPreviewDealId = dealId;
+      lastPreviewMetadata = data.metadata || {};
+      lastPreviewAssociatedIds = data.metadata?.associated_contact_ids || [];
+      lastPreviewAssociatedContacts = data.metadata?.associated_contacts || [];
       folderNameInput.value = data.folder_name || '';
       renderContacts(data.contacts);
-      renderMetadata(data.metadata);
+      setMetadataInputs(lastPreviewMetadata, dealId);
+      refreshMetadataPreview();
       previewCard.classList.remove('hidden');
       lastStatus.textContent = 'Preview ready · review folder details below';
     } catch (error) {
@@ -229,7 +356,11 @@
       const response = await fetch('/post/create_box_folder', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deal_id: dealId, folder_name: folderName }),
+        body: JSON.stringify({
+          deal_id: dealId,
+          folder_name: folderName,
+          metadata: collectMetadataFromInputs(),
+        }),
       });
       const data = await response.json();
       lastStatus.textContent = summarise(response.status, data);
@@ -247,6 +378,13 @@
   resetButton.addEventListener('click', () => {
     dealInput.value = '';
     lastPreviewDealId = null;
+    lastPreviewMetadata = null;
+    lastPreviewAssociatedIds = [];
+    lastPreviewAssociatedContacts = [];
+    Object.values(metadataInputs).forEach((input) => {
+      input.value = '';
+    });
+    metadataJson.textContent = 'No metadata';
     previewCard.classList.add('hidden');
     resultCard.classList.add('hidden');
     lastStatus.textContent = 'Awaiting preview';

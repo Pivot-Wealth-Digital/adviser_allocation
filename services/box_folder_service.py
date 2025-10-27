@@ -43,6 +43,8 @@ class BoxFolderService:
         api_base_url: str = DEFAULT_BOX_API_BASE_URL,
         request_timeout: int = 20,
         as_user_id: Optional[str] = None,
+        metadata_scope: Optional[str] = None,
+        metadata_template_key: Optional[str] = None,
     ):
         if not token:
             raise BoxAutomationError("Box access token is not configured")
@@ -53,6 +55,8 @@ class BoxFolderService:
         self._timeout = request_timeout
         self._as_user_id = as_user_id
         self._path_cache: dict[str, str] = {}
+        self._metadata_scope = metadata_scope
+        self._metadata_template_key = metadata_template_key
 
     def ensure_client_folder(self, folder_name: str) -> dict:
         sanitized = sanitize_folder_name(folder_name)
@@ -199,6 +203,81 @@ class BoxFolderService:
                 return item
         return None
 
+    def apply_metadata_template(self, folder_id: str, metadata: dict) -> None:
+        """Apply configured metadata template to folder."""
+        if not self._metadata_scope or not self._metadata_template_key:
+            logger.debug(
+                "Box metadata template not configured; skipping metadata apply for folder %s",
+                folder_id,
+            )
+            return
+
+        raw_metadata = metadata or {}
+        prepared: dict[str, str] = {}
+        removal_candidates: list[str] = []
+        for key, value in raw_metadata.items():
+            mapped_key = BOX_METADATA_FIELD_MAP.get(key)
+            if not mapped_key:
+                continue
+            formatted_value = _format_metadata_value_for_template(key, value)
+            if formatted_value is None or formatted_value == "":
+                removal_candidates.append(mapped_key)
+                continue
+            prepared[mapped_key] = formatted_value
+
+        if not prepared and not removal_candidates:
+            logger.debug("No metadata supplied for folder %s; skipping template application", folder_id)
+            return
+
+        url = f"{self._api_base_url}/folders/{folder_id}/metadata/{self._metadata_scope}/{self._metadata_template_key}"
+        headers = self._headers("application/json")
+
+        try:
+            resp = requests.post(url, headers=headers, json=prepared, timeout=self._timeout)
+            if resp.status_code == 409:
+                # Metadata already exists; fetch current values to build patch operations
+                existing: dict[str, str] = {}
+                try:
+                    existing_resp = requests.get(url, headers=self._headers(), timeout=self._timeout)
+                    if existing_resp.ok:
+                        existing = {
+                            key: value
+                            for key, value in existing_resp.json().items()
+                            if not key.startswith("$")
+                        }
+                except requests.RequestException as exc:
+                    logger.warning(
+                        "Failed to fetch existing metadata for folder %s: %s",
+                        folder_id,
+                        exc,
+                    )
+
+                operations: list[dict] = []
+                for key in removal_candidates:
+                    if key in existing:
+                        operations.append({"op": "remove", "path": f"/{key}"})
+                for key, value in prepared.items():
+                    op = "replace" if key in existing else "add"
+                    operations.append({"op": op, "path": f"/{key}", "value": value})
+
+                if not operations:
+                    logger.info(
+                        "No metadata updates required for folder %s; existing metadata already matches",
+                        folder_id,
+                    )
+                    return
+
+                resp = requests.put(url, headers=headers, json=operations, timeout=self._timeout)
+            resp.raise_for_status()
+            logger.info(
+                "Applied metadata template %s/%s to folder %s",
+                self._metadata_scope,
+                self._metadata_template_key,
+                folder_id,
+            )
+        except requests.RequestException as exc:
+            raise BoxAutomationError(f"Box metadata apply failed for folder {folder_id}: {exc}") from exc
+
     def _headers(self, content_type: Optional[str] = None) -> dict:
         headers = {
             "Authorization": f"Bearer {self._token}",
@@ -219,8 +298,75 @@ BOX_TEMPLATE_PATH = os.environ.get(
 BOX_ACTIVE_CLIENTS_PATH = os.environ.get(
     "BOX_ACTIVE_CLIENTS_PATH", "Team Advice/Pivot Clients/1. Active Clients"
 )
+BOX_METADATA_SCOPE = (os.environ.get("BOX_METADATA_SCOPE") or "").strip()
+if not BOX_METADATA_SCOPE and os.environ.get("BOX_METADATA_TEMPLATE_SCOPE"):
+    BOX_METADATA_SCOPE = os.environ["BOX_METADATA_TEMPLATE_SCOPE"].strip()
+BOX_METADATA_TEMPLATE_KEY = (os.environ.get("BOX_METADATA_TEMPLATE_KEY") or "").strip()
+BOX_METADATA_FIELD_MAP = {
+    "hs_deal_record_id": "dealRecordId",
+    "service_package": "servicePackage",
+    "agreement_start_date": "agreementStartDate",
+    "household_type": "householdType",
+    "hs_contact_id": "primaryContactId",
+    "hs_spouse_id": "spouseContactId",
+    "deal_salutation": "dealSalutation",
+    "associated_contact_ids": "associatedContactIds",
+    "associated_contacts": "associatedContacts",
+}
 BOX_REQUEST_TIMEOUT = int(os.environ.get("BOX_REQUEST_TIMEOUT_SECONDS", "20"))
 BOX_JWT_CONFIG_PATH = os.environ.get("BOX_JWT_CONFIG_PATH") or Path(__file__).resolve().parent.parent / "config" / "box_jwt_config.json"
+
+
+def _format_metadata_value_for_template(key: str, value) -> Optional[str]:
+    if value is None or value == "":
+        return None
+
+    if isinstance(value, list):
+        if key == "associated_contact_ids":
+            cleaned = [str(item).strip() for item in value if str(item).strip()]
+            return "\n".join(cleaned)
+        if key == "associated_contacts":
+            lines: list[str] = []
+            for contact in value:
+                if not isinstance(contact, dict):
+                    if contact:
+                        lines.append(str(contact))
+                    continue
+                display = (
+                    contact.get("display_name")
+                    or " ".join(filter(None, [contact.get("firstname"), contact.get("lastname")])).strip()
+                    or contact.get("email")
+                    or contact.get("id")
+                    or "Unknown Contact"
+                )
+                extra_parts = []
+                email = (contact.get("email") or "").strip()
+                contact_id = (contact.get("id") or "").strip()
+                if email:
+                    extra_parts.append(email)
+                if contact_id:
+                    extra_parts.append(f"ID: {contact_id}")
+                if extra_parts:
+                    lines.append(f"{display} ({' | '.join(extra_parts)})")
+                else:
+                    lines.append(display)
+            return "\n".join(lines)
+        # Generic list formatting
+        formatted_items = []
+        for item in value:
+            if item is None or item == "":
+                continue
+            if isinstance(item, dict):
+                formatted_items.append(json.dumps(item, indent=2))
+            else:
+                formatted_items.append(str(item))
+        return "\n".join(formatted_items)
+
+    if isinstance(value, dict):
+        return json.dumps(value, indent=2)
+
+    return str(value)
+
 
 # Try multiple ways to load Box JWT config:
 # 1. Environment variable "box-jwt-config" (points to Secret Manager path or direct value)
@@ -360,6 +506,8 @@ def ensure_box_service() -> Optional[BoxFolderService]:
             api_base_url=BOX_API_BASE_URL,
             request_timeout=BOX_REQUEST_TIMEOUT,
             as_user_id=impersonated_user_id,
+            metadata_scope=BOX_METADATA_SCOPE or None,
+            metadata_template_key=BOX_METADATA_TEMPLATE_KEY or None,
         )
     except Exception as exc:  # pragma: no cover
         logger.error("Failed to initialise BoxFolderService: %s", exc)
@@ -456,88 +604,12 @@ def build_client_folder_name(deal_id: str, contacts: List[dict]) -> str:
     return sanitize_folder_name(raw_name)
 
 
-def _upload_metadata_file(service: BoxFolderService, folder_id: str, metadata: dict) -> None:
-    """Upload metadata JSON file to Box folder using Box API REST endpoint.
-
-    Uses POST /files/content endpoint with multipart form data.
-    Equivalent to: client.folder(folder_id).upload(file_stream)
-
-    Args:
-        service: BoxFolderService instance
-        folder_id: Box folder ID to upload to
-        metadata: Metadata dictionary to write as JSON
-    """
-    import tempfile
-    import os
-
-    json_content = json.dumps(metadata, indent=2, default=str)
-
-    try:
-        # Create temporary file to upload
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp:
-            tmp.write(json_content)
-            tmp_path = tmp.name
-
-        try:
-            # Box upload endpoint (different from API endpoint)
-            url = "https://upload.box.com/api/2.0/files/content"
-
-            # Attributes as JSON string
-            attributes_json = json.dumps({
-                'name': 'metadata.json',
-                'parent': {'id': folder_id}
-            })
-
-            # Open file in binary mode for upload
-            with open(tmp_path, 'rb') as file_stream:
-                files = {
-                    'attributes': (None, attributes_json),
-                    'file': ('metadata.json', file_stream, 'application/json'),
-                }
-
-                headers = service._headers()
-                # Remove Content-Type - let requests set multipart boundary
-                if 'Content-Type' in headers:
-                    del headers['Content-Type']
-
-                logger.info('Uploading metadata.json to Box folder %s via %s', folder_id, url)
-                logger.debug('Authorization header present: %s', 'Authorization' in headers)
-                resp = requests.post(
-                    url,
-                    headers=headers,
-                    files=files,
-                    timeout=service._timeout,
-                )
-
-            logger.debug('Box API response status: %d', resp.status_code)
-
-            if resp.status_code >= 400:
-                logger.error('Box API error: %s', resp.text)
-                resp.raise_for_status()
-
-            logger.info('Successfully uploaded metadata.json to Box folder %s', folder_id)
-
-        finally:
-            # Clean up temp file
-            try:
-                os.unlink(tmp_path)
-            except Exception:
-                pass
-
-    except requests.exceptions.HTTPError as exc:
-        logger.error('Failed to upload metadata.json to folder %s: %s', folder_id, exc)
-        if hasattr(exc, 'response'):
-            logger.error('Box response: %s', exc.response.text)
-    except Exception as exc:
-        logger.error('Unexpected error uploading metadata.json to folder %s: %s', folder_id, exc)
-
-
 def create_box_folder_for_deal(
     deal_id: str,
     deal_metadata: Optional[dict] = None,
     folder_name_override: Optional[str] = None,
 ) -> dict:
-    """Create Box folder for a deal and upload metadata.
+    """Create Box folder for a deal and apply metadata template.
 
     Args:
         deal_id: HubSpot deal ID
@@ -580,9 +652,22 @@ def create_box_folder_for_deal(
     logger.info('Created Box folder for deal %s (id=%s)', deal_id, folder.get('id'))
 
     # Upload metadata file if provided
-    if deal_metadata:
-        logger.info('Uploading metadata to Box folder %s: %s', folder.get('id'), deal_metadata)
-        _upload_metadata_file(service, folder.get('id'), deal_metadata)
+    folder_id = folder.get('id')
+    if deal_metadata and folder_id:
+        try:
+            service.apply_metadata_template(folder_id, deal_metadata)
+        except BoxAutomationError as exc:
+            logger.error(
+                "Failed to apply Box metadata template for deal %s (folder %s): %s",
+                deal_id,
+                folder_id,
+                exc,
+            )
+    elif deal_metadata and not folder_id:
+        logger.error(
+            "Cannot apply metadata template for deal %s because folder id is missing in response",
+            deal_id,
+        )
     else:
         logger.warning('No metadata provided for deal %s', deal_id)
 
