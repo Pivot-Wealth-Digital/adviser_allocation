@@ -3,7 +3,7 @@ import os
 from typing import Optional
 
 import requests
-from flask import Blueprint, jsonify, render_template, request
+from flask import Blueprint, jsonify, redirect, render_template, request, session
 
 from services.box_folder_service import (
     BoxAutomationError,
@@ -42,6 +42,17 @@ def _hubspot_headers() -> dict:
     if not token:
         raise RuntimeError("HUBSPOT_TOKEN is not configured")
     return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+
+def _ensure_logged_in():
+    """Enforce session auth for UI views served by this blueprint."""
+    if session.get("is_authenticated"):
+        return None
+    accepts_html = not request.accept_mimetypes or "text/html" in request.accept_mimetypes
+    if accepts_html:
+        nxt = request.path
+        return redirect(f"/login?next={nxt}")
+    return jsonify({"error": "Unauthorized"}), 401
 
 
 def _fetch_deal_metadata(deal_id: str) -> Optional[dict]:
@@ -189,6 +200,9 @@ def create_box_folder_webhook():
 @box_bp.route("/box/create", methods=["GET"])
 def box_folder_create_page():
     """Render UI for triggering Box folder creation."""
+    guard = _ensure_logged_in()
+    if guard is not None:
+        return guard
     return render_template("box_folder_create.html", title="Create Box Folder")
 
 

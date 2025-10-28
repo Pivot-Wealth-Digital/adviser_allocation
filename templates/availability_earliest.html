@@ -10,8 +10,20 @@
   <div class="datebox"><span>Today: {{ today }}</span><span>Week: {{ week_num }}</span></div>
 </div>
 
-<div class="card">
-  <h3>Compute Availability</h3>
+<div class="card guide-card">
+  <div class="card-header">
+    <h3>Compute Availability</h3>
+    <label class="helper-toggle" title="Toggle helper content">
+      <input type="checkbox" id="toggleHelpers" checked />
+      Show helper tips
+    </label>
+  </div>
+  <p class="muted inline-guide-title">Quick guide</p>
+  <ul class="inline-guide">
+    <li>Select the agreement start date to centre the availability window.</li>
+    <li>Toggle “Include Non-Taking Advisers” when you need to review advisers on pause.</li>
+    <li>Sort any column to compare earliest week, client limits, or service package tags.</li>
+  </ul>
   <div class="row">
     <div>
       <label for="agreementStartDate">Agreement Start Date</label>
@@ -36,14 +48,14 @@
 <table>
   <thead>
     <tr>
-      <th>Adviser</th>
-      <th data-sort="num">Taking<br/>On Clients</th>
-      <th>Service<br/>Packages</th>
-      <th>Pod<br/>Type</th>
-      <th>Household<br/>Type</th>
-      <th>Client<br/>Monthly Limit</th>
-      <th>Earliest<br/>Open Week</th>
-      <th class="nowrap">Monday Date</th>
+      <th>Adviser<div class="col-helper">Adviser full name</div></th>
+      <th data-sort="num">Taking<br/>On Clients<div class="col-helper">Yes/No based on adviser availability</div></th>
+      <th>Service<br/>Packages<div class="col-helper">Packages the adviser supports</div></th>
+      <th>Pod<br/>Type<div class="col-helper">Solo vs full pod</div></th>
+      <th>Household<br/>Type<div class="col-helper">Household types the adviser accepts</div></th>
+      <th>Client<br/>Monthly Limit<div class="col-helper">Monthly target converted from fortnight plan</div></th>
+      <th>Earliest<br/>Open Week<div class="col-helper">First week with available capacity</div></th>
+      <th class="nowrap">Monday Date<div class="col-helper">Monday that anchors the open week</div></th>
     </tr>
   </thead>
   <tbody>
@@ -79,6 +91,70 @@
     {% endif %}
   </tbody>
 </table>
+
+{% endblock %}
+
+{% block head %}
+{{ super() }}
+<style>
+  .guide-card .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    margin-bottom: 12px;
+  }
+
+  .guide-card h3 {
+    margin: 0;
+  }
+
+  .helper-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.9em;
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  .helper-toggle input {
+    margin: 0;
+  }
+
+  .inline-guide-title {
+    font-weight: 600;
+    margin: 0 0 6px 0;
+  }
+
+  .inline-guide {
+    margin: 0 0 12px 0;
+    padding-left: 1.2rem;
+    font-size: 0.9em;
+    color: var(--muted);
+  }
+
+  .inline-guide li {
+    margin-bottom: 0.35rem;
+  }
+
+  .inline-guide li:last-child {
+    margin-bottom: 0;
+  }
+
+  .col-helper {
+    display: block;
+    font-size: 0.75em;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+
+  .helpers-hidden .inline-guide,
+  .helpers-hidden .inline-guide-title,
+  .helpers-hidden .col-helper {
+    display: none !important;
+  }
+</style>
 {% endblock %}
 
 {% block scripts %}
@@ -152,6 +228,15 @@
       // Redirect to same page with compute parameters
       window.location.href = '?' + params.toString();
     });
+  }
+
+  const helperToggle = document.getElementById('toggleHelpers');
+  if (helperToggle) {
+    const applyHelperState = () => {
+      document.body.classList.toggle('helpers-hidden', !helperToggle.checked);
+    };
+    helperToggle.addEventListener('change', applyHelperState);
+    applyHelperState();
   }
 })();
 </script>

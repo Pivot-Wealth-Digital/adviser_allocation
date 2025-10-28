@@ -19,6 +19,6 @@ env_variables:
   USE_FIRESTORE: "true"
   EH_SCOPES: "urn:mainapp:leave_requests:read"
   REDIRECT_URI: "https://pivot-digital-466902.ts.r.appspot.com/auth/callback"
-  HUBSPOT_PORTAL_ID: "25026844"
+  HUBSPOT_PORTAL_ID: "47011873"
   BOX_METADATA_SCOPE: "enterprise_260686117"
   BOX_METADATA_TEMPLATE_KEY: "clientDealMetadata"

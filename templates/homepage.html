@@ -57,21 +57,6 @@
   </div>
 </div>
 
-<div class="card" style="background: var(--soft-accent); border-color: var(--ok);">
-  <h4>ℹ️ System Information</h4>
-  <div class="row">
-    <div>
-      <strong>Version:</strong> <span class="muted">1.0.0</span>
-    </div>
-    <div>
-      <strong>Environment:</strong> <span class="muted">{{ environment }}</span>
-    </div>
-    <div>
-      <strong>Sydney Time:</strong> <span class="muted">{{ sydney_time }}</span>
-    </div>
-  </div>
-</div>
-
 <div class="card">
   <h4>❓ Adviser Scheduling FAQ</h4>
   <p class="muted">Quick answers to common scheduling questions.</p>
@@ -96,7 +81,38 @@
       <strong>Do Box folders update when I reassign a deal?</strong><br />
       Reassign first, then trigger <em>Create Box Folder</em> with the new deal ID; the folder metadata refreshes with the latest adviser/contact info.
     </li>
+    <li>
+      <strong>What if someone is on leave for part of the week?</strong><br />
+      Enter the leave in <em>Manage Closures</em>; whether it is one day or several, the schedule automatically zeroes out capacity for those days and pushes clarifies into later weeks.
+    </li>
+    <li>
+      <strong>How does capacity differ for solo pods versus full pods?</strong><br />
+      Solo pods use reduced fortnight targets and smaller clarify buffers compared with full pods. The availability views apply the correct target based on the adviser’s pod type so the earliest week is accurate.
+    </li>
+    <li>
+      <strong>What happens if there is an overflow?</strong><br />
+      Overflow (Actual &gt; Target) carries into the next week as pending clarify work. The “Difference” column turns positive and the earliest-available week advances until the backlog clears.
+    </li>
+    <li>
+      <strong>What deals show up under “Deal No Clarify”?</strong><br />
+      These are active HubSpot deals without scheduled clarify meetings. Monitoring this column helps flag work that still needs adviser follow-up before the target week closes.
+    </li>
   </ul>
+</div>
+
+<div class="card system-card">
+  <h4>ℹ️ System Information</h4>
+  <div class="system-grid">
+    <div>
+      <strong>Version:</strong> <span class="muted">{{ app_version }}</span>
+    </div>
+    <div>
+      <strong>Environment:</strong> <span class="muted">{{ environment }}</span>
+    </div>
+    <div>
+      <strong>Sydney Time:</strong> <span class="muted">{{ sydney_time }}</span>
+    </div>
+  </div>
 </div>
 {% endblock %}
 
@@ -149,6 +165,31 @@
   .faq li {
     margin-bottom: 0.75rem;
     line-height: 1.45;
+  }
+
+  .system-card {
+    background: var(--soft-accent);
+    border: 1px solid rgba(209, 213, 219, 0.6);
+  }
+
+  .system-card h4 {
+    margin: 0 0 8px 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .system-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    font-size: 0.9em;
+  }
+
+  .system-grid > div {
+    display: flex;
+    align-items: center;
+    gap: 6px;
   }
 </style>
 {% endblock %}

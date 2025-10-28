@@ -64,6 +64,9 @@ CHAT_WEBHOOK_URL = (
     or os.environ.get("CHAT_WEBHOOK_URL")
 )
 
+# Application metadata
+APP_VERSION = os.environ.get("APP_VERSION", "1.0.0")
+
 # ---- Admin auth config (for managing closures) ----
 ADMIN_USERNAME = get_secret("ADMIN_USERNAME") or os.environ.get("ADMIN_USERNAME")
 ADMIN_PASSWORD = get_secret("ADMIN_PASSWORD") or os.environ.get("ADMIN_PASSWORD")
@@ -211,7 +214,8 @@ def index():
         today=sydney_today().isoformat(),
         week_num=f"{sydney_today().isocalendar()[1]:02d}",
         environment=os.environ.get("GAE_ENV", "development"),
-        sydney_time=sydney_now().strftime("%Y-%m-%d %H:%M:%S %Z")
+        sydney_time=sydney_now().strftime("%Y-%m-%d %H:%M:%S %Z"),
+        app_version=APP_VERSION,
     )
 
 @app.route("/auth/start")
@@ -990,6 +994,7 @@ def allocation_webhook():
         return jsonify({"error": str(e)}), 500
 
 @app.route("/allocations/history")
+@login_required
 def allocation_history_ui():
     """Dashboard view of allocation history with pagination."""
     try:

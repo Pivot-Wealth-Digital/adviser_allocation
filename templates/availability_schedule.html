@@ -13,8 +13,20 @@
   <div id="toast-err" class="msg err" style="display:none"></div>
 </div>
 
-<div class="card">
-  <h3>Compute Schedule</h3>
+<div class="card guide-card">
+  <div class="card-header">
+    <h3>Compute Schedule</h3>
+    <label class="helper-toggle" title="Toggle helper content">
+      <input type="checkbox" id="toggleHelpers" checked>
+      Show helper tips
+    </label>
+  </div>
+  <p class="muted inline-guide-title">Quick guide</p>
+  <ul class="inline-guide">
+    <li>Select an adviser and agreement start date before computing the schedule.</li>
+    <li>Highlighted rows show the next available clarify fortnight for the adviser.</li>
+    <li>Use Edit/Done/Reset to fine-tune clarify counts or deal allocations.</li>
+  </ul>
   <div class="row">
     <div>
       <label for="adviserSelect">Adviser</label>
@@ -44,14 +56,38 @@
 <table>
   <thead>
     <tr>
-      <th>Week</th>
-      <th class="nowrap">Monday Date</th>
-      <th>Clarify Count</th>
-      <th>OOO</th>
-      <th>Deal No Clarify</th>
-      <th>Target</th>
-      <th>Actual</th>
-      <th>Difference</th>
+      <th>
+        Week
+        <div class="col-helper">Fortnight label for the schedule row</div>
+      </th>
+      <th class="nowrap">
+        Monday Date
+        <div class="col-helper">Monday anchoring the fortnight</div>
+      </th>
+      <th>
+        Clarify Count
+        <div class="col-helper">Clarify meetings booked this week</div>
+      </th>
+      <th>
+        OOO
+        <div class="col-helper">Out-of-office or closure notes</div>
+      </th>
+      <th>
+        Deal No Clarify
+        <div class="col-helper">Deals without a scheduled clarify session</div>
+      </th>
+      <th>
+        Target
+        <div class="col-helper">Fortnight clarify target</div>
+      </th>
+      <th>
+        Actual
+        <div class="col-helper">Clarifies after adding carry-over</div>
+      </th>
+      <th>
+        Difference
+        <div class="col-helper">Actual minus target; overflow carries forward</div>
+      </th>
     </tr>
   </thead>
   <tbody>
@@ -75,6 +111,70 @@
     {% endif %}
   </tbody>
 </table>
+
+{% endblock %}
+
+{% block head %}
+{{ super() }}
+<style>
+  .guide-card .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    margin-bottom: 12px;
+  }
+
+  .guide-card h3 {
+    margin: 0;
+  }
+
+  .helper-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.9em;
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  .helper-toggle input {
+    margin: 0;
+  }
+
+  .inline-guide-title {
+    font-weight: 600;
+    margin: 0 0 6px 0;
+  }
+
+  .inline-guide {
+    margin: 0 0 12px 0;
+    padding-left: 1.2rem;
+    font-size: 0.9em;
+    color: var(--muted);
+  }
+
+  .inline-guide li {
+    margin-bottom: 0.35rem;
+  }
+
+  .inline-guide li:last-child {
+    margin-bottom: 0;
+  }
+
+  .col-helper {
+    display: block;
+    font-size: 0.75em;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+
+  .helpers-hidden .inline-guide,
+  .helpers-hidden .inline-guide-title,
+  .helpers-hidden .col-helper {
+    display: none !important;
+  }
+</style>
 {% endblock %}
 
 {% block scripts %}
@@ -123,6 +223,15 @@
       // Redirect to same page with compute parameters
       window.location.href = '?' + params.toString();
     });
+  }
+
+  const helperToggle = document.getElementById('toggleHelpers');
+  if (helperToggle) {
+    const applyHelperState = () => {
+      document.body.classList.toggle('helpers-hidden', !helperToggle.checked);
+    };
+    helperToggle.addEventListener('change', applyHelperState);
+    applyHelperState();
   }
 
   // Edit functionality
