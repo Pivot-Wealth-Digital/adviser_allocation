@@ -71,6 +71,33 @@
     </div>
   </div>
 </div>
+
+<div class="card">
+  <h4>❓ Adviser Scheduling FAQ</h4>
+  <p class="muted">Quick answers to common scheduling questions.</p>
+  <ul class="faq">
+    <li>
+      <strong>How do I check when an adviser can take a new client?</strong><br />
+      Use <em>View Earliest Availability</em> to see the next open week for every adviser, including clarify counts and OOO data.
+    </li>
+    <li>
+      <strong>What if a client needs to start earlier than the suggested adviser?</strong><br />
+      Visit <em>View Adviser Schedule</em> and inspect alternative advisers in the “Eligible” list. Reassign via <em>Client Allocation</em> if capacity allows.
+    </li>
+    <li>
+      <strong>How do closures affect availability?</strong><br />
+      Add or edit closures in <em>Manage Closures</em>; changes sync into availability tables and the scheduling algorithm automatically.
+    </li>
+    <li>
+      <strong>Where can I see why an adviser is unavailable?</strong><br />
+      Hover over the availability rows in <em>View Adviser Schedule</em>—tooltips show clarify totals, closures, and backlog notes contributing to their status.
+    </li>
+    <li>
+      <strong>Do Box folders update when I reassign a deal?</strong><br />
+      Reassign first, then trigger <em>Create Box Folder</em> with the new deal ID; the folder metadata refreshes with the latest adviser/contact info.
+    </li>
+  </ul>
+</div>
 {% endblock %}
 
 {% block head %}
@@ -112,6 +139,16 @@
     .row button {
       width: 100%;
     }
+  }
+
+  .faq {
+    margin: 0;
+    padding-left: 1.2rem;
+  }
+
+  .faq li {
+    margin-bottom: 0.75rem;
+    line-height: 1.45;
   }
 </style>
 {% endblock %}
