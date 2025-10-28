@@ -234,29 +234,55 @@
     return `HTTP ${statusCode} · ${data.error || data.message || 'Error'}`;
   }
 
-  function setMetadataInputs(metadata, fallbackDealId) {
-    metadataInputs.hs_deal_record_id.value =
-      (metadata && metadata.hs_deal_record_id) || fallbackDealId || '';
-    metadataInputs.service_package.value = metadata?.service_package || '';
-    metadataInputs.agreement_start_date.value = metadata?.agreement_start_date || '';
-    metadataInputs.household_type.value = metadata?.household_type || '';
-    metadataInputs.hs_contact_id.value = metadata?.hs_contact_id || '';
-    metadataInputs.hs_spouse_id.value = metadata?.hs_spouse_id || '';
+  function setMetadataInputs(metadata) {
     metadataInputs.deal_salutation.value = metadata?.deal_salutation || '';
+    metadataInputs.household_type.value = metadata?.household_type || '';
+    metadataInputs.primary_contact_id.value = metadata?.primary_contact_id || '';
+    metadataInputs.primary_contact_link.value = metadata?.primary_contact_link || '';
+    metadataInputs.hs_spouse_id.value = metadata?.hs_spouse_id || '';
+    metadataInputs.spouse_contact_link.value = metadata?.spouse_contact_link || '';
+    const ids = metadata?.associated_contact_ids;
+    metadataInputs.associated_contact_ids.value = Array.isArray(ids)
+      ? ids.join(', ')
+      : (ids || '');
   }
 
   function collectMetadataFromInputs() {
     const payload = {};
-    Object.entries(metadataInputs).forEach(([key, input]) => {
+
+    const assignString = (key, input) => {
       const value = input.value.trim();
-      payload[key] = value ? value : null;
-    });
-    if (lastPreviewAssociatedIds.length) {
+      if (value) {
+        payload[key] = value;
+      }
+    };
+
+    assignString('deal_salutation', metadataInputs.deal_salutation);
+    assignString('household_type', metadataInputs.household_type);
+    assignString('primary_contact_id', metadataInputs.primary_contact_id);
+    assignString('primary_contact_link', metadataInputs.primary_contact_link);
+    assignString('hs_spouse_id', metadataInputs.hs_spouse_id);
+    assignString('spouse_contact_link', metadataInputs.spouse_contact_link);
+
+    const idsRaw = metadataInputs.associated_contact_ids.value.trim();
+    if (idsRaw) {
+      const ids = idsRaw
+        .split(',')
+        .map((id) => id.trim())
+        .filter(Boolean);
+      if (ids.length) {
+        payload.associated_contact_ids = ids;
+      }
+    } else if (lastPreviewAssociatedIds.length) {
       payload.associated_contact_ids = lastPreviewAssociatedIds;
     }
+
     if (lastPreviewAssociatedContacts.length) {
       payload.associated_contacts = lastPreviewAssociatedContacts;
+    } else if (Array.isArray(lastPreviewMetadata.associated_contacts)) {
+      payload.associated_contacts = lastPreviewMetadata.associated_contacts;
     }
+
     return payload;
   }
 
@@ -320,7 +346,7 @@
       lastPreviewAssociatedContacts = data.metadata?.associated_contacts || [];
       folderNameInput.value = data.folder_name || '';
       renderContacts(data.contacts);
-      setMetadataInputs(lastPreviewMetadata, dealId);
+      setMetadataInputs(lastPreviewMetadata);
       refreshMetadataPreview();
       previewCard.classList.remove('hidden');
       lastStatus.textContent = 'Preview ready · review folder details below';
