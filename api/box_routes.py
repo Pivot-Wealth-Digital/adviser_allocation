@@ -16,6 +16,15 @@ logger = logging.getLogger(__name__)
 
 box_bp = Blueprint("box_api", __name__)
 
+HUBSPOT_PORTAL_ID = get_secret("HUBSPOT_PORTAL_ID") or os.environ.get("HUBSPOT_PORTAL_ID")
+
+
+def _hubspot_contact_url(contact_id: Optional[str]) -> Optional[str]:
+    contact_id = (contact_id or "").strip()
+    if not contact_id or not HUBSPOT_PORTAL_ID:
+        return None
+    return f"https://app.hubspot.com/contacts/{HUBSPOT_PORTAL_ID}/record/0-1/{contact_id}"
+
 
 def _resolve_deal_id(payload: dict) -> Optional[str]:
     return (
@@ -56,8 +65,8 @@ def _fetch_deal_metadata(deal_id: str) -> Optional[dict]:
         resp.raise_for_status()
         props = resp.json().get("properties", {})
         contacts = box_service.get_hubspot_deal_contacts(deal_id)
-        associated_contact_ids = []
-        associated_contacts = []
+        associated_contact_ids: list[str] = []
+        associated_contacts: list[dict] = []
         for idx, contact in enumerate(contacts):
             contact_id = contact.get("id")
             if contact_id:
@@ -70,24 +79,35 @@ def _fetch_deal_metadata(deal_id: str) -> Optional[dict]:
                     "lastname": props_contact.get("lastname"),
                     "email": props_contact.get("email"),
                     "display_name": box_service._format_contact_display(contact, position=idx),
+                    "url": _hubspot_contact_url(contact_id),
                 }
             )
 
         primary_contact_id = props.get("hs_contact_id") or (
             associated_contact_ids[0] if associated_contact_ids else None
         )
+        primary_contact_link = _hubspot_contact_url(primary_contact_id)
 
-        metadata = {
-            "hs_deal_record_id": props.get("hs_deal_record_id") or deal_id,
-            "service_package": props.get("service_package"),
-            "agreement_start_date": props.get("agreement_start_date"),
-            "household_type": props.get("household_type"),
-            "hs_spouse_id": props.get("hs_spouse_id"),
-            "hs_contact_id": primary_contact_id,
-            "deal_salutation": props.get("deal_salutation"),
-        }
+        spouse_id = props.get("hs_spouse_id")
+        if not spouse_id and len(associated_contact_ids) > 1:
+            spouse_id = associated_contact_ids[1]
+        spouse_link = _hubspot_contact_url(spouse_id)
+
+        metadata: dict[str, object] = {}
+        if props.get("household_type"):
+            metadata["household_type"] = props.get("household_type")
+        if props.get("deal_salutation"):
+            metadata["deal_salutation"] = props.get("deal_salutation")
+        if primary_contact_id:
+            metadata["primary_contact_id"] = primary_contact_id
+            metadata["primary_contact_link"] = primary_contact_link or primary_contact_id
+        if spouse_id:
+            metadata["hs_spouse_id"] = spouse_id
+            if spouse_link:
+                metadata["spouse_contact_link"] = spouse_link
         if associated_contact_ids:
             metadata["associated_contact_ids"] = associated_contact_ids
+        if associated_contacts:
             metadata["associated_contacts"] = associated_contacts
 
         logger.info("Fetched HubSpot metadata for deal %s: %s", deal_id, metadata)

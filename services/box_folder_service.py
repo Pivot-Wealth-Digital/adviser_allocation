@@ -289,28 +289,18 @@ class BoxFolderService:
         except requests.RequestException as exc:
             raise BoxAutomationError(f"Box metadata apply failed for folder {folder_id}: {exc}") from exc
 
-    def find_folder_by_deal_metadata(self, deal_id: str) -> Optional[dict]:
-        """Return existing folder metadata entry for given deal id."""
-        if not self._metadata_scope or not self._metadata_template_key:
-            logger.debug(
-                "Metadata scope/template not configured; cannot query existing folder for deal %s",
-                deal_id,
-            )
+    def _query_metadata_entry(self, field_key: str, value: Optional[str]) -> Optional[dict]:
+        value = (value or "").strip()
+        if not value or not self._metadata_scope or not self._metadata_template_key:
             return None
 
         query_url = f"{self._api_base_url}/metadata_queries/execute_read"
         payload = {
             "from": f"{self._metadata_scope}.{self._metadata_template_key}",
-            "query": "dealRecordId = :deal_id",
-            "query_params": {"deal_id": str(deal_id)},
+            "query": f"{field_key} = :value",
+            "query_params": {"value": value},
             "limit": 1,
         }
-        logger.debug(
-            "Executing metadata query for deal %s using template %s/%s",
-            deal_id,
-            self._metadata_scope,
-            self._metadata_template_key,
-        )
         try:
             resp = requests.post(
                 query_url,
@@ -319,23 +309,24 @@ class BoxFolderService:
                 timeout=self._timeout,
             )
             if resp.status_code == 404:
-                logger.debug("Metadata query returned 404 for deal %s", deal_id)
                 return None
             resp.raise_for_status()
             entries = resp.json().get("entries", [])
-            logger.debug(
-                "Metadata query for deal %s returned %d entrie(s)",
-                deal_id,
-                len(entries),
-            )
             return entries[0] if entries else None
         except requests.RequestException as exc:
-            logger.warning(
-                "Failed to query existing metadata for deal %s: %s",
-                deal_id,
-                exc,
-            )
+            logger.warning("Metadata query for field %s failed: %s", field_key, exc)
             return None
+
+    def find_folder_by_primary_contact(
+        self,
+        primary_contact_link: Optional[str],
+        primary_contact_id: Optional[str] = None,
+    ) -> Optional[dict]:
+        for candidate in (primary_contact_link, primary_contact_id):
+            entry = self._query_metadata_entry("primaryContactId", candidate)
+            if entry:
+                return entry
+        return None
 
     def _headers(self, content_type: Optional[str] = None) -> dict:
         headers = {
@@ -362,12 +353,9 @@ if not BOX_METADATA_SCOPE and os.environ.get("BOX_METADATA_TEMPLATE_SCOPE"):
     BOX_METADATA_SCOPE = os.environ["BOX_METADATA_TEMPLATE_SCOPE"].strip()
 BOX_METADATA_TEMPLATE_KEY = (os.environ.get("BOX_METADATA_TEMPLATE_KEY") or "").strip()
 BOX_METADATA_FIELD_MAP = {
-    "hs_deal_record_id": "dealRecordId",
-    "service_package": "servicePackage",
-    "agreement_start_date": "agreementStartDate",
     "household_type": "householdType",
-    "hs_contact_id": "primaryContactId",
-    "hs_spouse_id": "spouseContactId",
+    "primary_contact_link": "primaryContactId",
+    "spouse_contact_link": "spouseContactId",
     "deal_salutation": "dealSalutation",
     "associated_contact_ids": "associatedContactIds",
     "associated_contacts": "associatedContacts",
@@ -384,7 +372,7 @@ def _format_metadata_value_for_template(key: str, value) -> Optional[str]:
     if isinstance(value, list):
         if key == "associated_contact_ids":
             cleaned = [str(item).strip() for item in value if str(item).strip()]
-            return "\n".join(cleaned)
+            return ", ".join(cleaned)
         if key == "associated_contacts":
             lines: list[str] = []
             for contact in value:
@@ -406,9 +394,11 @@ def _format_metadata_value_for_template(key: str, value) -> Optional[str]:
                     extra_parts.append(email)
                 if contact_id:
                     extra_parts.append(f"ID: {contact_id}")
-                    if HUBSPOT_PORTAL_ID:
-                        link = f"https://app.hubspot.com/contacts/{HUBSPOT_PORTAL_ID}/record/0-1/{contact_id}"
-                        extra_parts.append(f"Link: {link}")
+                link = (contact.get("url") or "").strip()
+                if not link and contact_id and HUBSPOT_PORTAL_ID:
+                    link = f"https://app.hubspot.com/contacts/{HUBSPOT_PORTAL_ID}/record/0-1/{contact_id}"
+                if link:
+                    extra_parts.append(f"Link: {link}")
                 if extra_parts:
                     lines.append(f"{display} ({' | '.join(extra_parts)})")
                 else:
@@ -701,9 +691,28 @@ def create_box_folder_for_deal(
     contacts = get_hubspot_deal_contacts(deal_id)
     formatted_contacts = [name for name in (_format_contact_display(c) for c in contacts) if name]
 
-    existing_entry = service.find_folder_by_deal_metadata(deal_id)
     folder = None
     folder_name = None
+
+    metadata_payload = dict(deal_metadata or {})
+    metadata_response = dict(metadata_payload)
+    logger.debug(
+        "Prepared metadata payload for deal %s with keys=%s",
+        deal_id,
+        sorted(metadata_payload.keys()),
+    )
+
+    template_metadata = dict(metadata_payload)
+    primary_contact_value = template_metadata.get("primary_contact_link") or template_metadata.get("primary_contact_id")
+    if "primary_contact_link" not in template_metadata and primary_contact_value:
+        template_metadata["primary_contact_link"] = primary_contact_value
+    if "spouse_contact_link" not in template_metadata and template_metadata.get("hs_spouse_id"):
+        template_metadata["spouse_contact_link"] = template_metadata.get("hs_spouse_id")
+
+    existing_entry = service.find_folder_by_primary_contact(
+        template_metadata.get("primary_contact_link"),
+        metadata_payload.get("primary_contact_id"),
+    )
     if existing_entry:
         folder = existing_entry.get("item") or existing_entry
         folder_name = folder.get("name")
@@ -727,19 +736,10 @@ def create_box_folder_for_deal(
         folder = service.ensure_client_folder(folder_name)
         logger.info('Created Box folder for deal %s (id=%s)', deal_id, folder.get('id'))
 
-    metadata_payload = dict(deal_metadata or {})
-    if not metadata_payload.get("hs_deal_record_id"):
-        metadata_payload["hs_deal_record_id"] = deal_id
-    logger.debug(
-        "Prepared metadata payload for deal %s with keys=%s",
-        deal_id,
-        sorted(metadata_payload.keys()),
-    )
-
     folder_id = folder.get('id') if folder else None
-    if metadata_payload and folder_id:
+    if template_metadata and folder_id:
         try:
-            service.apply_metadata_template(folder_id, metadata_payload)
+            service.apply_metadata_template(folder_id, template_metadata)
         except BoxAutomationError as exc:
             logger.error(
                 "Failed to apply Box metadata template for deal %s (folder %s): %s",
@@ -747,13 +747,58 @@ def create_box_folder_for_deal(
                 folder_id,
                 exc,
             )
-    elif metadata_payload and not folder_id:
+    elif template_metadata and not folder_id:
         logger.error(
             "Cannot apply metadata template for deal %s because folder id is missing in response",
             deal_id,
         )
-    elif not metadata_payload:
+    elif not template_metadata:
         logger.warning('No metadata provided for deal %s', deal_id)
+
+    if isinstance(metadata_response.get("associated_contacts"), list):
+        formatted_contacts_meta = []
+        for entry in metadata_response["associated_contacts"]:
+            if not isinstance(entry, dict):
+                formatted_contacts_meta.append(entry)
+                continue
+            display = entry.get("display_name") or entry.get("firstname") or entry.get("lastname") or entry.get("email") or entry.get("id") or "Unknown Contact"
+            parts = []
+            email = (entry.get("email") or "").strip()
+            contact_id = (entry.get("id") or "").strip()
+            link = (entry.get("url") or "").strip()
+            if email:
+                parts.append(email)
+            if contact_id:
+                parts.append(f"ID: {contact_id}")
+            if link:
+                parts.append(f"Link: {link}")
+            if parts:
+                formatted_contacts_meta.append(f"{display} ({' | '.join(parts)})")
+            else:
+                formatted_contacts_meta.append(display)
+        metadata_response["associated_contacts"] = formatted_contacts_meta
+
+    if isinstance(metadata_response.get("associated_contact_ids"), list):
+        cleaned_ids = [str(item).strip() for item in metadata_response["associated_contact_ids"] if str(item).strip()]
+        metadata_response["associated_contact_ids"] = ", ".join(cleaned_ids)
+
+    preferred_order = [
+        "deal_salutation",
+        "household_type",
+        "primary_contact_link",
+        "primary_contact_id",
+        "spouse_contact_link",
+        "hs_spouse_id",
+        "associated_contacts",
+        "associated_contact_ids",
+    ]
+    ordered_metadata = {}
+    for key in preferred_order:
+        if key in metadata_response:
+            ordered_metadata[key] = metadata_response.pop(key)
+    for key, value in list(metadata_response.items()):
+        ordered_metadata[key] = value
+    metadata_response = ordered_metadata
 
     status = "existing" if existing_entry else "created"
     resolved_folder_name = (
@@ -785,7 +830,7 @@ def create_box_folder_for_deal(
             "url": folder_url,
         },
         "contacts": formatted_contacts,
-        "metadata": metadata_payload,
+        "metadata": metadata_response,
     }
 
 
