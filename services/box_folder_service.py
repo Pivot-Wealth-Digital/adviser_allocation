@@ -121,6 +121,25 @@ class BoxFolderService:
         )
         return resp.json()
 
+    def share_subfolder_with_email(
+        self,
+        parent_folder_id: str,
+        subfolder_name: str,
+        email: str,
+        role: str = "viewer",
+    ) -> dict:
+        email = (email or "").strip()
+        if not email:
+            raise BoxAutomationError("Cannot share folder without a recipient email")
+
+        subfolder = self._find_child_folder(parent_folder_id, subfolder_name)
+        if not subfolder:
+            raise BoxAutomationError(
+                f"Subfolder '{subfolder_name}' not found under folder {parent_folder_id}"
+            )
+
+        return self._add_collaborator(subfolder.get("id"), email, role)
+
     def _resolve_path(self, path: str) -> str:
         normalized = "/".join(segment.strip() for segment in (path or "").split("/") if segment.strip())
         if not normalized:
@@ -202,6 +221,51 @@ class BoxFolderService:
             if item.get("type") == "folder" and item.get("name") == folder_name:
                 return item
         return None
+
+    def _add_collaborator(self, folder_id: Optional[str], email: str, role: str) -> dict:
+        if not folder_id:
+            raise BoxAutomationError("Cannot add collaborator without folder id")
+
+        payload = {
+            "item": {"type": "folder", "id": folder_id},
+            "accessible_by": {"type": "user", "login": email},
+            "role": role,
+        }
+
+        try:
+            resp = requests.post(
+                f"{self._api_base_url}/collaborations",
+                headers=self._headers("application/json"),
+                json=payload,
+                timeout=self._timeout,
+            )
+        except requests.RequestException as exc:
+            raise BoxAutomationError(
+                f"Box collaboration create failed for folder {folder_id}: {exc}"
+            ) from exc
+
+        if resp.status_code == 409:
+            logger.info(
+                "Box collaborator already exists for folder %s email=%s", folder_id, email
+            )
+            return {"status": "exists", "email": email, "folder_id": folder_id}
+
+        try:
+            resp.raise_for_status()
+        except requests.HTTPError as exc:
+            raise BoxAutomationError(
+                f"Box collaboration API error for folder {folder_id}: {resp.text}"
+            ) from exc
+
+        logger.info(
+            "Added Box collaborator %s with role=%s to folder %s",
+            email,
+            role,
+            folder_id,
+        )
+        data = resp.json()
+        data.setdefault("status", "created")
+        return data
 
     def apply_metadata_template(self, folder_id: str, metadata: dict) -> None:
         """Apply configured metadata template to folder."""
@@ -369,6 +433,10 @@ BOX_JWT_CONFIG_PATH = os.environ.get("BOX_JWT_CONFIG_PATH") or Path(__file__).re
 def _current_portal_id() -> str:
     value = get_secret("HUBSPOT_PORTAL_ID") or os.environ.get("HUBSPOT_PORTAL_ID") or ""
     return value.strip()
+
+
+CLIENT_SHARING_SUBFOLDER = os.environ.get("BOX_CLIENT_SHARE_SUBFOLDER", "Client Sharing")
+CLIENT_SHARING_ROLE = os.environ.get("BOX_CLIENT_SHARE_ROLE", "viewer")
 
 
 def _format_metadata_value_for_template(key: str, value) -> Optional[str]:
@@ -789,6 +857,49 @@ def create_box_folder_for_deal(
         cleaned_ids = [str(item).strip() for item in metadata_response["associated_contact_ids"] if str(item).strip()]
         metadata_response["associated_contact_ids"] = ", ".join(cleaned_ids)
 
+    # Determine primary contact email for sharing
+    primary_contact_id = metadata_payload.get("primary_contact_id") or None
+    share_email = None
+    if primary_contact_id:
+        for contact in contacts:
+            if str(contact.get("id")) == str(primary_contact_id):
+                props = contact.get("properties") or {}
+                email = (props.get("email") or "").strip()
+                if email:
+                    share_email = email
+                break
+    if not share_email:
+        for contact in contacts:
+            props = contact.get("properties") or {}
+            email = (props.get("email") or "").strip()
+            if email:
+                share_email = email
+                break
+
+    share_status = None
+    if share_email and folder_id:
+        try:
+            share_status = service.share_subfolder_with_email(
+                parent_folder_id=folder_id,
+                subfolder_name=CLIENT_SHARING_SUBFOLDER,
+                email=share_email,
+                role=CLIENT_SHARING_ROLE,
+            )
+        except BoxAutomationError as exc:
+            logger.error(
+                "Failed to share client subfolder '%s' for deal %s (folder %s) with %s: %s",
+                CLIENT_SHARING_SUBFOLDER,
+                deal_id,
+                folder_id,
+                share_email,
+                exc,
+            )
+    elif not share_email:
+        logger.debug(
+            "No primary contact email found; skipping client sharing collaborator for deal %s",
+            deal_id,
+        )
+
     preferred_order = [
         "deal_salutation",
         "household_type",
@@ -838,6 +949,17 @@ def create_box_folder_for_deal(
         },
         "contacts": formatted_contacts,
         "metadata": metadata_response,
+        "sharing": {
+            "email": share_email,
+            "subfolder": CLIENT_SHARING_SUBFOLDER,
+            "role": CLIENT_SHARING_ROLE,
+            "result": share_status,
+        } if share_status else {
+            "email": share_email,
+            "subfolder": CLIENT_SHARING_SUBFOLDER,
+            "role": CLIENT_SHARING_ROLE,
+            "result": None,
+        },
     }
 
 
