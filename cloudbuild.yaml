@@ -1,0 +1,15 @@
+steps:
+  # 1. Install dependencies
+  - name: 'python:3.11'
+    entrypoint: 'pip'
+    args: ['install', '-r', 'requirements.txt', '--user']
+
+  # 2. Run tests
+  - name: 'python:3.11'
+    entrypoint: 'python'
+    args: ['-m', 'pytest']
+
+  # 3. Deploy to App Engine
+  - name: 'gcr.io/cloud-builders/gcloud'
+    args: ['app', 'deploy']
+    timeout: '1600s'

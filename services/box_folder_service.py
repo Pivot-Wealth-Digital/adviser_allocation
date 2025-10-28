@@ -353,16 +353,22 @@ if not BOX_METADATA_SCOPE and os.environ.get("BOX_METADATA_TEMPLATE_SCOPE"):
     BOX_METADATA_SCOPE = os.environ["BOX_METADATA_TEMPLATE_SCOPE"].strip()
 BOX_METADATA_TEMPLATE_KEY = (os.environ.get("BOX_METADATA_TEMPLATE_KEY") or "").strip()
 BOX_METADATA_FIELD_MAP = {
-    "household_type": "householdType",
-    "primary_contact_link": "primaryContactId",
-    "spouse_contact_link": "spouseContactId",
-    "deal_salutation": "dealSalutation",
-    "associated_contact_ids": "associatedContactIds",
-    "associated_contacts": "associatedContacts",
+    "deal_salutation": "deal_salutation",
+    "household_type": "household_type",
+    "primary_contact_link": "primary_contact_link",
+    "primary_contact_id": "primary_contact_id",
+    "spouse_contact_link": "spouse_contact_link",
+    "hs_spouse_id": "hs_spouse_id",
+    "associated_contacts": "associated_contacts",
+    "associated_contact_ids": "associated_contact_ids",
 }
 BOX_REQUEST_TIMEOUT = int(os.environ.get("BOX_REQUEST_TIMEOUT_SECONDS", "20"))
 BOX_JWT_CONFIG_PATH = os.environ.get("BOX_JWT_CONFIG_PATH") or Path(__file__).resolve().parent.parent / "config" / "box_jwt_config.json"
-HUBSPOT_PORTAL_ID = (os.environ.get("HUBSPOT_PORTAL_ID") or "").strip()
+
+
+def _current_portal_id() -> str:
+    value = get_secret("HUBSPOT_PORTAL_ID") or os.environ.get("HUBSPOT_PORTAL_ID") or ""
+    return value.strip()
 
 
 def _format_metadata_value_for_template(key: str, value) -> Optional[str]:
@@ -395,8 +401,9 @@ def _format_metadata_value_for_template(key: str, value) -> Optional[str]:
                 if contact_id:
                     extra_parts.append(f"ID: {contact_id}")
                 link = (contact.get("url") or "").strip()
-                if not link and contact_id and HUBSPOT_PORTAL_ID:
-                    link = f"https://app.hubspot.com/contacts/{HUBSPOT_PORTAL_ID}/record/0-1/{contact_id}"
+                portal_id = _current_portal_id()
+                if not link and contact_id and portal_id:
+                    link = f"https://app.hubspot.com/contacts/{portal_id}/record/0-1/{contact_id}"
                 if link:
                     extra_parts.append(f"Link: {link}")
                 if extra_parts:

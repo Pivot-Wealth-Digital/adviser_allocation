@@ -22,6 +22,7 @@ from utils.firestore_helpers import (
     get_employee_id as get_employee_id_from_firestore,
 )
 from services.allocation_service import store_allocation_record
+import api.box_routes as box_routes_module
 from api.box_routes import box_bp
 from api.allocation_routes import init_allocation_routes
 
@@ -29,6 +30,7 @@ from dotenv import load_dotenv
 
 # Load variables from .env into environment
 load_dotenv()
+box_routes_module.refresh_hubspot_portal_id_cache()
 
 from utils.secrets import get_secret
 
@@ -1129,7 +1131,7 @@ def allocation_history_ui():
             "page_size": page_size,
             "start_record": start_record,
             "end_record": end_record,
-            "hubspot_portal_id": os.getenv('HUBSPOT_PORTAL_ID', '21983344'),
+            "hubspot_portal_id": os.getenv('HUBSPOT_PORTAL_ID', '47011873'),
             "dashboard_counts": dashboard_counts,
             "status_stats": [{"label": label, "count": count} for label, count in status_counter.most_common()],
             "service_stats": [{"label": label, "count": count} for label, count in service_counter.most_common(5)],

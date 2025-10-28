@@ -1,5 +1,6 @@
 import logging
 import os
+from functools import lru_cache
 from typing import Optional
 
 import requests
@@ -16,14 +17,23 @@ logger = logging.getLogger(__name__)
 
 box_bp = Blueprint("box_api", __name__)
 
-HUBSPOT_PORTAL_ID = get_secret("HUBSPOT_PORTAL_ID") or os.environ.get("HUBSPOT_PORTAL_ID")
+
+@lru_cache(maxsize=1)
+def _hubspot_portal_id() -> str:
+    value = get_secret("HUBSPOT_PORTAL_ID") or os.environ.get("HUBSPOT_PORTAL_ID") or ""
+    return value.strip()
+
+
+def refresh_hubspot_portal_id_cache() -> None:
+    _hubspot_portal_id.cache_clear()  # type: ignore[attr-defined]
 
 
 def _hubspot_contact_url(contact_id: Optional[str]) -> Optional[str]:
     contact_id = (contact_id or "").strip()
-    if not contact_id or not HUBSPOT_PORTAL_ID:
+    portal_id = _hubspot_portal_id()
+    if not contact_id or not portal_id:
         return None
-    return f"https://app.hubspot.com/contacts/{HUBSPOT_PORTAL_ID}/record/0-1/{contact_id}"
+    return f"https://app.hubspot.com/contacts/{portal_id}/record/0-1/{contact_id}"
 
 
 def _resolve_deal_id(payload: dict) -> Optional[str]:
