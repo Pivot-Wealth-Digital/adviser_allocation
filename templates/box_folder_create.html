@@ -56,16 +56,8 @@
       <h4>Metadata Details</h4>
       <div class="metadata-grid">
         <label>
-          <span>Deal Record ID</span>
-          <input id="metadata-hs-deal-record-id" type="text" autocomplete="off" />
-        </label>
-        <label>
-          <span>Service Package</span>
-          <input id="metadata-service-package" type="text" autocomplete="off" />
-        </label>
-        <label>
-          <span>Agreement Start (ISO)</span>
-          <input id="metadata-agreement-start-date" type="text" autocomplete="off" placeholder="YYYY-MM-DD" />
+          <span>Deal Salutation</span>
+          <input id="metadata-deal-salutation" type="text" autocomplete="off" />
         </label>
         <label>
           <span>Household Type</span>
@@ -73,15 +65,23 @@
         </label>
         <label>
           <span>Primary Contact ID</span>
-          <input id="metadata-hs-contact-id" type="text" autocomplete="off" />
+          <input id="metadata-primary-contact-id" type="text" autocomplete="off" />
+        </label>
+        <label>
+          <span>Primary Contact Link</span>
+          <input id="metadata-primary-contact-link" type="text" autocomplete="off" placeholder="https://app.hubspot.com/..." />
         </label>
         <label>
           <span>Spouse Contact ID</span>
-          <input id="metadata-hs-spouse-id" type="text" autocomplete="off" />
+          <input id="metadata-spouse-id" type="text" autocomplete="off" />
+        </label>
+        <label>
+          <span>Spouse Contact Link</span>
+          <input id="metadata-spouse-link" type="text" autocomplete="off" placeholder="https://app.hubspot.com/..." />
         </label>
         <label class="full-width">
-          <span>Deal Salutation</span>
-          <input id="metadata-deal-salutation" type="text" autocomplete="off" />
+          <span>Associated Contact IDs</span>
+          <input id="metadata-associated-ids" type="text" autocomplete="off" placeholder="Comma-separated IDs" />
         </label>
       </div>
       <p class="muted small">
@@ -196,13 +196,13 @@
   const contactsList = document.getElementById('contacts-list');
   const metadataJson = document.getElementById('metadata-json');
   const metadataInputs = {
-    hs_deal_record_id: document.getElementById('metadata-hs-deal-record-id'),
-    service_package: document.getElementById('metadata-service-package'),
-    agreement_start_date: document.getElementById('metadata-agreement-start-date'),
-    household_type: document.getElementById('metadata-household-type'),
-    hs_contact_id: document.getElementById('metadata-hs-contact-id'),
-    hs_spouse_id: document.getElementById('metadata-hs-spouse-id'),
     deal_salutation: document.getElementById('metadata-deal-salutation'),
+    household_type: document.getElementById('metadata-household-type'),
+    primary_contact_id: document.getElementById('metadata-primary-contact-id'),
+    primary_contact_link: document.getElementById('metadata-primary-contact-link'),
+    hs_spouse_id: document.getElementById('metadata-spouse-id'),
+    spouse_contact_link: document.getElementById('metadata-spouse-link'),
+    associated_contact_ids: document.getElementById('metadata-associated-ids'),
   };
   const confirmButton = document.getElementById('confirm-create');
   const cancelPreviewButton = document.getElementById('cancel-preview');
