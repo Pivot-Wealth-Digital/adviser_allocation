@@ -33,9 +33,9 @@
       <span class="chip required">hs_deal_record_id</span>
       <span class="chip required">hs_contact_firstname</span>
       <span class="chip required">hs_contact_lastname</span>
-      <span class="chip required">hs_spouse_firstname</span>
-      <span class="chip required">hs_spouse_lastname</span>
       <span class="chip required">deal_salutation</span>
+      <span class="chip optional">hs_spouse_firstname</span>
+      <span class="chip optional">hs_spouse_lastname</span>
     </div>
     <form id="create-form" class="action-form">
       <div class="input-grid">
@@ -62,12 +62,12 @@
           <input id="create-primary-last" type="text" autocomplete="off" required />
         </label>
         <label>
-          <span>Spouse First Name</span>
-          <input id="create-spouse-first" type="text" autocomplete="off" required />
+          <span>Spouse First Name (optional)</span>
+          <input id="create-spouse-first" type="text" autocomplete="off" />
         </label>
         <label>
-          <span>Spouse Last Name</span>
-          <input id="create-spouse-last" type="text" autocomplete="off" required />
+          <span>Spouse Last Name (optional)</span>
+          <input id="create-spouse-last" type="text" autocomplete="off" />
         </label>
         <label>
           <span>Deal Salutation</span>
@@ -97,12 +97,12 @@
       <span class="chip required">hs_contact_firstname</span>
       <span class="chip required">hs_contact_lastname</span>
       <span class="chip required">hs_contact_email</span>
-      <span class="chip required">hs_spouse_id</span>
-      <span class="chip required">hs_spouse_firstname</span>
-      <span class="chip required">hs_spouse_lastname</span>
-      <span class="chip required">hs_spouse_email</span>
       <span class="chip required">deal_salutation</span>
       <span class="chip required">household_type</span>
+      <span class="chip optional">hs_spouse_id</span>
+      <span class="chip optional">hs_spouse_firstname</span>
+      <span class="chip optional">hs_spouse_lastname</span>
+      <span class="chip optional">hs_spouse_email</span>
     </div>
     <form id="tag-form" class="action-form">
       <div class="input-grid">
@@ -134,22 +134,22 @@
           </label>
         </div>
         <div class="fieldset">
-          <span class="fieldset-title">Spouse Contact</span>
+          <span class="fieldset-title">Spouse Contact (optional)</span>
           <label>
             <span>Contact ID</span>
-            <input id="tag-spouse-id" type="text" autocomplete="off" required />
+            <input id="tag-spouse-id" type="text" autocomplete="off" />
           </label>
           <label>
             <span>First Name</span>
-            <input id="tag-spouse-first" type="text" autocomplete="off" required />
+            <input id="tag-spouse-first" type="text" autocomplete="off" />
           </label>
           <label>
             <span>Last Name</span>
-            <input id="tag-spouse-last" type="text" autocomplete="off" required />
+            <input id="tag-spouse-last" type="text" autocomplete="off" />
           </label>
           <label>
             <span>Email</span>
-            <input id="tag-spouse-email" type="email" autocomplete="off" required />
+            <input id="tag-spouse-email" type="email" autocomplete="off" />
           </label>
         </div>
         <label>
@@ -178,7 +178,7 @@
     <div class="chip-row">
       <span class="chip required">folder_id</span>
       <span class="chip required">hs_contact_email</span>
-      <span class="chip required">hs_spouse_email</span>
+      <span class="chip optional">hs_spouse_email</span>
     </div>
     <form id="share-form" class="action-form" data-locked="true">
       <div class="input-grid">
@@ -195,8 +195,8 @@
           <input id="share-contact-email" type="email" autocomplete="off" required />
         </label>
         <label>
-          <span>Spouse Email</span>
-          <input id="share-spouse-email" type="email" autocomplete="off" required />
+          <span>Spouse Email (optional)</span>
+          <input id="share-spouse-email" type="email" autocomplete="off" />
         </label>
       </div>
       <div class="form-actions">
@@ -288,6 +288,12 @@
     background: rgba(79, 70, 229, 0.15);
     border: 1px solid rgba(79, 70, 229, 0.35);
     font-weight: 600;
+  }
+
+  .chip.optional {
+    background: rgba(148, 163, 184, 0.12);
+    border: 1px dashed rgba(148, 163, 184, 0.6);
+    color: #475569;
   }
 
   .action-form {
@@ -483,16 +489,23 @@
       button: document.querySelector('#create-form button[type="submit"]'),
       buildPayload() {
         const dealId = getValue('create-deal-id');
+        const fields = {
+          hs_deal_record_id: dealId,
+          hs_contact_firstname: getValue('create-primary-first'),
+          hs_contact_lastname: getValue('create-primary-last'),
+          deal_salutation: getValue('create-salutation'),
+        };
+        const spouseFirst = getValue('create-spouse-first');
+        const spouseLast = getValue('create-spouse-last');
+        if (spouseFirst) {
+          fields.hs_spouse_firstname = spouseFirst;
+        }
+        if (spouseLast) {
+          fields.hs_spouse_lastname = spouseLast;
+        }
         const payload = {
           deal_id: dealId,
-          fields: {
-            hs_deal_record_id: dealId,
-            hs_contact_firstname: getValue('create-primary-first'),
-            hs_contact_lastname: getValue('create-primary-last'),
-            hs_spouse_firstname: getValue('create-spouse-first'),
-            hs_spouse_lastname: getValue('create-spouse-last'),
-            deal_salutation: getValue('create-salutation'),
-          },
+          fields,
         };
         const override = getValue('create-folder-name');
         if (override) {
@@ -525,22 +538,27 @@
       buildPayload() {
         const dealId = getValue('tag-deal-id');
         const folderId = getValue('tag-folder-id');
+        const fields = {
+          hs_deal_record_id: dealId,
+          hs_contact_id: getValue('tag-contact-id'),
+          hs_contact_firstname: getValue('tag-contact-first'),
+          hs_contact_lastname: getValue('tag-contact-last'),
+          hs_contact_email: getValue('tag-contact-email'),
+          deal_salutation: getValue('tag-salutation'),
+          household_type: getValue('tag-household'),
+        };
+        const spouseId = getValue('tag-spouse-id');
+        const spouseFirst = getValue('tag-spouse-first');
+        const spouseLast = getValue('tag-spouse-last');
+        const spouseEmail = getValue('tag-spouse-email');
+        if (spouseId) fields.hs_spouse_id = spouseId;
+        if (spouseFirst) fields.hs_spouse_firstname = spouseFirst;
+        if (spouseLast) fields.hs_spouse_lastname = spouseLast;
+        if (spouseEmail) fields.hs_spouse_email = spouseEmail;
         return {
           deal_id: dealId,
           folder_id: folderId,
-          fields: {
-            hs_deal_record_id: dealId,
-            hs_contact_id: getValue('tag-contact-id'),
-            hs_contact_firstname: getValue('tag-contact-first'),
-            hs_contact_lastname: getValue('tag-contact-last'),
-            hs_contact_email: getValue('tag-contact-email'),
-            hs_spouse_id: getValue('tag-spouse-id'),
-            hs_spouse_firstname: getValue('tag-spouse-first'),
-            hs_spouse_lastname: getValue('tag-spouse-last'),
-            hs_spouse_email: getValue('tag-spouse-email'),
-            deal_salutation: getValue('tag-salutation'),
-            household_type: getValue('tag-household'),
-          },
+          fields,
         };
       },
       onSuccess() {
@@ -553,7 +571,10 @@
           setIfEmpty('share-deal-id', dealId);
         }
         setIfEmpty('share-contact-email', getValue('tag-contact-email'));
-        setIfEmpty('share-spouse-email', getValue('tag-spouse-email'));
+        const spouseEmail = getValue('tag-spouse-email');
+        if (spouseEmail) {
+          setIfEmpty('share-spouse-email', spouseEmail);
+        }
       },
     },
     share: {
@@ -568,14 +589,19 @@
         const payload = {
           folder_id: folderId,
           emails: [primaryEmail, spouseEmail].filter(Boolean),
+          hs_contact_email: primaryEmail,
           fields: {
             hs_contact_email: primaryEmail,
-            hs_spouse_email: spouseEmail,
           },
         };
         if (dealId) {
           payload.deal_id = dealId;
+          payload.hs_deal_record_id = dealId;
           payload.fields.hs_deal_record_id = dealId;
+        }
+        if (spouseEmail) {
+          payload.hs_spouse_email = spouseEmail;
+          payload.fields.hs_spouse_email = spouseEmail;
         }
         return payload;
       },

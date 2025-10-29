@@ -20,7 +20,7 @@
     <li><strong>Tag metadata</strong> with <code>POST /box/folder/tag</code> once you have the new <code>folder_id</code>.</li>
     <li><strong>Share Client Sharing</strong> subfolder through <code>POST /box/folder/share</code> (optional until automation is enabled).</li>
   </ol>
-  <p class="muted">Each HubSpot custom-code action receives the same payload shape. You can reuse the dictionary of HubSpot fields across all three calls, and be sure to include the spouse identifiers, names, and email every time.</p>
+  <p class="muted">Each HubSpot custom-code action receives the same payload shape. You can reuse the dictionary of HubSpot fields across all three calls—include spouse identifiers, names, and email when they exist, but the workflow now tolerates households without a spouse.</p>
 </div>
 
 <div class="card">
@@ -36,18 +36,18 @@
     <tbody>
       <tr>
         <td><code>/box/folder/create</code></td>
-        <td><code>hs_deal_record_id</code>, primary first/last, spouse first/last, <code>deal_salutation</code></td>
-        <td>All names provided in payload; no HubSpot lookup needed.</td>
+        <td><code>hs_deal_record_id</code>, primary first/last, <code>deal_salutation</code></td>
+        <td>Spouse names optional—the service will create folders for single-client households.</td>
       </tr>
       <tr>
         <td><code>/box/folder/tag</code></td>
-        <td><code>folder_id</code>, contact &amp; spouse IDs, names, emails, <code>deal_salutation</code>, <code>household_type</code></td>
-        <td>Payload supplies the entire metadata template; no HubSpot API call.</td>
+        <td><code>folder_id</code>, contact ID/name/email, <code>deal_salutation</code>, <code>household_type</code></td>
+        <td>Spouse metadata is optional—provide it when available to enrich the template.</td>
       </tr>
       <tr>
         <td><code>/box/folder/share</code></td>
-        <td><code>folder_id</code>, <code>hs_contact_email</code>, <code>hs_spouse_email</code></td>
-        <td>Endpoint invites both primary and spouse emails to Client Sharing.</td>
+        <td><code>folder_id</code>, <code>hs_contact_email</code></td>
+        <td>Spouse email optional—the endpoint shares with every email you supply.</td>
       </tr>
     </tbody>
   </table>
@@ -62,11 +62,11 @@
     <span class="chip-required">hs_deal_record_id</span>
     <span class="chip-required">hs_contact_firstname</span>
     <span class="chip-required">hs_contact_lastname</span>
-    <span class="chip-required">hs_spouse_firstname</span>
-    <span class="chip-required">hs_spouse_lastname</span>
     <span class="chip-required">deal_salutation</span>
+    <span class="chip-optional">hs_spouse_firstname</span>
+    <span class="chip-optional">hs_spouse_lastname</span>
   </div>
-  <p class="field-note">Only the fields shown here are required to create the folder without HubSpot lookups.</p>
+  <p class="field-note">Provide spouse first/last name when available; otherwise the folder falls back to the primary contact details.</p>
   <pre class="code-block"><code>import requests
 
 BOX_BASE = &quot;https://&lt;your-app-domain&gt;&quot;
@@ -75,16 +75,20 @@ def main(event):
     fields = {**(event.get(&quot;fields&quot;) or {}), **(event.get(&quot;inputFields&quot;) or {})}
     deal_id = event.get(&quot;deal_id&quot;) or fields[&quot;hs_deal_record_id&quot;]
 
+    payload_fields = {
+        &quot;hs_deal_record_id&quot;: str(deal_id),
+        &quot;hs_contact_firstname&quot;: str(fields[&quot;hs_contact_firstname&quot;]),
+        &quot;hs_contact_lastname&quot;: str(fields[&quot;hs_contact_lastname&quot;]),
+        &quot;deal_salutation&quot;: str(fields[&quot;deal_salutation&quot;]),
+    }
+    for key in (&quot;hs_spouse_firstname&quot;, &quot;hs_spouse_lastname&quot;):
+        value = fields.get(key)
+        if value:
+            payload_fields[key] = str(value)
+
     payload = {
         &quot;deal_id&quot;: str(deal_id),
-        &quot;fields&quot;: {
-            &quot;hs_deal_record_id&quot;: str(deal_id),
-            **{key: str(fields[key]) for key in (
-                &quot;hs_contact_firstname&quot;, &quot;hs_contact_lastname&quot;,
-                &quot;hs_spouse_firstname&quot;, &quot;hs_spouse_lastname&quot;,
-                &quot;deal_salutation&quot;,
-            )},
-        },
+        &quot;fields&quot;: payload_fields,
     }
 
     resp = requests.post(
@@ -111,14 +115,14 @@ def main(event):
     <span class="chip-required">hs_contact_email</span>
     <span class="chip-required">hs_contact_firstname</span>
     <span class="chip-required">hs_contact_lastname</span>
-    <span class="chip-required">hs_spouse_id</span>
-    <span class="chip-required">hs_spouse_email</span>
-    <span class="chip-required">hs_spouse_firstname</span>
-    <span class="chip-required">hs_spouse_lastname</span>
     <span class="chip-required">deal_salutation</span>
     <span class="chip-required">household_type</span>
+    <span class="chip-optional">hs_spouse_id</span>
+    <span class="chip-optional">hs_spouse_email</span>
+    <span class="chip-optional">hs_spouse_firstname</span>
+    <span class="chip-optional">hs_spouse_lastname</span>
   </div>
-  <p class="field-note">`folder_id` comes from Action 1; include the other fields to keep metadata tagging self-contained.</p>
+  <p class="field-note"><code>folder_id</code> comes from Action 1; include spouse metadata when it exists to keep tagging self-contained.</p>
   <pre class="code-block"><code>import requests
 
 BOX_BASE = &quot;https://&lt;your-app-domain&gt;&quot;
@@ -128,19 +132,29 @@ def main(event):
     deal_id = event.get(&quot;deal_id&quot;) or fields[&quot;hs_deal_record_id&quot;]
     folder_id = event.get(&quot;folder_id&quot;) or fields[&quot;folder_id&quot;]
 
+    metadata_fields = {
+        &quot;hs_deal_record_id&quot;: str(deal_id),
+        &quot;hs_contact_id&quot;: str(fields[&quot;hs_contact_id&quot;]),
+        &quot;hs_contact_email&quot;: str(fields[&quot;hs_contact_email&quot;]),
+        &quot;hs_contact_firstname&quot;: str(fields[&quot;hs_contact_firstname&quot;]),
+        &quot;hs_contact_lastname&quot;: str(fields[&quot;hs_contact_lastname&quot;]),
+        &quot;deal_salutation&quot;: str(fields[&quot;deal_salutation&quot;]),
+        &quot;household_type&quot;: str(fields[&quot;household_type&quot;]),
+    }
+    for key in (
+        &quot;hs_spouse_id&quot;,
+        &quot;hs_spouse_email&quot;,
+        &quot;hs_spouse_firstname&quot;,
+        &quot;hs_spouse_lastname&quot;,
+    ):
+        value = fields.get(key)
+        if value:
+            metadata_fields[key] = str(value)
+
     payload = {
         &quot;deal_id&quot;: str(deal_id),
         &quot;folder_id&quot;: str(folder_id),
-        &quot;fields&quot;: {
-            &quot;hs_deal_record_id&quot;: str(deal_id),
-            **{key: str(fields[key]) for key in (
-                &quot;hs_contact_id&quot;, &quot;hs_contact_email&quot;,
-                &quot;hs_contact_firstname&quot;, &quot;hs_contact_lastname&quot;,
-                &quot;hs_spouse_id&quot;, &quot;hs_spouse_email&quot;,
-                &quot;hs_spouse_firstname&quot;, &quot;hs_spouse_lastname&quot;,
-                &quot;deal_salutation&quot;, &quot;household_type&quot;,
-            )},
-        },
+        &quot;fields&quot;: metadata_fields,
     }
 
     resp = requests.post(
@@ -161,9 +175,9 @@ def main(event):
   <div class="field-chips">
     <span class="chip-required">folder_id</span>
     <span class="chip-required">hs_contact_email</span>
-    <span class="chip-required">hs_spouse_email</span>
+    <span class="chip-optional">hs_spouse_email</span>
   </div>
-  <p class="field-note">Provide both contact and spouse emails so the Client Sharing subfolder can be shared without additional lookups.</p>
+  <p class="field-note">Share with as many emails as you provide—add the spouse address only when one exists.</p>
   <pre class="code-block"><code>import requests
 
 BOX_BASE = &quot;https://&lt;your-app-domain&gt;&quot;
@@ -172,14 +186,26 @@ def main(event):
     fields = {**(event.get(&quot;fields&quot;) or {}), **(event.get(&quot;inputFields&quot;) or {})}
     folder_id = event.get(&quot;folder_id&quot;) or fields[&quot;folder_id&quot;]
     emails = [
-        fields[name]
-        for name in (&quot;hs_contact_email&quot;, &quot;hs_spouse_email&quot;)
-        if fields.get(name)
+        value
+        for value in (
+            fields.get(&quot;hs_contact_email&quot;),
+            fields.get(&quot;hs_spouse_email&quot;),
+        )
+        if value
     ]
+
+    payload = {
+        &quot;folder_id&quot;: str(folder_id),
+        &quot;emails&quot;: emails,
+    }
+    if fields.get(&quot;hs_contact_email&quot;):
+        payload[&quot;hs_contact_email&quot;] = str(fields[&quot;hs_contact_email&quot;])
+    if fields.get(&quot;hs_spouse_email&quot;):
+        payload[&quot;hs_spouse_email&quot;] = str(fields[&quot;hs_spouse_email&quot;])
 
     resp = requests.post(
         f&quot;{BOX_BASE}/box/folder/share&quot;,
-        json={&quot;folder_id&quot;: str(folder_id), &quot;emails&quot;: emails},
+        json=payload,
         timeout=20,
     )
     resp.raise_for_status()
@@ -197,7 +223,7 @@ def main(event):
   <ul>
     <li><code>hs_deal_record_id</code></li>
     <li><code>hs_contact_id</code>, <code>hs_contact_email</code>, first/last name</li>
-    <li>Spouse fields (<code>hs_spouse_id</code>, <code>hs_spouse_email</code>, first/last name)</li>
+    <li>Spouse fields (<code>hs_spouse_id</code>, <code>hs_spouse_email</code>, first/last name) <em>(optional)</em></li>
     <li><code>deal_salutation</code>, <code>household_type</code></li>
   </ul>
   <div class="actions">
@@ -228,6 +254,11 @@ def main(event):
     background: rgba(79, 70, 229, 0.18);
     border: 1px solid rgba(79, 70, 229, 0.35);
     font-weight: 600;
+  }
+  .field-chips .chip-optional {
+    background: rgba(148, 163, 184, 0.18);
+    border: 1px dashed rgba(148, 163, 184, 0.55);
+    color: #475569;
   }
   .field-note {
     margin: 4px 0 12px;

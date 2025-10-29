@@ -91,10 +91,6 @@ REQUIRED_METADATA_PAYLOAD_FIELDS = [
     "hs_contact_firstname",
     "hs_contact_lastname",
     "hs_contact_email",
-    "hs_spouse_id",
-    "hs_spouse_firstname",
-    "hs_spouse_lastname",
-    "hs_spouse_email",
     "deal_salutation",
     "household_type",
 ]
@@ -104,8 +100,6 @@ REQUIRED_METADATA_TEMPLATE_FIELDS = {
     "household_type",
     "primary_contact_id",
     "primary_contact_link",
-    "hs_spouse_id",
-    "spouse_contact_link",
 }
 
 
@@ -539,22 +533,6 @@ def box_folder_create_only():
             400,
         )
 
-    spouse_first = (_extract_payload_value(payload, "hs_spouse_firstname") or "").strip()
-    spouse_last = (_extract_payload_value(payload, "hs_spouse_lastname") or "").strip()
-    if not (spouse_first and spouse_last):
-        logger.error(
-            "Create folder request for deal %s missing spouse first/last name", deal_id
-        )
-        return (
-            jsonify(
-                {
-                    "message": "Spouse first and last name are required",
-                    "missing": ["hs_spouse_firstname", "hs_spouse_lastname"],
-                }
-            ),
-            400,
-        )
-
     logger.info(
         "Create-only Box folder request for deal %s (override=%s, metadata_fields=%s)",
         deal_id,
@@ -740,11 +718,7 @@ def box_folder_share_client_subfolder():
     raw_emails = payload.get("emails")
     deal_id = _resolve_deal_id(payload)
 
-    required_payload_fields = [
-        "folder_id",
-        "hs_contact_email",
-        "hs_spouse_email",
-    ]
+    required_payload_fields = ["hs_contact_email"]
     missing_payload_fields = [
         key for key in required_payload_fields if not _extract_payload_value(payload, key)
     ]
