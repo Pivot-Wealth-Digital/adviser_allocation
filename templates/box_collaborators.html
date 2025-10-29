@@ -1,0 +1,659 @@
+{% extends "layout.html" %}
+{% set title = "Box Collaborator Lookup" %}
+
+{% block content %}
+<div class="topbar">
+  <div style="display:flex;align-items:center;gap:16px;">
+    <a href="/" style="color:#d0d7e2;text-decoration:none;font-size:0.9em;">← Home</a>
+    <h2>Box Collaborator Lookup</h2>
+  </div>
+  <div class="datebox">
+    <span>Status:</span>
+    <span id="status-text" class="muted">Awaiting folder id</span>
+  </div>
+</div>
+
+<div class="card lookup-card">
+  <p class="muted small">
+    Enter a Box <code>folder_id</code>, optionally inspect subfolders, and review collaborator access.
+    External emails (outside <code>@pivotwealth.com.au</code>) are highlighted.
+  </p>
+  <form id="collab-form" class="collab-form">
+    <label class="field">
+      <span>Folder ID</span>
+      <input type="text" id="folder-id" autocomplete="off" required />
+    </label>
+    <div class="actions root-actions">
+      <button type="button" class="secondary" id="load-subfolders">Display Subfolders</button>
+      <button type="button" class="primary" id="root-show" data-default="Show Collaborators">Show Collaborators</button>
+      <button type="button" class="secondary" id="reset-btn">Cancel</button>
+    </div>
+    <div id="subfolder-wrapper" class="subfolder-wrapper hidden">
+      <h3>Subfolders</h3>
+      <p class="muted small" id="subfolder-empty">No subfolders loaded.</p>
+      <div id="subfolder-list" class="subfolder-list hidden"></div>
+      <div id="subfolder-actions" class="subfolder-actions hidden">
+        <button type="button" class="primary" id="subfolder-show" data-default="Show Collaborators">Show Collaborators</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+<div id="external-card" class="card hidden">
+  <h3>External Emails</h3>
+  <p class="muted small" id="external-empty">No external collaborators detected.</p>
+  <ul id="external-list" class="external-list hidden"></ul>
+</div>
+
+<div id="results-wrapper" class="card hidden">
+  <h3>Collaborators</h3>
+  <p class="muted small" id="summary-target"></p>
+  <p><strong>Total collaborators:</strong> <span id="collab-total">0</span></p>
+  <p><strong>External collaborators:</strong> <span id="external-total">0</span></p>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>Email</th>
+          <th>Name</th>
+          <th>Role</th>
+          <th>Status</th>
+          <th>HubSpot</th>
+        </tr>
+      </thead>
+      <tbody id="collab-table-body">
+        <tr><td colspan="5" class="muted">No results yet.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div id="contact-card" class="card hidden">
+  <h3>HubSpot Contact Details</h3>
+  <div id="contact-details" class="contact-details muted small">
+    Select a collaborator to load HubSpot details.
+  </div>
+</div>
+
+<div id="error-card" class="card error-card hidden"></div>
+
+<div class="floating-note">
+  <strong>Quick tip</strong>
+  <span>Need API payloads? Visit the workflow documentation for request examples.</span>
+</div>
+{% endblock %}
+
+{% block head %}
+<style>
+  .lookup-card {
+    margin-bottom: 20px;
+  }
+
+  .collab-form {
+    display: grid;
+    gap: 12px;
+    max-width: 420px;
+  }
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-weight: 600;
+  }
+
+  .field span {
+    font-size: 0.85em;
+    color: #5a6578;
+    font-weight: 500;
+  }
+
+  .actions,
+  .subfolder-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .subfolder-wrapper {
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 12px;
+    padding: 14px;
+    background: rgba(15, 23, 42, 0.02);
+    display: grid;
+    gap: 10px;
+  }
+
+  .subfolder-list {
+    display: grid;
+    gap: 6px;
+  }
+
+  .subfolder-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 10px;
+    background: rgba(15, 23, 42, 0.015);
+  }
+
+  .subfolder-item span {
+    font-size: 0.85em;
+    color: #52606d;
+  }
+
+  .table-wrapper {
+    overflow-x: auto;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  th,
+  td {
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.35);
+    font-size: 0.9em;
+  }
+
+  tr.external td {
+    background: rgba(239, 68, 68, 0.12);
+    color: #7f1d1d;
+    font-weight: 600;
+  }
+
+  .external-list {
+    list-style: disc;
+    padding-left: 20px;
+    display: grid;
+    gap: 6px;
+  }
+
+  .contact-details {
+    display: grid;
+    gap: 10px;
+  }
+
+  .contact-details table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .contact-details th,
+  .contact-details td {
+    text-align: left;
+    padding: 6px 8px;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.35);
+  }
+
+  .hubspot-btn {
+    font-size: 0.8em;
+    padding: 4px 10px;
+  }
+
+  .error-card {
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    color: #991b1b;
+    background: rgba(239, 68, 68, 0.1);
+    margin-top: 16px;
+  }
+
+  .floating-note {
+    position: fixed;
+    right: 24px;
+    bottom: 24px;
+    background: rgba(17, 24, 39, 0.9);
+    color: #f8fafc;
+    padding: 12px 18px;
+    border-radius: 12px;
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.3);
+    max-width: 260px;
+    font-size: 0.88em;
+    line-height: 1.4;
+    z-index: 40;
+  }
+
+  .floating-note strong {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 0.95em;
+  }
+
+  @media (max-width: 720px) {
+    .floating-note {
+      left: 16px;
+      right: 16px;
+      bottom: 16px;
+    }
+  }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const folderInput = document.getElementById('folder-id');
+  const loadSubfoldersButton = document.getElementById('load-subfolders');
+  const rootShowButton = document.getElementById('root-show');
+  const resetButton = document.getElementById('reset-btn');
+  const subfolderWrapper = document.getElementById('subfolder-wrapper');
+  const subfolderList = document.getElementById('subfolder-list');
+  const subfolderEmpty = document.getElementById('subfolder-empty');
+  const subfolderActions = document.getElementById('subfolder-actions');
+  const subfolderShowButton = document.getElementById('subfolder-show');
+
+  const statusText = document.getElementById('status-text');
+  const resultsWrapper = document.getElementById('results-wrapper');
+  const collabTotal = document.getElementById('collab-total');
+  const externalTotal = document.getElementById('external-total');
+  const summaryTarget = document.getElementById('summary-target');
+  const collabTableBody = document.getElementById('collab-table-body');
+  const externalCard = document.getElementById('external-card');
+  const externalList = document.getElementById('external-list');
+  const externalEmpty = document.getElementById('external-empty');
+  const errorCard = document.getElementById('error-card');
+  const contactCard = document.getElementById('contact-card');
+  const contactDetails = document.getElementById('contact-details');
+
+  let selectedSubfolderId = null;
+  let selectedSubfolderName = null;
+  let currentFolderId = '';
+
+  function setBusy(button, busy, label) {
+    if (!button) return;
+    if (busy) {
+      button.dataset.default = button.dataset.default || button.textContent;
+      button.textContent = label;
+      button.disabled = true;
+    } else {
+      button.textContent = button.dataset.default || 'Submit';
+      button.disabled = false;
+    }
+  }
+
+  function resetUI() {
+    resultsWrapper.classList.add('hidden');
+    externalCard.classList.add('hidden');
+    errorCard.classList.add('hidden');
+    contactCard.classList.add('hidden');
+    contactDetails.textContent = 'Select a collaborator to load HubSpot details.';
+    collabTableBody.innerHTML = '<tr><td colspan="5" class="muted">No results yet.</td></tr>';
+    externalList.innerHTML = '';
+    externalList.classList.add('hidden');
+    externalEmpty.classList.remove('hidden');
+    collabTotal.textContent = '0';
+    externalTotal.textContent = '0';
+    statusText.textContent = 'Awaiting folder id';
+    summaryTarget.textContent = '';
+    subfolderList.innerHTML = '';
+    subfolderList.classList.add('hidden');
+    subfolderEmpty.classList.remove('hidden');
+    subfolderWrapper.classList.add('hidden');
+    subfolderActions.classList.add('hidden');
+    selectedSubfolderId = null;
+    selectedSubfolderName = null;
+    currentFolderId = '';
+  }
+
+  async function fetchJSON(url) {
+    let resp;
+    try {
+      resp = await fetch(url);
+    } catch (networkError) {
+      const error = new Error('Network error while contacting the server');
+      error.detail = { network: true, original: String(networkError) };
+      throw error;
+    }
+
+    const contentType = resp.headers.get('content-type') || '';
+    let rawText = '';
+    try {
+      rawText = await resp.text();
+    } catch (bodyError) {
+      const error = new Error('Failed to read response body');
+      error.detail = { original: String(bodyError) };
+      error.status = resp.status;
+      throw error;
+    }
+
+    let data = null;
+    if (contentType.includes('application/json') && rawText) {
+      try {
+        data = JSON.parse(rawText);
+      } catch (parseError) {
+        const error = new Error('Invalid JSON response received');
+        error.detail = { raw: rawText };
+        error.status = resp.status;
+        throw error;
+      }
+    }
+
+    if (!resp.ok) {
+      const error = new Error(data?.message || 'Request failed');
+      error.detail = data || (rawText ? { raw: rawText } : {});
+      error.status = resp.status;
+      throw error;
+    }
+
+    if (data !== null) {
+      return data;
+    }
+    return rawText ? { raw: rawText } : {};
+  }
+
+  async function fetchContactDetails(email) {
+    const trimmed = (email || '').trim();
+    if (!trimmed) {
+      return null;
+    }
+    const url = new URL('/box/collaborators/contact', window.location.origin);
+    url.searchParams.set('email', trimmed);
+    try {
+      return await fetchJSON(url);
+    } catch (error) {
+      if (error.status === 404) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  async function loadSubfolders() {
+    const folderId = folderInput.value.trim();
+    if (!folderId) {
+      statusText.textContent = 'Validation error · folder id required';
+      return;
+    }
+
+    setBusy(loadSubfoldersButton, true, 'Loading…');
+    errorCard.classList.add('hidden');
+
+    try {
+      const url = new URL('/box/folder/subfolders', window.location.origin);
+      url.searchParams.set('folder_id', folderId);
+      const data = await fetchJSON(url);
+      currentFolderId = folderId;
+      renderSubfolders(data.subfolders || [], folderId);
+      statusText.textContent = (data.subfolders || []).length
+        ? 'Select a subfolder then choose Show Collaborators.'
+        : 'No subfolders found for this folder.';
+    } catch (error) {
+      showError(error);
+    } finally {
+      setBusy(loadSubfoldersButton, false);
+    }
+  }
+
+  function renderSubfolders(subfolders, folderId, activeSubfolderId) {
+    subfolderWrapper.classList.remove('hidden');
+    subfolderList.innerHTML = '';
+    currentFolderId = folderId;
+
+    const targetSubfolderId = activeSubfolderId || selectedSubfolderId || null;
+    selectedSubfolderId = null;
+    selectedSubfolderName = null;
+
+    if (Array.isArray(subfolders) && subfolders.length) {
+      subfolderActions.classList.remove('hidden');
+      subfolders.forEach((child) => {
+        const item = document.createElement('label');
+        item.className = 'subfolder-item';
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.value = child.id;
+        checkbox.dataset.name = child.name;
+        checkbox.addEventListener('change', () => {
+          if (!checkbox.checked) {
+            selectedSubfolderId = null;
+            selectedSubfolderName = null;
+            return;
+          }
+          subfolderList.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+            if (cb !== checkbox) cb.checked = false;
+          });
+          selectedSubfolderId = child.id;
+          selectedSubfolderName = child.name;
+          currentFolderId = folderId;
+        });
+        const text = document.createElement('span');
+        text.innerHTML = `<strong>${child.name || 'Untitled'}</strong> <small class="muted">(#${child.id})</small>`;
+        item.appendChild(checkbox);
+        item.appendChild(text);
+        subfolderList.appendChild(item);
+
+        if (targetSubfolderId && targetSubfolderId === String(child.id)) {
+          checkbox.checked = true;
+          selectedSubfolderId = String(child.id);
+          selectedSubfolderName = child.name || null;
+          statusText.textContent = `Selected subfolder ${selectedSubfolderName || selectedSubfolderId}`;
+        }
+      });
+      subfolderList.classList.remove('hidden');
+      subfolderEmpty.classList.add('hidden');
+    } else {
+      subfolderList.classList.add('hidden');
+      subfolderEmpty.classList.remove('hidden');
+      subfolderActions.classList.add('hidden');
+    }
+  }
+
+  async function showCollaborators(button, folderId, subfolderId, subfolderName) {
+    if (!folderId) {
+      statusText.textContent = 'Validation error · folder id required';
+      return;
+    }
+
+    setBusy(button, true, 'Loading…');
+    errorCard.classList.add('hidden');
+
+    try {
+      const url = new URL('/box/folder/collaborators', window.location.origin);
+      url.searchParams.set('folder_id', folderId);
+      url.searchParams.set('include_subfolders', '1');
+      if (subfolderId) {
+        url.searchParams.set('subfolder_id', subfolderId);
+        if (subfolderName) {
+          url.searchParams.set('subfolder', subfolderName);
+        }
+      }
+      const data = await fetchJSON(url);
+      currentFolderId = folderId;
+      renderCollaborators(data);
+      if (Array.isArray(data.subfolders)) {
+        renderSubfolders(data.subfolders, folderId, subfolderId);
+      }
+      statusText.textContent = `Success · ${data.total} collaborators found`;
+    } catch (error) {
+      showError(error);
+    } finally {
+      setBusy(button, false);
+    }
+  }
+
+  function renderCollaborators(data) {
+    const pivotDomain = '@pivotwealth.com.au';
+    const external = (data.external && Array.isArray(data.external))
+      ? data.external
+      : (data.collaborators || []).filter(
+          (collab) => collab.email && !collab.email.endsWith(pivotDomain)
+        );
+    const displayed = external;
+
+    collabTotal.textContent = displayed.length;
+    externalTotal.textContent = displayed.length;
+
+    let summaryText;
+    if (data.inspected && data.inspected.id) {
+      const inspectedName = data.inspected.name || 'Folder';
+      summaryText = `Inspecting ${inspectedName} (id ${data.inspected.id})`;
+    } else {
+      summaryText = `Inspecting folder ${data.target_folder_id}`;
+    }
+    summaryTarget.textContent = `${summaryText} · Pivot emails hidden`;
+
+    collabTableBody.innerHTML = '';
+    if (!displayed.length) {
+      collabTableBody.innerHTML = '<tr><td colspan="5" class="muted">No external collaborators found.</td></tr>';
+    } else {
+      displayed.forEach((collab) => {
+        const tr = document.createElement('tr');
+        const email = collab.email || '—';
+        tr.classList.add('external');
+        tr.innerHTML = `
+          <td>${email}</td>
+          <td>${collab.name || '—'}</td>
+          <td>${collab.role || '—'}</td>
+          <td>${collab.status || '—'}</td>
+          <td><button type="button" class="secondary hubspot-btn" data-email="${email}">HubSpot Details</button></td>
+        `;
+        collabTableBody.appendChild(tr);
+      });
+    }
+
+    if (displayed.length) {
+      externalList.innerHTML = '';
+      displayed.forEach((collab) => {
+        const li = document.createElement('li');
+        li.textContent = `${collab.email} (${collab.name || 'no name'})`;
+        externalList.appendChild(li);
+      });
+      externalCard.classList.remove('hidden');
+      externalList.classList.remove('hidden');
+      externalEmpty.classList.add('hidden');
+    } else {
+      externalCard.classList.add('hidden');
+      externalList.classList.add('hidden');
+      externalEmpty.classList.remove('hidden');
+    }
+
+    contactCard.classList.add('hidden');
+    contactDetails.textContent = 'Select a collaborator to load HubSpot details.';
+    resultsWrapper.classList.remove('hidden');
+  }
+
+  function renderContactDetails(data) {
+    if (!data || !data.contact) {
+      contactDetails.textContent = 'No HubSpot details found.';
+      contactCard.classList.remove('hidden');
+      return;
+    }
+
+    const contact = data.contact;
+    const props = contact.properties || {};
+    const deals = data.deals || [];
+
+    let html = '<table><tbody>';
+    html += `<tr><th>ID</th><td>${contact.id || '—'}</td></tr>`;
+    html += `<tr><th>Name</th><td>${props.firstname || ''} ${props.lastname || ''}</td></tr>`;
+    html += `<tr><th>Email</th><td>${props.email || '—'}</td></tr>`;
+    html += `<tr><th>Phone</th><td>${props.phone || '—'}</td></tr>`;
+    if (contact.url) {
+      html += `<tr><th>HubSpot</th><td><a href="${contact.url}" target="_blank" rel="noopener">Open Contact</a></td></tr>`;
+    }
+    html += '</tbody></table>';
+
+    if (deals.length) {
+      html += '<div class="deals"><h4>Associated Deals</h4><ul>';
+      deals.forEach((deal) => {
+        const dealProps = deal.properties || {};
+        const name = dealProps.dealname || `Deal ${deal.id}`;
+        const stage = dealProps.dealstage || 'Unknown stage';
+        const amount = dealProps.amount ? `$${dealProps.amount}` : '—';
+        const link = deal.url ? `<a href="${deal.url}" target="_blank" rel="noopener">Open</a>` : '';
+        html += `<li><strong>${name}</strong> · Stage: ${stage} · Amount: ${amount} ${link}</li>`;
+      });
+      html += '</ul></div>';
+    } else {
+      html += '<p class="muted small">No associated deals found.</p>';
+    }
+
+    contactDetails.innerHTML = html;
+    contactCard.classList.remove('hidden');
+  }
+
+  function showError(error) {
+    const detail = error.detail || {};
+    errorCard.classList.remove('hidden');
+    const prettyDetail = detail && Object.keys(detail).length ? JSON.stringify(detail, null, 2) : '';
+    errorCard.innerHTML = `<strong>Error:</strong> ${error.message}${prettyDetail ? `<br/><code>${prettyDetail}</code>` : ''}`;
+    statusText.textContent = `Error · ${error.message}`;
+    resultsWrapper.classList.add('hidden');
+    externalCard.classList.add('hidden');
+    contactCard.classList.add('hidden');
+    console.error(error);
+  }
+
+  loadSubfoldersButton.addEventListener('click', () => {
+    loadSubfolders();
+  });
+
+  rootShowButton.addEventListener('click', () => {
+    const folderId = folderInput.value.trim();
+    showCollaborators(rootShowButton, folderId, selectedSubfolderId, selectedSubfolderName);
+  });
+
+  subfolderShowButton.addEventListener('click', () => {
+    const folderId = currentFolderId || folderInput.value.trim();
+    if (!selectedSubfolderId) {
+      statusText.textContent = 'Select a subfolder before showing collaborators.';
+      return;
+    }
+    showCollaborators(subfolderShowButton, folderId, selectedSubfolderId, selectedSubfolderName);
+  });
+
+  resetButton.addEventListener('click', () => {
+    folderInput.value = '';
+    resetUI();
+    folderInput.focus();
+  });
+
+  subfolderList.addEventListener('click', (event) => {
+    const checkbox = event.target.closest('input[type="checkbox"]');
+    if (!checkbox) return;
+    if (checkbox.checked) {
+      statusText.textContent = `Selected subfolder ${checkbox.dataset.name || checkbox.value}`;
+    }
+  });
+
+  collabTableBody.addEventListener('click', async (event) => {
+    const button = event.target.closest('button[data-email]');
+    if (!button) return;
+    const email = button.dataset.email;
+    if (!email || email === '—') {
+      contactDetails.textContent = 'No email available for this collaborator.';
+      contactCard.classList.remove('hidden');
+      return;
+    }
+
+    setBusy(button, true, 'Loading…');
+    try {
+      const data = await fetchContactDetails(email);
+      renderContactDetails(data);
+      if (data && data.contact) {
+        statusText.textContent = `Loaded HubSpot details for ${email}`;
+      } else {
+        statusText.textContent = `No HubSpot match for ${email}`;
+      }
+    } catch (error) {
+      showError(error);
+    } finally {
+      setBusy(button, false);
+    }
+  });
+
+  function handleEnterKey(event) {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      rootShowButton.click();
+    }
+  }
+
+  folderInput.addEventListener('keypress', handleEnterKey);
+
+  resetUI();
+</script>
+{% endblock %}

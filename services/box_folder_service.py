@@ -140,6 +140,84 @@ class BoxFolderService:
 
         return self._add_collaborator(subfolder.get("id"), email, role)
 
+    def list_collaborators(
+        self,
+        folder_id: str,
+        *,
+        subfolder_name: Optional[str] = None,
+    ) -> tuple[list[dict], str]:
+        folder_id = (folder_id or "").strip()
+        if not folder_id:
+            raise BoxAutomationError("Folder id is required to list collaborators")
+
+        target_folder_id = folder_id
+        if subfolder_name:
+            subfolder = self._find_child_folder(folder_id, subfolder_name)
+            if not subfolder:
+                normalized = subfolder_name.strip().lower()
+                queue = [folder_id]
+                visited = set()
+                while queue and not subfolder:
+                    current = queue.pop(0)
+                    if current in visited:
+                        continue
+                    visited.add(current)
+                    for child in self._list_folder_children(current):
+                        name = (child.get("name") or "").strip().lower()
+                        if name == normalized or normalized in name:
+                            subfolder = child
+                            break
+                        if child.get("type") == "folder":
+                            queue.append(child.get("id"))
+                    if subfolder:
+                        break
+            if not subfolder:
+                raise BoxAutomationError(
+                    f"Subfolder '{subfolder_name}' not found under folder {folder_id}"
+                )
+            target_folder_id = subfolder.get("id") or folder_id
+
+        url = f"{self._api_base_url}/folders/{target_folder_id}/collaborations"
+        try:
+            resp = requests.get(url, headers=self._headers(), timeout=self._timeout)
+            resp.raise_for_status()
+        except requests.RequestException as exc:
+            raise BoxAutomationError(
+                f"Box collaboration list failed for folder {target_folder_id}: {exc}"
+            ) from exc
+
+        entries = resp.json().get("entries", []) if resp.content else []
+        collaborators: list[dict] = []
+        for entry in entries:
+            user = entry.get("accessible_by") or {}
+            collaborators.append(
+                {
+                    "email": (user.get("login") or "").strip().lower(),
+                    "name": (user.get("name") or "").strip(),
+                    "role": entry.get("role"),
+                    "status": entry.get("status"),
+                }
+            )
+        return collaborators, target_folder_id
+
+    def list_subfolders(self, folder_id: str) -> list[dict]:
+        folder_id = (folder_id or "").strip()
+        if not folder_id:
+            raise BoxAutomationError("Folder id is required to list subfolders")
+
+        children = self._list_folder_children(folder_id)
+        subfolders = [
+            {
+                "id": child.get("id"),
+                "name": child.get("name"),
+                "type": child.get("type"),
+            }
+            for child in children
+            if child.get("type") == "folder"
+        ]
+        subfolders.sort(key=lambda item: (item.get("name") or "").lower())
+        return subfolders
+
     def _resolve_path(self, path: str) -> str:
         normalized = "/".join(segment.strip() for segment in (path or "").split("/") if segment.strip())
         if not normalized:

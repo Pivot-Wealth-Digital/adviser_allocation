@@ -105,6 +105,9 @@ def require_login():
         '/_ah/warmup',         # App Engine warmup
         '/post/allocate',    # Hubspot webhook
         '/post/create_box_folder',
+        '/box/folder/create',
+        '/box/folder/tag',
+        '/box/folder/share',
     ]
     
     # Check if current route is public

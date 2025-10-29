@@ -370,6 +370,74 @@ def _build_metadata_from_payload(payload: dict) -> Tuple[dict, List[dict], Optio
     return metadata, contacts, share_email
 
 
+def _search_hubspot_contact_by_email(email: str) -> Optional[dict]:
+    email = (email or "").strip()
+    if not email:
+        return None
+
+    payload = {
+        "filterGroups": [
+            {
+                "filters": [
+                    {
+                        "propertyName": "email",
+                        "operator": "EQ",
+                        "value": email,
+                    }
+                ]
+            }
+        ],
+        "properties": ["firstname", "lastname", "email", "phone"],
+        "limit": 1,
+    }
+
+    resp = requests.post(
+        "https://api.hubapi.com/crm/v3/objects/contacts/search",
+        headers=_hubspot_headers(),
+        json=payload,
+        timeout=10,
+    )
+    resp.raise_for_status()
+    results = resp.json().get("results", [])
+    return results[0] if results else None
+
+
+def _fetch_contact_associated_deal_ids(contact_id: str) -> List[str]:
+    url = f"https://api.hubapi.com/crm/v4/objects/contacts/{contact_id}/associations/deals"
+    resp = requests.get(url, headers=_hubspot_headers(), timeout=10)
+    resp.raise_for_status()
+    return [
+        str(entry.get("toObjectId"))
+        for entry in resp.json().get("results", [])
+        if entry.get("toObjectId")
+    ]
+
+
+def _fetch_hubspot_deal(deal_id: str) -> Optional[dict]:
+    try:
+        url = f"https://api.hubapi.com/crm/v3/objects/deals/{deal_id}"
+        params = {
+            "properties": [
+                "dealname",
+                "dealstage",
+                "pipeline",
+                "amount",
+                "closedate",
+                "hs_deal_record_id",
+            ]
+        }
+        resp = requests.get(url, headers=_hubspot_headers(), params=params, timeout=10)
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        data = resp.json()
+        data["url"] = f"https://app.hubspot.com/contacts/{_hubspot_portal_id()}/record/0-3/{deal_id}"
+        return data
+    except requests.RequestException as exc:
+        logger.error("Failed to fetch HubSpot deal %s: %s", deal_id, exc)
+        return None
+
+
 def _extract_folder_id(payload: dict) -> Optional[str]:
     folder_id = payload.get("folder_id")
     if folder_id:
@@ -454,11 +522,36 @@ def box_folder_create_only():
         sorted(metadata_payload.keys()),
     )
 
-    result = provision_box_folder(
-        deal_id,
-        contacts_override=contacts_hint,
-        folder_name_override=folder_name_override,
-    )
+    try:
+        result = provision_box_folder(
+            deal_id,
+            contacts_override=contacts_hint,
+            folder_name_override=folder_name_override,
+        )
+    except BoxAutomationError as exc:
+        logger.error("Box folder creation failed for deal %s: %s", deal_id, exc)
+        return (
+            jsonify(
+                {
+                    "message": "Box folder creation failed",
+                    "error": str(exc),
+                    "deal_id": deal_id,
+                }
+            ),
+            502,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Unexpected error during Box folder creation for deal %s", deal_id)
+        return (
+            jsonify(
+                {
+                    "message": "Unexpected server error during Box folder creation",
+                    "error": str(exc),
+                    "deal_id": deal_id,
+                }
+            ),
+            500,
+        )
 
     status = result.get("status", "created")
     code = 200 if status == "created" else 202
@@ -645,6 +738,140 @@ def box_folder_share_client_subfolder():
     return jsonify(response), 200
 
 
+@box_bp.route("/box/folder/collaborators", methods=["GET"])
+def box_folder_list_collaborators():
+    """Return collaborator emails and highlight non-pivotwealth entries."""
+    folder_id = (request.args.get("folder_id") or "").strip()
+    if not folder_id:
+        return jsonify({"message": "folder_id query parameter is required"}), 400
+
+    service = ensure_box_service()
+    if not service:
+        return jsonify({"message": "Box automation not configured"}), 503
+
+    subfolder_name = (request.args.get("subfolder") or "").strip()
+    subfolder_id = (request.args.get("subfolder_id") or "").strip()
+    include_subfolders = request.args.get("include_subfolders") == "1"
+
+    inspected_name = None
+
+    try:
+        if subfolder_id:
+            collaborators, target_folder_id = service.list_collaborators(subfolder_id)
+            inspected_name = subfolder_name or None
+        else:
+            collaborators, target_folder_id = service.list_collaborators(
+                folder_id,
+                subfolder_name=subfolder_name or None,
+            )
+            inspected_name = subfolder_name or None
+
+        subfolders = (
+            service.list_subfolders(target_folder_id) if include_subfolders else []
+        )
+    except BoxAutomationError as exc:
+        logger.error("Failed to list collaborators for folder %s: %s", folder_id, exc)
+        return jsonify({"message": "Box collaborator list failed", "error": str(exc)}), 500
+
+    pivot_domain = "@pivotwealth.com.au"
+
+    external = [
+        collab
+        for collab in collaborators
+        if collab.get("email") and not collab["email"].endswith(pivot_domain)
+    ]
+
+    return jsonify(
+        {
+            "folder_id": folder_id,
+            "target_folder_id": target_folder_id,
+            "inspected": {
+                "id": target_folder_id,
+                "name": inspected_name,
+            },
+            "total": len(collaborators),
+            "collaborators": collaborators,
+            "external": external,
+            "subfolders": subfolders if include_subfolders else None,
+        }
+    ), 200
+
+
+@box_bp.route("/box/folder/subfolders", methods=["GET"])
+def box_folder_list_subfolders():
+    """Return immediate subfolders for a given Box folder id."""
+    folder_id = (request.args.get("folder_id") or "").strip()
+    if not folder_id:
+        return jsonify({"message": "folder_id query parameter is required"}), 400
+
+    service = ensure_box_service()
+    if not service:
+        return jsonify({"message": "Box automation not configured"}), 503
+
+    try:
+        subfolders = service.list_subfolders(folder_id)
+    except BoxAutomationError as exc:
+        logger.error("Failed to list subfolders for %s: %s", folder_id, exc)
+        return jsonify({"message": "Box subfolder list failed", "error": str(exc)}), 500
+
+    return jsonify(
+        {
+            "folder_id": folder_id,
+            "count": len(subfolders),
+            "subfolders": subfolders,
+        }
+    ), 200
+
+
+@box_bp.route("/box/collaborators/contact", methods=["GET"])
+def box_collaborator_contact_details():
+    """Return HubSpot contact and associated deal details for a given email."""
+    email = (request.args.get("email") or "").strip()
+    if not email:
+        return jsonify({"message": "email query parameter is required"}), 400
+
+    try:
+        contact = _search_hubspot_contact_by_email(email)
+    except requests.RequestException as exc:
+        logger.error("HubSpot contact search failed for %s: %s", email, exc)
+        return jsonify({"message": "HubSpot contact search failed", "error": str(exc)}), 502
+
+    if not contact:
+        return jsonify({"message": "Contact not found", "email": email}), 404
+
+    contact_id = contact.get("id")
+    properties = contact.get("properties") or {}
+
+    deals: List[dict] = []
+    try:
+        deal_ids = _fetch_contact_associated_deal_ids(contact_id)
+        for deal_id in deal_ids:
+            deal = _fetch_hubspot_deal(deal_id)
+            if not deal:
+                continue
+            deals.append(
+                {
+                    "id": deal_id,
+                    "properties": deal.get("properties", {}),
+                    "url": deal.get("url"),
+                }
+            )
+    except requests.RequestException as exc:
+        logger.error("HubSpot deal lookup failed for contact %s: %s", contact_id, exc)
+        return jsonify({"message": "HubSpot deal lookup failed", "error": str(exc)}), 502
+
+    return jsonify(
+        {
+            "contact": {
+                "id": contact_id,
+                "properties": properties,
+                "url": _hubspot_contact_url(contact_id),
+            },
+            "deals": deals,
+        }
+    ), 200
+
+
 
 @box_bp.route("/box/create", methods=["GET"])
 def box_folder_create_page():
@@ -653,6 +880,15 @@ def box_folder_create_page():
     if guard is not None:
         return guard
     return render_template("box_folder_create.html", title="Create Box Folder")
+
+
+@box_bp.route("/box/collaborators", methods=["GET"])
+def box_folder_collaborators_page():
+    """Render UI for listing folder collaborators and highlighting externals."""
+    guard = _ensure_logged_in()
+    if guard is not None:
+        return guard
+    return render_template("box_collaborators.html", title="Box Collaborators")
 
 
 @box_bp.route("/post/create_box_folder/preview", methods=["POST"])
