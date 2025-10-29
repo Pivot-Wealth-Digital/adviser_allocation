@@ -4,7 +4,7 @@ import logging
 from collections import Counter
 
 from urllib.parse import urlencode
-from flask import Flask, redirect, request, session, jsonify, render_template, render_template_string, url_for
+from flask import Flask, redirect, request, session, jsonify, render_template, render_template_string, url_for, send_from_directory
 import requests
 
 from utils.common import sydney_now, sydney_today, SYDNEY_TZ, USE_FIRESTORE, get_firestore_client
@@ -219,6 +219,30 @@ def index():
         sydney_time=sydney_now().strftime("%Y-%m-%d %H:%M:%S %Z"),
         app_version=APP_VERSION,
     )
+
+
+@app.route("/workflows")
+def workflows():
+    """Show curated workflow documentation links."""
+    return render_template(
+        "workflows.html",
+        today=sydney_today().isoformat(),
+        app_version=APP_VERSION,
+    )
+
+@app.route("/workflows/box-details")
+def workflows_box_details():
+    return render_template(
+        "workflows_box_details.html",
+        today=sydney_today().isoformat(),
+        app_version=APP_VERSION,
+    )
+
+
+@app.route("/docs/<path:filename>")
+def serve_docs(filename: str):
+    """Serve workflow documentation assets."""
+    return send_from_directory("docs", filename)
 
 @app.route("/auth/start")
 def auth_start():

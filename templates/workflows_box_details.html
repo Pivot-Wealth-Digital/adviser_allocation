@@ -1,0 +1,268 @@
+{% extends 'layout.html' %}
+{% set title = 'Box Workflow Details' %}
+
+{% block content %}
+<div class="topbar">
+  <div style="display:flex;align-items:center;gap:16px;">
+    <a href="/workflows" style="color:#d0d7e2;text-decoration:none;font-size:0.9em;">← Back to Workflows</a>
+    <h2>Box Folder Workflow Guide</h2>
+  </div>
+  <div class="datebox">
+    <span>Today: {{ today }}</span>
+    <span>Version: {{ app_version or 'n/a' }}</span>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Workflow Overview</h3>
+  <ol>
+    <li><strong>Create folder</strong> via <code>POST /box/folder/create</code> using the deal and contact names.</li>
+    <li><strong>Tag metadata</strong> with <code>POST /box/folder/tag</code> once you have the new <code>folder_id</code>.</li>
+    <li><strong>Share Client Sharing</strong> subfolder through <code>POST /box/folder/share</code> (optional until automation is enabled).</li>
+  </ol>
+  <p class="muted">Each HubSpot custom-code action receives the same payload shape. You can reuse the dictionary of HubSpot fields across all three calls, and be sure to include the spouse identifiers, names, and email every time.</p>
+</div>
+
+<div class="card">
+  <h3>Endpoint Input Reference</h3>
+  <table class="input-table">
+    <thead>
+      <tr>
+        <th>Endpoint</th>
+        <th>Minimum fields</th>
+        <th>Notes</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>/box/folder/create</code></td>
+        <td><code>hs_deal_record_id</code>, primary first/last, spouse first/last, <code>deal_salutation</code></td>
+        <td>All names provided in payload; no HubSpot lookup needed.</td>
+      </tr>
+      <tr>
+        <td><code>/box/folder/tag</code></td>
+        <td><code>folder_id</code>, contact &amp; spouse IDs, names, emails, <code>deal_salutation</code>, <code>household_type</code></td>
+        <td>Payload supplies the entire metadata template; no HubSpot API call.</td>
+      </tr>
+      <tr>
+        <td><code>/box/folder/share</code></td>
+        <td><code>folder_id</code>, <code>hs_contact_email</code>, <code>hs_spouse_email</code></td>
+        <td>Endpoint invites both primary and spouse emails to Client Sharing.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h3>HubSpot Custom Code Actions</h3>
+  <p class="muted">Set up three custom-code actions in your workflow—one for each Box endpoint. Reuse the field lists shown below and pass the <code>folder_id</code> output from Action 1 into Actions 2 and 3.</p>
+
+  <h4>Action 1 – POST /box/folder/create</h4>
+  <div class="field-chips">
+    <span class="chip-required">hs_deal_record_id</span>
+    <span class="chip-required">hs_contact_firstname</span>
+    <span class="chip-required">hs_contact_lastname</span>
+    <span class="chip-required">hs_spouse_firstname</span>
+    <span class="chip-required">hs_spouse_lastname</span>
+    <span class="chip-required">deal_salutation</span>
+  </div>
+  <p class="field-note">Only the fields shown here are required to create the folder without HubSpot lookups.</p>
+  <pre class="code-block"><code>import requests
+
+BOX_BASE = &quot;https://&lt;your-app-domain&gt;&quot;
+
+def main(event):
+    fields = {**(event.get(&quot;fields&quot;) or {}), **(event.get(&quot;inputFields&quot;) or {})}
+    deal_id = event.get(&quot;deal_id&quot;) or fields[&quot;hs_deal_record_id&quot;]
+
+    payload = {
+        &quot;deal_id&quot;: str(deal_id),
+        &quot;fields&quot;: {
+            &quot;hs_deal_record_id&quot;: str(deal_id),
+            **{key: str(fields[key]) for key in (
+                &quot;hs_contact_firstname&quot;, &quot;hs_contact_lastname&quot;,
+                &quot;hs_spouse_firstname&quot;, &quot;hs_spouse_lastname&quot;,
+                &quot;deal_salutation&quot;,
+            )},
+        },
+    }
+
+    resp = requests.post(
+        f&quot;{BOX_BASE}/box/folder/create&quot;,
+        json=payload,
+        timeout=20,
+    )
+    resp.raise_for_status()
+    folder = resp.json().get(&quot;folder&quot;, {})
+
+    return {
+        &quot;outputFields&quot;: {
+            &quot;folder_id&quot;: folder.get(&quot;id&quot;),
+            &quot;folder_url&quot;: folder.get(&quot;url&quot;),
+            &quot;folder_name&quot;: folder.get(&quot;name&quot;),
+        }
+    }</code></pre>
+
+  <h4>Action 2 – POST /box/folder/tag</h4>
+  <div class="field-chips">
+    <span class="chip-required">hs_deal_record_id</span>
+    <span class="chip-required">folder_id</span>
+    <span class="chip-required">hs_contact_id</span>
+    <span class="chip-required">hs_contact_email</span>
+    <span class="chip-required">hs_contact_firstname</span>
+    <span class="chip-required">hs_contact_lastname</span>
+    <span class="chip-required">hs_spouse_id</span>
+    <span class="chip-required">hs_spouse_email</span>
+    <span class="chip-required">hs_spouse_firstname</span>
+    <span class="chip-required">hs_spouse_lastname</span>
+    <span class="chip-required">deal_salutation</span>
+    <span class="chip-required">household_type</span>
+  </div>
+  <p class="field-note">`folder_id` comes from Action 1; include the other fields to keep metadata tagging self-contained.</p>
+  <pre class="code-block"><code>import requests
+
+BOX_BASE = &quot;https://&lt;your-app-domain&gt;&quot;
+
+def main(event):
+    fields = {**(event.get(&quot;fields&quot;) or {}), **(event.get(&quot;inputFields&quot;) or {})}
+    deal_id = event.get(&quot;deal_id&quot;) or fields[&quot;hs_deal_record_id&quot;]
+    folder_id = event.get(&quot;folder_id&quot;) or fields[&quot;folder_id&quot;]
+
+    payload = {
+        &quot;deal_id&quot;: str(deal_id),
+        &quot;folder_id&quot;: str(folder_id),
+        &quot;fields&quot;: {
+            &quot;hs_deal_record_id&quot;: str(deal_id),
+            **{key: str(fields[key]) for key in (
+                &quot;hs_contact_id&quot;, &quot;hs_contact_email&quot;,
+                &quot;hs_contact_firstname&quot;, &quot;hs_contact_lastname&quot;,
+                &quot;hs_spouse_id&quot;, &quot;hs_spouse_email&quot;,
+                &quot;hs_spouse_firstname&quot;, &quot;hs_spouse_lastname&quot;,
+                &quot;deal_salutation&quot;, &quot;household_type&quot;,
+            )},
+        },
+    }
+
+    resp = requests.post(
+        f&quot;{BOX_BASE}/box/folder/tag&quot;,
+        json=payload,
+        timeout=20,
+    )
+    resp.raise_for_status()
+
+    return {
+        &quot;outputFields&quot;: {
+            &quot;folder_id&quot;: str(folder_id),
+            &quot;metadata_status&quot;: &quot;applied&quot;,
+        }
+    }</code></pre>
+
+  <h4>Action 3 – POST /box/folder/share</h4>
+  <div class="field-chips">
+    <span class="chip-required">folder_id</span>
+    <span class="chip-required">hs_contact_email</span>
+    <span class="chip-required">hs_spouse_email</span>
+  </div>
+  <p class="field-note">Provide both contact and spouse emails so the Client Sharing subfolder can be shared without additional lookups.</p>
+  <pre class="code-block"><code>import requests
+
+BOX_BASE = &quot;https://&lt;your-app-domain&gt;&quot;
+
+def main(event):
+    fields = {**(event.get(&quot;fields&quot;) or {}), **(event.get(&quot;inputFields&quot;) or {})}
+    folder_id = event.get(&quot;folder_id&quot;) or fields[&quot;folder_id&quot;]
+    emails = [
+        fields[name]
+        for name in (&quot;hs_contact_email&quot;, &quot;hs_spouse_email&quot;)
+        if fields.get(name)
+    ]
+
+    resp = requests.post(
+        f&quot;{BOX_BASE}/box/folder/share&quot;,
+        json={&quot;folder_id&quot;: str(folder_id), &quot;emails&quot;: emails},
+        timeout=20,
+    )
+    resp.raise_for_status()
+
+    return {
+        &quot;outputFields&quot;: {
+            &quot;folder_id&quot;: str(folder_id),
+            &quot;shared_emails&quot;: emails,
+        }
+    }</code></pre>
+</div>
+
+<div class="card">
+  <h3>Required HubSpot Properties</h3>
+  <ul>
+    <li><code>hs_deal_record_id</code></li>
+    <li><code>hs_contact_id</code>, <code>hs_contact_email</code>, first/last name</li>
+    <li>Spouse fields (<code>hs_spouse_id</code>, <code>hs_spouse_email</code>, first/last name)</li>
+    <li><code>deal_salutation</code>, <code>household_type</code></li>
+  </ul>
+  <div class="actions">
+    <a class="secondary" href="{{ url_for('serve_docs', filename='box-folder-workflow.md') }}" target="_blank">
+      Open full workflow reference →
+    </a>
+  </div>
+</div>
+{% endblock %}
+
+{% block head %}
+{{ super() }}
+  <style>
+  .field-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 8px 0 12px;
+  }
+  .field-chips span {
+    background: rgba(15, 23, 42, 0.08);
+    border-radius: 14px;
+    padding: 4px 10px;
+    font-size: 0.85em;
+    letter-spacing: 0.01em;
+  }
+  .field-chips .chip-required {
+    background: rgba(79, 70, 229, 0.18);
+    border: 1px solid rgba(79, 70, 229, 0.35);
+    font-weight: 600;
+  }
+  .field-note {
+    margin: 4px 0 12px;
+    font-size: 0.85em;
+    color: #52606d;
+  }
+  .code-block {
+    background: #1e1e1e;
+    color: #e8e8e8;
+    padding: 16px;
+    border-radius: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .input-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 12px;
+  }
+  .input-table th,
+  .input-table td {
+    border: 1px solid #d9e2ef;
+    padding: 8px 10px;
+    text-align: left;
+    vertical-align: top;
+  }
+  .input-table th {
+    background: rgba(15, 23, 42, 0.06);
+    font-weight: 600;
+  }
+  .actions {
+    margin-top: 12px;
+  }
+  .actions a {
+    text-decoration: none;
+  }
+</style>
+{% endblock %}

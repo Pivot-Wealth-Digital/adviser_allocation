@@ -1,0 +1,134 @@
+{% extends 'layout.html' %}
+{% set title = 'Workflows Hub' %}
+
+{% block content %}
+<div class="topbar">
+  <div style="display:flex;align-items:center;gap:16px;">
+    <a href="/" style="color:#d0d7e2;text-decoration:none;font-size:0.9em;">← Home</a>
+    <h2>Automation Workflows</h2>
+  </div>
+  <div class="datebox">
+    <span>Today: {{ today }}</span>
+    <span>Version: {{ app_version or 'n/a' }}</span>
+  </div>
+</div>
+
+<div class="grid">
+  <article class="workflow-card">
+    <header>
+      <h3>Adviser Allocation Workflow</h3>
+      <p class="muted">Detailed diagrams covering allocation, capacity, and Box automation.</p>
+    </header>
+    <div class="actions">
+      <a class="primary" href="{{ url_for('allocation_history_ui') }}">
+        View Allocation Dashboard
+      </a>
+      <a class="secondary" href="{{ url_for('serve_docs', filename='adviser_allocation_explanation.md') }}">
+        Read Allocation Guide
+      </a>
+    </div>
+    <div class="diagram">
+      <div class="diagram-title">Adviser Allocation Workflow (high-level flow)</div>
+      <div class="mermaid">
+flowchart TD
+    subgraph HubSpot_Workflow
+        W1["Deal enters pipeline"]
+        W2["POST /post/allocate"]
+        W3["Update HubSpot owner"]
+    end
+    subgraph Allocation_Service
+        S1["Fetch deal data<br/>Service & matrix APIs"]
+        S2["Compute adviser match<br/>Household fit, capacity, preferences"]
+        S3["Persist allocation record<br/>Firestore & HubSpot update"]
+        S4["Optional chat alert<br/>Google Chat webhook"]
+    end
+    W1 --> W2 --> S1 --> S2 --> S3 --> W3 --> S4 --> E["End"]
+      </div>
+    </div>
+    <div class="diagram">
+      <div class="diagram-title">Adviser Allocation Capacity Model (capacity scoring details)</div>
+      <div class="mermaid">
+flowchart TD
+    A["Load pipeline and adviser profiles<br/>HubSpot deals & matrix cache"]
+    B["Fetch fortnight schedule grid<br/>HubSpot meetings & Firestore history"]
+    C["Compute clarify targets<br/>Service package & pod rules"]
+    D["Fetch leave and closures<br/>Employment Hero & global closures"]
+    E["Fetch clarify backlog<br/>Deals without clarify from HubSpot"]
+    F["Apply schedule adjustments<br/>Leaves, closures, backlog"]
+    G["Calculate capacity score<br/>Remaining clarifies vs target"]
+    H["Select adviser and week<br/>Score ranking with tie-breaks"]
+    I["Persist allocation record<br/>Firestore audit trail"]
+    A --> B --> C --> D --> E --> F --> G --> H --> I
+      </div>
+    </div>
+    <div class="diagram">
+      <div class="diagram-title">Box Folder Creation Workflow (three-step HubSpot → Box sequence)</div>
+      <div class="mermaid">
+flowchart TD
+    subgraph HubSpot_Workflow
+        A1["Deal triggers HubSpot workflow"]
+        A2["POST /box/folder/create<br/>(deal_id, contacts: firstname, lastname, email)"]
+        A3["POST /box/folder/tag"]
+        A4["POST /box/folder/share"]
+    end
+    subgraph Box_Service
+        B1["Clone template<br/>Return folder_id"]
+        B2["Apply metadata<br/>Persist template fields"]
+        B3["Invite emails to Client Sharing subfolder"]
+    end
+    A1 --> A2 --> B1 --> A3 --> B2 --> A4 --> B3 --> E["End"]
+      </div>
+    </div>
+    <div class="actions" style="margin-top:12px;">
+      <a class="secondary" href="{{ url_for('workflows_box_details') }}">
+        Box Workflow Custom-Code Guide →
+      </a>
+    </div>
+  </article>
+</div>
+{% endblock %}
+
+{% block head %}
+{{ super() }}
+<style>
+  .grid {
+    display: grid;
+    gap: 24px;
+  }
+
+  .workflow-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 12px 24px rgba(15, 23, 42, 0.05);
+  }
+
+  .workflow-card header h3 {
+    margin: 0 0 6px 0;
+  }
+
+  .actions {
+    display: flex;
+    gap: 12px;
+    margin: 12px 0;
+    flex-wrap: wrap;
+  }
+
+  .diagram {
+    margin-top: 12px;
+    background: rgba(15, 23, 42, 0.02);
+    border-radius: 8px;
+    padding: 16px;
+    overflow-x: auto;
+  }
+  .diagram-title {
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+</style>
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({ startOnLoad: true, theme: "neutral" });
+</script>
+{% endblock %}

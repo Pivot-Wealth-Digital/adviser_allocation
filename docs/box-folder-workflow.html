@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Box Folder Workflow</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/milligram/1.4.1/milligram.min.css" integrity="sha512-bte7mhQjsHMCHztkaXwfFhAoxZjUo4X5cSznbBWYSHzxN6IinxS1T+eVRDVQN+852fzObzSKfJzJzsxL7I3KqQ==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({ startOnLoad: true, theme: "neutral" });
+    </script>
+    <style>
+      body {
+        padding: 24px;
+        background: #f5f7fa;
+        color: #1f2933;
+      }
+      header {
+        margin-bottom: 24px;
+      }
+      header h1 {
+        margin-bottom: 8px;
+      }
+      .diagram {
+        background: #ffffff;
+        border-radius: 12px;
+        box-shadow: 0 12px 24px rgba(15, 23, 42, 0.1);
+        padding: 24px;
+      }
+      .diagram pre {
+        margin: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Box Folder HubSpot Workflow</h1>
+      <p>
+        Visual overview of the three-step automation that creates the Box folder,
+        tags metadata, and shares the subfolder with contacts.
+      </p>
+    </header>
+    <section class="diagram">
+      <div class="mermaid">
+        flowchart TD
+            subgraph HubSpot Workflow
+                A1[Deal triggers<br/>HubSpot workflow]
+                A2[Send Box Folder<br/>Create request]
+                A3[Send metadata<br/>tagging request]
+                A4[Optional: send<br/>sharing request]
+                A1 --> A2 --> A3 --> A4
+            end
+
+            subgraph Box Service
+                B1[POST /box/folder/create\n• Clone template\n• Build folder name\n• Return folder_id & URL]
+                B2[POST /box/folder/tag\n• Apply metadata\n• Return status]
+                B3[POST /box/folder/share\n• Invite emails to Client Sharing\n• Return recipients]
+            end
+
+            HubSpot Workflow -->|JSON event (deal_id, contact details)| B1
+            B1 -->|folder_id, folder_url| HubSpot Workflow
+            HubSpot Workflow -->|folder_id + metadata| B2
+            B2 -->|tagging status| HubSpot Workflow
+            HubSpot Workflow -->|folder_id + emails| B3
+            B3 -->|collaboration results| HubSpot Workflow
+
+            B3 --> E[Box sends email notifications<br/>to invited collaborators]
+      </div>
+    </section>
+  </body>
+</html>

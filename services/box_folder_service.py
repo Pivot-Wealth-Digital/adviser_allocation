@@ -732,10 +732,76 @@ def build_client_folder_name(deal_id: str, contacts: List[dict]) -> str:
     return sanitize_folder_name(raw_name)
 
 
+def provision_box_folder(
+    deal_id: str,
+    contacts_override: Optional[List[dict]] = None,
+    folder_name_override: Optional[str] = None,
+) -> dict:
+    """Create the Box client folder without applying metadata or sharing.
+
+    Args:
+        deal_id: HubSpot deal ID
+        contacts_override: Optional contacts list to use when building the folder name
+        folder_name_override: Optional explicit folder name
+
+    Returns:
+        Dict describing the folder result.
+    """
+    service = ensure_box_service()
+    if not service:
+        logger.info(
+            "Box automation not configured; skipping bare folder creation for deal %s",
+            deal_id,
+        )
+        return {
+            "status": "skipped",
+            "reason": "box_not_configured",
+        }
+
+    contacts = contacts_override or get_hubspot_deal_contacts(deal_id)
+    folder_name = (folder_name_override or "").strip()
+    if not folder_name:
+        folder_name = build_client_folder_name(deal_id, contacts)
+
+    folder = service.ensure_client_folder(folder_name)
+    folder_id = folder.get("id") if folder else None
+
+    parent_path = BOX_ACTIVE_CLIENTS_PATH
+    resolved_folder_name = folder.get("name") if folder else folder_name
+    folder_url = f"https://app.box.com/folder/{folder_id}" if folder_id else None
+    full_path = None
+    if parent_path and resolved_folder_name:
+        full_path = f"{parent_path.rstrip('/')}/{resolved_folder_name}"
+
+    formatted_contacts = [
+        name
+        for name in (
+            _format_contact_display(contact, position=idx)
+            for idx, contact in enumerate(contacts)
+        )
+        if name
+    ]
+
+    return {
+        "status": "created" if folder_id else "unknown",
+        "folder": {
+            "id": folder_id,
+            "name": resolved_folder_name,
+            "parent_path": parent_path,
+            "path": full_path,
+            "url": folder_url,
+        },
+        "contacts": formatted_contacts,
+    }
+
+
 def create_box_folder_for_deal(
     deal_id: str,
     deal_metadata: Optional[dict] = None,
     folder_name_override: Optional[str] = None,
+    *,
+    contacts_override: Optional[List[dict]] = None,
+    share_email_override: Optional[str] = None,
 ) -> dict:
     """Create Box folder for a deal and apply metadata template.
 
@@ -763,8 +829,19 @@ def create_box_folder_for_deal(
         return {"status": "skipped", "reason": "box_not_configured"}
 
     logger.info('Starting Box folder creation for deal %s', deal_id)
-    contacts = get_hubspot_deal_contacts(deal_id)
-    formatted_contacts = [name for name in (_format_contact_display(c) for c in contacts) if name]
+    contacts: List[dict]
+    if contacts_override is not None:
+        contacts = contacts_override
+    else:
+        contacts = get_hubspot_deal_contacts(deal_id)
+    formatted_contacts = [
+        name
+        for name in (
+            _format_contact_display(contact, position=idx)
+            for idx, contact in enumerate(contacts)
+        )
+        if name
+    ]
 
     folder = None
     folder_name = None
@@ -859,46 +936,32 @@ def create_box_folder_for_deal(
 
     # Determine primary contact email for sharing
     primary_contact_id = metadata_payload.get("primary_contact_id") or None
-    share_email = None
+    share_emails: List[str] = []
+
+    def _maybe_add_email(contact: dict) -> None:
+        props = contact.get("properties") or {}
+        email = (props.get("email") or "").strip()
+        if email and email not in share_emails:
+            share_emails.append(email)
+
+    if share_email_override:
+        share_emails.append(share_email_override)
+
     if primary_contact_id:
         for contact in contacts:
             if str(contact.get("id")) == str(primary_contact_id):
-                props = contact.get("properties") or {}
-                email = (props.get("email") or "").strip()
-                if email:
-                    share_email = email
+                _maybe_add_email(contact)
                 break
-    if not share_email:
+    if not share_emails:
         for contact in contacts:
-            props = contact.get("properties") or {}
-            email = (props.get("email") or "").strip()
-            if email:
-                share_email = email
-                break
+            _maybe_add_email(contact)
 
-    share_status = None
-    if share_email and folder_id:
-        try:
-            share_status = service.share_subfolder_with_email(
-                parent_folder_id=folder_id,
-                subfolder_name=CLIENT_SHARING_SUBFOLDER,
-                email=share_email,
-                role=CLIENT_SHARING_ROLE,
-            )
-        except BoxAutomationError as exc:
-            logger.error(
-                "Failed to share client subfolder '%s' for deal %s (folder %s) with %s: %s",
-                CLIENT_SHARING_SUBFOLDER,
-                deal_id,
-                folder_id,
-                share_email,
-                exc,
-            )
-    elif not share_email:
-        logger.debug(
-            "No primary contact email found; skipping client sharing collaborator for deal %s",
-            deal_id,
-        )
+    share_results: List[dict] = []
+    logger.debug(
+        "Client sharing skipped for deal %s (folder %s); feature temporarily disabled.",
+        deal_id,
+        folder_id,
+    )
 
     preferred_order = [
         "deal_salutation",
@@ -950,15 +1013,9 @@ def create_box_folder_for_deal(
         "contacts": formatted_contacts,
         "metadata": metadata_response,
         "sharing": {
-            "email": share_email,
             "subfolder": CLIENT_SHARING_SUBFOLDER,
             "role": CLIENT_SHARING_ROLE,
-            "result": share_status,
-        } if share_status else {
-            "email": share_email,
-            "subfolder": CLIENT_SHARING_SUBFOLDER,
-            "role": CLIENT_SHARING_ROLE,
-            "result": None,
+            "recipients": share_results,
         },
     }
 
@@ -968,5 +1025,6 @@ __all__ = [
     "BoxFolderService",
     "sanitize_folder_name",
     "ensure_box_service",
+    "provision_box_folder",
     "create_box_folder_for_deal",
 ]

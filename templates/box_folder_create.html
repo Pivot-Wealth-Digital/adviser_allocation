@@ -1,147 +1,300 @@
 {% extends "layout.html" %}
-{% set title = "Create Box Folder" %}
+{% set title = "Box Workflow Actions" %}
 
 {% block content %}
 <div class="topbar">
-  <div style="display: flex; align-items: center; gap: 16px;">
-    <a href="/" style="color: #d0d7e2; text-decoration: none; font-size: 0.9em;">← Home</a>
-    <h2>Box Folder Provisioning</h2>
+  <div style="display:flex;align-items:center;gap:16px;">
+    <a href="/" style="color:#d0d7e2;text-decoration:none;font-size:0.9em;">← Home</a>
+    <h2>Box Folder Workflow (Manual Run)</h2>
   </div>
   <div class="datebox">
-    <span>Status:</span>
-    <span id="last-status" class="muted">Awaiting preview</span>
+    <span>Last action:</span>
+    <span id="status-label" class="muted">Awaiting input</span>
   </div>
 </div>
 
-<div class="card">
-  <h3>1. Look Up Deal</h3>
+<div class="card intro-card">
   <p class="muted">
-    Enter a HubSpot deal ID to preview the folder name and metadata before creating it in
-    <code>Team Advice/Pivot Clients/1. Active Clients</code>.
+    Run the three HubSpot custom-code actions manually. Provide the exact fields each endpoint
+    expects so the backend never fetches data from HubSpot. Refer to
+    <a href="{{ url_for('workflows_box_details') }}">/workflows/box-details</a> for the full guide.
   </p>
-  <form id="box-folder-form" class="box-form">
-    <div>
-      <label for="deal-id">Deal ID</label>
-      <input
-        id="deal-id"
-        name="deal-id"
-        type="text"
-        placeholder="e.g. 47110952883"
-        autocomplete="off"
-        required
-      />
-    </div>
-    <div class="row">
-      <button type="submit" class="primary">Preview Folder Details</button>
-      <button type="button" class="secondary" id="reset-form">Clear</button>
-    </div>
-  </form>
 </div>
 
-<div id="preview-card" class="card hidden">
-  <h3>2. Confirm Details</h3>
-  <div class="stack">
-    <div>
-      <label for="folder-name">Folder Name</label>
-      <input id="folder-name" type="text" autocomplete="off" />
+<div class="action-stack">
+  <article class="action-card" id="create-card">
+    <header>
+      <h3>Action 1 — Create Folder</h3>
       <p class="muted small">
-        Edit the folder name if required. Illegal characters are replaced automatically during creation.
+        Clone the template and return <code>folder_id</code>. All values must come from the workflow payload.
       </p>
+    </header>
+    <div class="chip-row">
+      <span class="chip required">hs_deal_record_id</span>
+      <span class="chip required">hs_contact_firstname</span>
+      <span class="chip required">hs_contact_lastname</span>
+      <span class="chip required">hs_spouse_firstname</span>
+      <span class="chip required">hs_spouse_lastname</span>
+      <span class="chip required">deal_salutation</span>
     </div>
-    <div>
-      <strong>Contacts:</strong>
-      <span id="contacts-list" class="muted"></span>
-    </div>
-    <div class="metadata-section">
-      <h4>Metadata Details</h4>
-      <div class="metadata-grid">
+    <form id="create-form" class="action-form">
+      <div class="input-grid">
+        <label>
+          <span>Deal ID (hs_deal_record_id)</span>
+          <input id="create-deal-id" type="text" autocomplete="off" required />
+        </label>
+        <label>
+          <span>Folder Name Override (optional)</span>
+          <input id="create-folder-name" type="text" autocomplete="off" placeholder="Leave blank for auto naming" />
+        </label>
+        <label>
+          <span>Primary Contact First Name</span>
+          <input id="create-primary-first" type="text" autocomplete="off" required />
+        </label>
+        <label>
+          <span>Primary Contact Last Name</span>
+          <input id="create-primary-last" type="text" autocomplete="off" required />
+        </label>
+        <label>
+          <span>Spouse First Name</span>
+          <input id="create-spouse-first" type="text" autocomplete="off" required />
+        </label>
+        <label>
+          <span>Spouse Last Name</span>
+          <input id="create-spouse-last" type="text" autocomplete="off" required />
+        </label>
         <label>
           <span>Deal Salutation</span>
-          <input id="metadata-deal-salutation" type="text" autocomplete="off" />
+          <input id="create-salutation" type="text" autocomplete="off" required />
+        </label>
+      </div>
+      <div class="form-actions">
+        <button type="submit" class="primary" data-default="Run Action 1">Run Action 1</button>
+      </div>
+    </form>
+    <div class="result-panel hidden" id="create-result"></div>
+  </article>
+    </form>
+  </article>
+
+  <article class="action-card" id="tag-card">
+    <header>
+      <h3>Action 2 — Apply Metadata</h3>
+      <p class="muted small">
+        Apply the Box metadata template. Supply the complete set of contact fields to avoid HubSpot lookups.
+      </p>
+    </header>
+    <div class="chip-row">
+      <span class="chip required">hs_deal_record_id</span>
+      <span class="chip required">folder_id</span>
+      <span class="chip required">hs_contact_id</span>
+      <span class="chip required">hs_contact_firstname</span>
+      <span class="chip required">hs_contact_lastname</span>
+      <span class="chip required">hs_contact_email</span>
+      <span class="chip required">hs_spouse_id</span>
+      <span class="chip required">hs_spouse_firstname</span>
+      <span class="chip required">hs_spouse_lastname</span>
+      <span class="chip required">hs_spouse_email</span>
+      <span class="chip required">deal_salutation</span>
+      <span class="chip required">household_type</span>
+    </div>
+    <form id="tag-form" class="action-form">
+      <div class="input-grid">
+        <label>
+          <span>Deal ID (hs_deal_record_id)</span>
+          <input id="tag-deal-id" type="text" autocomplete="off" required />
+        </label>
+        <label>
+          <span>Box Folder ID</span>
+          <input id="tag-folder-id" type="text" autocomplete="off" required />
+        </label>
+        <div class="fieldset">
+          <span class="fieldset-title">Primary Contact</span>
+          <label>
+            <span>Contact ID</span>
+            <input id="tag-contact-id" type="text" autocomplete="off" required />
+          </label>
+          <label>
+            <span>First Name</span>
+            <input id="tag-contact-first" type="text" autocomplete="off" required />
+          </label>
+          <label>
+            <span>Last Name</span>
+            <input id="tag-contact-last" type="text" autocomplete="off" required />
+          </label>
+          <label>
+            <span>Email</span>
+            <input id="tag-contact-email" type="email" autocomplete="off" required />
+          </label>
+        </div>
+        <div class="fieldset">
+          <span class="fieldset-title">Spouse Contact</span>
+          <label>
+            <span>Contact ID</span>
+            <input id="tag-spouse-id" type="text" autocomplete="off" required />
+          </label>
+          <label>
+            <span>First Name</span>
+            <input id="tag-spouse-first" type="text" autocomplete="off" required />
+          </label>
+          <label>
+            <span>Last Name</span>
+            <input id="tag-spouse-last" type="text" autocomplete="off" required />
+          </label>
+          <label>
+            <span>Email</span>
+            <input id="tag-spouse-email" type="email" autocomplete="off" required />
+          </label>
+        </div>
+        <label>
+          <span>Deal Salutation</span>
+          <input id="tag-salutation" type="text" autocomplete="off" required />
         </label>
         <label>
           <span>Household Type</span>
-          <input id="metadata-household-type" type="text" autocomplete="off" />
-        </label>
-        <label>
-          <span>Primary Contact ID</span>
-          <input id="metadata-primary-contact-id" type="text" autocomplete="off" />
-        </label>
-        <label>
-          <span>Primary Contact Link</span>
-          <input id="metadata-primary-contact-link" type="text" autocomplete="off" placeholder="https://app.hubspot.com/..." />
-        </label>
-        <label>
-          <span>Spouse Contact ID</span>
-          <input id="metadata-spouse-id" type="text" autocomplete="off" />
-        </label>
-        <label>
-          <span>Spouse Contact Link</span>
-          <input id="metadata-spouse-link" type="text" autocomplete="off" placeholder="https://app.hubspot.com/..." />
-        </label>
-        <label class="full-width">
-          <span>Associated Contact IDs</span>
-          <input id="metadata-associated-ids" type="text" autocomplete="off" placeholder="Comma-separated IDs" />
+          <input id="tag-household" type="text" autocomplete="off" required />
         </label>
       </div>
+      <div class="form-actions">
+        <button type="submit" class="primary" data-default="Run Action 2">Run Action 2</button>
+      </div>
+    </form>
+    <div class="result-panel hidden" id="tag-result"></div>
+  </article>
+
+  <article class="action-card locked" id="share-card">
+    <header>
+      <h3>Action 3 — Share Client Subfolder</h3>
       <p class="muted small">
-        Metadata updates apply to the uploaded <code>metadata.json</code>. Associated contacts remain read-only.
+        Invite clients to the <code>Client Sharing</code> subfolder. Provide both recipient emails up front.
       </p>
-      <details class="metadata-preview">
-        <summary>JSON Preview</summary>
-        <pre id="metadata-json" class="code-block muted">No metadata</pre>
-      </details>
+    </header>
+    <div class="chip-row">
+      <span class="chip required">folder_id</span>
+      <span class="chip required">hs_contact_email</span>
+      <span class="chip required">hs_spouse_email</span>
     </div>
-    <div class="row">
-      <button type="button" class="primary" id="confirm-create">Create Folder</button>
-      <button type="button" class="secondary" id="cancel-preview">Back</button>
+    <form id="share-form" class="action-form" data-locked="true">
+      <div class="input-grid">
+        <label>
+          <span>Deal ID (optional)</span>
+          <input id="share-deal-id" type="text" autocomplete="off" placeholder="Used for logging only" />
+        </label>
+        <label>
+          <span>Box Folder ID</span>
+          <input id="share-folder-id" type="text" autocomplete="off" required />
+        </label>
+        <label>
+          <span>Primary Email</span>
+          <input id="share-contact-email" type="email" autocomplete="off" required />
+        </label>
+        <label>
+          <span>Spouse Email</span>
+          <input id="share-spouse-email" type="email" autocomplete="off" required />
+        </label>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="secondary" disabled>Client Sharing Locked</button>
+      </div>
+    </form>
+    <div class="result-panel note" id="share-result">
+      <strong>Locked</strong>
+      <p class="muted">
+        Automated invitations are currently disabled. Use the workflow guide once sharing is re-enabled.
+      </p>
     </div>
-  </div>
+  </article>
 </div>
 
-<div id="result-card" class="card hidden">
-  <h3>3. Box API Response</h3>
-  <pre id="result-json" class="code-block"></pre>
+<div class="card" id="log-card">
+  <h3>Action Log</h3>
+  <div id="action-log" class="log-list">
+    <p class="muted">No actions run yet.</p>
+  </div>
 </div>
 
 <div class="floating-note">
   <strong>🚧 Under construction</strong>
-  <span>This Box folder workflow is still being refined. Expect changes.</span>
+  <span>Manual Box workflow runner. Keep the HubSpot payload handy before triggering actions.</span>
 </div>
 {% endblock %}
 
 {% block head %}
 <style>
-  .box-form {
+  .intro-card {
+    margin-bottom: 18px;
+  }
+
+  .action-stack {
     display: grid;
-    gap: 12px;
-    max-width: 420px;
+    gap: 20px;
+    margin-bottom: 24px;
   }
 
-  .box-form input {
-    width: 100%;
+  .action-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px;
+    display: grid;
+    gap: 16px;
+    box-shadow: 0 12px 24px rgba(15, 23, 42, 0.05);
   }
 
-  .box-form .row {
-    justify-content: flex-start;
+  .action-card.locked {
+    opacity: 0.65;
+    position: relative;
   }
 
-  .stack {
+  .action-card.locked::after {
+    content: "Locked";
+    position: absolute;
+    top: 18px;
+    right: 18px;
+    background: rgba(79, 70, 229, 0.16);
+    color: #4338ca;
+    border-radius: 999px;
+    padding: 2px 10px;
+    font-size: 0.75em;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+
+  .action-card header h3 {
+    margin: 0 0 4px 0;
+  }
+
+  .chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .chip {
+    background: rgba(15, 23, 42, 0.07);
+    border-radius: 12px;
+    padding: 4px 10px;
+    font-size: 0.8em;
+    letter-spacing: 0.01em;
+  }
+
+  .chip.required {
+    background: rgba(79, 70, 229, 0.15);
+    border: 1px solid rgba(79, 70, 229, 0.35);
+    font-weight: 600;
+  }
+
+  .action-form {
     display: grid;
     gap: 16px;
   }
 
-  .metadata-section h4 {
-    margin: 0 0 8px 0;
-  }
-
-  .metadata-grid {
+  .input-grid {
     display: grid;
     gap: 12px;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   }
 
-  .metadata-grid label {
+  .input-grid label {
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -149,18 +302,124 @@
     color: var(--text);
   }
 
-  .metadata-grid input {
-    font-weight: 400;
+  .input-grid label span {
+    font-size: 0.85em;
+    font-weight: 500;
+    color: #5a6578;
   }
 
-  .metadata-grid label span {
-    font-size: 0.85em;
-    color: var(--muted);
+  .input-grid input {
     font-weight: 500;
   }
 
-  .metadata-grid label.full-width {
-    grid-column: 1 / -1;
+  .fieldset {
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 12px;
+    padding: 12px;
+    display: grid;
+    gap: 12px;
+    background: rgba(15, 23, 42, 0.02);
+  }
+
+  .fieldset-title {
+    font-size: 0.8em;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #4c5770;
+    font-weight: 700;
+  }
+
+  .form-actions {
+    display: flex;
+    justify-content: flex-start;
+  }
+
+  .result-panel {
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 12px;
+    padding: 12px;
+    font-size: 0.85em;
+    background: rgba(15, 23, 42, 0.02);
+    color: #273041;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .result-panel strong {
+    display: block;
+    margin-bottom: 6px;
+  }
+
+  .result-panel.ok {
+    border-color: rgba(16, 185, 129, 0.4);
+    background: rgba(16, 185, 129, 0.12);
+    color: #065f46;
+  }
+
+  .result-panel.err {
+    border-color: rgba(239, 68, 68, 0.45);
+    background: rgba(239, 68, 68, 0.12);
+    color: #991b1b;
+  }
+
+  .result-panel.note {
+    border-style: dashed;
+  }
+
+  #log-card {
+    margin-bottom: 32px;
+  }
+
+  .log-list {
+    display: grid;
+    gap: 12px;
+  }
+
+  .log-entry {
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 12px;
+    padding: 14px;
+    background: rgba(15, 23, 42, 0.015);
+    display: grid;
+    gap: 8px;
+  }
+
+  .log-entry header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .log-entry strong {
+    font-size: 0.95em;
+  }
+
+  .log-status {
+    font-size: 0.78em;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 12px;
+  }
+
+  .log-status.ok {
+    background: rgba(16, 185, 129, 0.15);
+    color: #047857;
+  }
+
+  .log-status.err {
+    background: rgba(239, 68, 68, 0.18);
+    color: #b91c1c;
+  }
+
+  .log-entry pre {
+    background: #0f172a;
+    color: #e2e8f0;
+    padding: 10px;
+    border-radius: 10px;
+    font-size: 0.82em;
+    white-space: pre-wrap;
+    word-break: break-word;
   }
 
   .floating-note {
@@ -184,277 +443,221 @@
     margin-bottom: 4px;
   }
 
-  @media (max-width: 640px) {
+  @media (max-width: 720px) {
     .floating-note {
       left: 16px;
       right: 16px;
       bottom: 16px;
     }
   }
-
-  .metadata-preview summary {
-    cursor: pointer;
-    font-weight: 600;
-    color: var(--brand-600);
-    margin-bottom: 8px;
-  }
-
-  .code-block {
-    background: #f6f8fa;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 12px;
-    font-family: SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-
-  .hidden {
-    display: none !important;
-  }
-
-  .small {
-    font-size: 0.85em;
-  }
 </style>
 {% endblock %}
 
 {% block scripts %}
 <script>
-  const form = document.getElementById('box-folder-form');
-  const dealInput = document.getElementById('deal-id');
-  const submitButton = form.querySelector('button[type="submit"]');
-  const resetButton = document.getElementById('reset-form');
-  const previewCard = document.getElementById('preview-card');
-  const folderNameInput = document.getElementById('folder-name');
-  const contactsList = document.getElementById('contacts-list');
-  const metadataJson = document.getElementById('metadata-json');
-  const metadataInputs = {
-    deal_salutation: document.getElementById('metadata-deal-salutation'),
-    household_type: document.getElementById('metadata-household-type'),
-    primary_contact_id: document.getElementById('metadata-primary-contact-id'),
-    primary_contact_link: document.getElementById('metadata-primary-contact-link'),
-    hs_spouse_id: document.getElementById('metadata-spouse-id'),
-    spouse_contact_link: document.getElementById('metadata-spouse-link'),
-    associated_contact_ids: document.getElementById('metadata-associated-ids'),
-  };
-  const confirmButton = document.getElementById('confirm-create');
-  const cancelPreviewButton = document.getElementById('cancel-preview');
-  const resultCard = document.getElementById('result-card');
-  const resultJson = document.getElementById('result-json');
-  const lastStatus = document.getElementById('last-status');
+  const statusLabel = document.getElementById('status-label');
+  const actionLog = document.getElementById('action-log');
 
-  let lastPreviewDealId = null;
-  let lastPreviewMetadata = null;
-  let lastPreviewAssociatedIds = [];
-  let lastPreviewAssociatedContacts = [];
-
-  function showResult(payload) {
-    resultJson.textContent = JSON.stringify(payload, null, 2);
-    resultCard.classList.remove('hidden');
-  }
-
-  function summarise(statusCode, data) {
-    if (!data) {
-      return `HTTP ${statusCode}`;
-    }
-    if (statusCode === 200 || statusCode === 202) {
-      const folder = data.box?.folder;
-      if (folder?.name && folder?.id) {
-        return `HTTP ${statusCode} · ${folder.name} (#${folder.id})`;
-      }
-      return `HTTP ${statusCode} · ${data.message || 'Success'}`;
-    }
-    return `HTTP ${statusCode} · ${data.error || data.message || 'Error'}`;
-  }
-
-  function setMetadataInputs(metadata) {
-    metadataInputs.deal_salutation.value = metadata?.deal_salutation || '';
-    metadataInputs.household_type.value = metadata?.household_type || '';
-    metadataInputs.primary_contact_id.value = metadata?.primary_contact_id || '';
-    metadataInputs.primary_contact_link.value = metadata?.primary_contact_link || '';
-    metadataInputs.hs_spouse_id.value = metadata?.hs_spouse_id || '';
-    metadataInputs.spouse_contact_link.value = metadata?.spouse_contact_link || '';
-    const ids = metadata?.associated_contact_ids;
-    metadataInputs.associated_contact_ids.value = Array.isArray(ids)
-      ? ids.join(', ')
-      : (ids || '');
-  }
-
-  function collectMetadataFromInputs() {
-    const payload = {};
-
-    const assignString = (key, input) => {
-      const value = input.value.trim();
-      if (value) {
-        payload[key] = value;
-      }
-    };
-
-    assignString('deal_salutation', metadataInputs.deal_salutation);
-    assignString('household_type', metadataInputs.household_type);
-    assignString('primary_contact_id', metadataInputs.primary_contact_id);
-    assignString('primary_contact_link', metadataInputs.primary_contact_link);
-    assignString('hs_spouse_id', metadataInputs.hs_spouse_id);
-    assignString('spouse_contact_link', metadataInputs.spouse_contact_link);
-
-    const idsRaw = metadataInputs.associated_contact_ids.value.trim();
-    if (idsRaw) {
-      const ids = idsRaw
-        .split(',')
-        .map((id) => id.trim())
-        .filter(Boolean);
-      if (ids.length) {
-        payload.associated_contact_ids = ids;
-      }
-    } else if (lastPreviewAssociatedIds.length) {
-      payload.associated_contact_ids = lastPreviewAssociatedIds;
-    }
-
-    if (lastPreviewAssociatedContacts.length) {
-      payload.associated_contacts = lastPreviewAssociatedContacts;
-    } else if (Array.isArray(lastPreviewMetadata.associated_contacts)) {
-      payload.associated_contacts = lastPreviewMetadata.associated_contacts;
-    }
-
-    return payload;
-  }
-
-  function renderMetadata(metadata) {
-    const value = metadata && Object.keys(metadata).length ? metadata : null;
-    if (!value) {
-      metadataJson.textContent = 'No metadata found for this deal.';
-      return;
-    }
-    metadataJson.textContent = JSON.stringify(value, null, 2);
-  }
-
-  function refreshMetadataPreview() {
-    const metadata = collectMetadataFromInputs();
-    renderMetadata(metadata);
-  }
-
-  Object.values(metadataInputs).forEach((input) => {
-    input.addEventListener('input', refreshMetadataPreview);
-  });
-
-  function renderContacts(contacts) {
-    if (!contacts || contacts.length === 0) {
-      contactsList.textContent = 'No associated contacts';
-      return;
-    }
-    contactsList.textContent = contacts.join(', ');
-  }
-
-  form.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const dealId = dealInput.value.trim();
-    if (!dealId) {
-      lastStatus.textContent = 'Validation error · Please provide a deal ID';
-      return;
-    }
-
-    submitButton.disabled = true;
-    submitButton.textContent = 'Loading…';
-    lastStatus.textContent = 'Fetching preview…';
-    resultCard.classList.add('hidden');
-    previewCard.classList.add('hidden');
-
-    try {
-      const response = await fetch('/post/create_box_folder/preview', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deal_id: dealId }),
-      });
-      const data = await response.json();
-
-      if (!response.ok) {
-        lastStatus.textContent = summarise(response.status, data);
-        showResult({ status: response.status, body: data });
-        return;
-      }
-
-      lastPreviewDealId = dealId;
-      lastPreviewMetadata = data.metadata || {};
-      lastPreviewAssociatedIds = data.metadata?.associated_contact_ids || [];
-      lastPreviewAssociatedContacts = data.metadata?.associated_contacts || [];
-      folderNameInput.value = data.folder_name || '';
-      renderContacts(data.contacts);
-      setMetadataInputs(lastPreviewMetadata);
-      refreshMetadataPreview();
-      previewCard.classList.remove('hidden');
-      lastStatus.textContent = 'Preview ready · review folder details below';
-    } catch (error) {
-      const message = error?.message || String(error);
-      lastStatus.textContent = `Network error · ${message}`;
-      showResult({ status: 'network_error', error: message });
-    } finally {
-      submitButton.disabled = false;
-      submitButton.textContent = 'Preview Folder Details';
-    }
-  });
-
-  confirmButton.addEventListener('click', async () => {
-    const dealId = lastPreviewDealId;
-    const folderName = folderNameInput.value.trim();
-
-    if (!dealId) {
-      lastStatus.textContent = 'No preview available. Please look up a deal first.';
-      return;
-    }
-    if (!folderName) {
-      lastStatus.textContent = 'Validation error · Folder name cannot be empty';
-      return;
-    }
-
-    confirmButton.disabled = true;
-    confirmButton.textContent = 'Creating…';
-    lastStatus.textContent = 'Creating folder…';
-    resultCard.classList.add('hidden');
-
-    try {
-      const response = await fetch('/post/create_box_folder', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+  const forms = {
+    create: {
+      form: document.getElementById('create-form'),
+      endpoint: '/box/folder/create',
+      button: document.querySelector('#create-form button[type="submit"]'),
+      buildPayload() {
+        const dealId = getValue('create-deal-id');
+        const payload = {
           deal_id: dealId,
-          folder_name: folderName,
-          metadata: collectMetadataFromInputs(),
-        }),
-      });
-      const data = await response.json();
-      lastStatus.textContent = summarise(response.status, data);
-      showResult({ status: response.status, body: data });
-    } catch (error) {
-      const message = error?.message || String(error);
-      lastStatus.textContent = `Network error · ${message}`;
-      showResult({ status: 'network_error', error: message });
+          fields: {
+            hs_deal_record_id: dealId,
+            hs_contact_firstname: getValue('create-primary-first'),
+            hs_contact_lastname: getValue('create-primary-last'),
+            hs_spouse_firstname: getValue('create-spouse-first'),
+            hs_spouse_lastname: getValue('create-spouse-last'),
+            deal_salutation: getValue('create-salutation'),
+          },
+        };
+        const override = getValue('create-folder-name');
+        if (override) {
+          payload.folder_name = override;
+        }
+        return payload;
+      },
+      onSuccess(body) {
+        const folderId = body?.folder?.id;
+        const dealId = getValue('create-deal-id');
+        if (folderId) {
+          setIfEmpty('tag-folder-id', folderId);
+          setIfEmpty('share-folder-id', folderId);
+        }
+        if (dealId) {
+          setIfEmpty('tag-deal-id', dealId);
+          setIfEmpty('share-deal-id', dealId);
+        }
+        setIfEmpty('tag-contact-first', getValue('create-primary-first'));
+        setIfEmpty('tag-contact-last', getValue('create-primary-last'));
+        setIfEmpty('tag-spouse-first', getValue('create-spouse-first'));
+        setIfEmpty('tag-spouse-last', getValue('create-spouse-last'));
+        setIfEmpty('tag-salutation', getValue('create-salutation'));
+      },
+    },
+    tag: {
+      form: document.getElementById('tag-form'),
+      endpoint: '/box/folder/tag',
+      button: document.querySelector('#tag-form button[type="submit"]'),
+      buildPayload() {
+        const dealId = getValue('tag-deal-id');
+        const folderId = getValue('tag-folder-id');
+        return {
+          deal_id: dealId,
+          folder_id: folderId,
+          fields: {
+            hs_deal_record_id: dealId,
+            hs_contact_id: getValue('tag-contact-id'),
+            hs_contact_firstname: getValue('tag-contact-first'),
+            hs_contact_lastname: getValue('tag-contact-last'),
+            hs_contact_email: getValue('tag-contact-email'),
+            hs_spouse_id: getValue('tag-spouse-id'),
+            hs_spouse_firstname: getValue('tag-spouse-first'),
+            hs_spouse_lastname: getValue('tag-spouse-last'),
+            hs_spouse_email: getValue('tag-spouse-email'),
+            deal_salutation: getValue('tag-salutation'),
+            household_type: getValue('tag-household'),
+          },
+        };
+      },
+      onSuccess() {
+        const folderId = getValue('tag-folder-id');
+        const dealId = getValue('tag-deal-id');
+        if (folderId) {
+          setIfEmpty('share-folder-id', folderId);
+        }
+        if (dealId) {
+          setIfEmpty('share-deal-id', dealId);
+        }
+        setIfEmpty('share-contact-email', getValue('tag-contact-email'));
+        setIfEmpty('share-spouse-email', getValue('tag-spouse-email'));
+      },
+    },
+    share: {
+      form: document.getElementById('share-form'),
+      endpoint: '/box/folder/share',
+      button: document.querySelector('#share-form button[type="submit"]'),
+      buildPayload() {
+        const dealId = getValue('share-deal-id');
+        const folderId = getValue('share-folder-id');
+        const primaryEmail = getValue('share-contact-email');
+        const spouseEmail = getValue('share-spouse-email');
+        const payload = {
+          folder_id: folderId,
+          emails: [primaryEmail, spouseEmail].filter(Boolean),
+          fields: {
+            hs_contact_email: primaryEmail,
+            hs_spouse_email: spouseEmail,
+          },
+        };
+        if (dealId) {
+          payload.deal_id = dealId;
+          payload.fields.hs_deal_record_id = dealId;
+        }
+        return payload;
+      },
+    },
+  };
+
+  function getValue(id) {
+    const el = document.getElementById(id);
+    return el ? el.value.trim() : '';
+  }
+
+  function setIfEmpty(id, value) {
+    if (!value) return;
+    const el = document.getElementById(id);
+    if (el && !el.value) {
+      el.value = value;
+    }
+  }
+
+  function setBusy(button, busy, label) {
+    if (!button) return;
+    if (busy) {
+      button.dataset.default = button.dataset.default || button.textContent;
+      button.textContent = label;
+      button.disabled = true;
+    } else {
+      button.textContent = button.dataset.default || 'Submit';
+      button.disabled = false;
+    }
+  }
+
+  function statusClass(status) {
+    return status >= 200 && status < 300 ? 'ok' : 'err';
+  }
+
+  function logAction(title, status, payload) {
+    if (!actionLog) return;
+    if (actionLog.firstElementChild && actionLog.firstElementChild.classList.contains('muted')) {
+      actionLog.innerHTML = '';
+    }
+    const entry = document.createElement('div');
+    entry.className = 'log-entry';
+    const body = JSON.stringify(payload, null, 2);
+    entry.innerHTML = `
+      <header>
+        <strong>${title}</strong>
+        <span class="log-status ${statusClass(status)}">HTTP ${status}</span>
+      </header>
+      <pre>${body}</pre>
+    `;
+    actionLog.prepend(entry);
+    statusLabel.textContent = `${title} → HTTP ${status}`;
+    const panelId = title.includes('Action 1')
+      ? 'create-result'
+      : title.includes('Action 2')
+        ? 'tag-result'
+        : null;
+    if (panelId) {
+      const panel = document.getElementById(panelId);
+      if (panel) {
+        panel.classList.remove('hidden', 'ok', 'err');
+        if (status >= 200 && status < 300) {
+          panel.classList.add('ok');
+          panel.innerHTML = `<strong>${title} · Success</strong>${payload ? `<pre>${JSON.stringify(payload, null, 2)}</pre>` : ''}`;
+        } else {
+          panel.classList.add('err');
+          panel.innerHTML = `<strong>${title} · Failed</strong>${payload ? `<pre>${JSON.stringify(payload, null, 2)}</pre>` : ''}`;
+        }
+      }
+    }
+  }
+
+  async function handleSubmit(config, title) {
+    const { form, endpoint, button, buildPayload, onSuccess } = config;
+    if (!form) return;
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const payload = buildPayload();
+      setBusy(button, true, 'Processing…');
+      try {
+    const resp = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const body = await resp.json().catch(() => ({}));
+        logAction(title, resp.status, body);
+        if (resp.ok && typeof onSuccess === 'function') {
+          onSuccess(body);
+        }
+      } catch (error) {
+        logAction(title, 0, { error: error?.message || String(error) });
     } finally {
-      confirmButton.disabled = false;
-      confirmButton.textContent = 'Create Folder';
+      setBusy(button, false);
     }
   });
+}
 
-  resetButton.addEventListener('click', () => {
-    dealInput.value = '';
-    lastPreviewDealId = null;
-    lastPreviewMetadata = null;
-    lastPreviewAssociatedIds = [];
-    lastPreviewAssociatedContacts = [];
-    Object.values(metadataInputs).forEach((input) => {
-      input.value = '';
-    });
-    metadataJson.textContent = 'No metadata';
-    previewCard.classList.add('hidden');
-    resultCard.classList.add('hidden');
-    lastStatus.textContent = 'Awaiting preview';
-    dealInput.focus();
-  });
-
-  cancelPreviewButton.addEventListener('click', () => {
-    previewCard.classList.add('hidden');
-    resultCard.classList.add('hidden');
-    lastStatus.textContent = 'Preview dismissed';
-  });
+  handleSubmit(forms.create, 'Action 1 – Create Folder');
+  handleSubmit(forms.tag, 'Action 2 – Apply Metadata');
+  handleSubmit(forms.share, 'Action 3 – Share Subfolder');
 </script>
 {% endblock %}

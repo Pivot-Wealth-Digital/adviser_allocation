@@ -148,3 +148,18 @@ After editing configuration, redeploy App Engine (or restart the local Flask ser
 ---
 
 Need a feature walkthrough that’s not covered here? Open an issue or ping the engineering channel—this guide will be updated as the platform evolves.
+
+```mermaid
+flowchart TD
+    A[Input: deal pipeline + adviser profiles]
+    B[Load upcoming schedules]
+    C[Compute clarify targets]
+    D[Apply leave & closure adjustments]
+    E[Calculate capacity score]
+    F[Select adviser based on score]
+    G[Update recommended schedule]
+    H[Persist schedule + metadata]
+    I[Return adviser & schedule]
+
+    A --> B --> C --> D --> E --> F --> G --> H --> I
+```
