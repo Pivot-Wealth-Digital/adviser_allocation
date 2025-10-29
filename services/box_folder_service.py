@@ -431,6 +431,47 @@ class BoxFolderService:
         except requests.RequestException as exc:
             raise BoxAutomationError(f"Box metadata apply failed for folder {folder_id}: {exc}") from exc
 
+    def rename_metadata_template(self, display_name: str) -> dict:
+        """Rename the configured metadata template display name."""
+        display_name = (display_name or "").strip()
+        if not display_name:
+            raise BoxAutomationError("Display name is required to rename metadata template")
+        if not self._metadata_scope or not self._metadata_template_key:
+            raise BoxAutomationError("Metadata scope/template key not configured")
+
+        url = (
+            f"{self._api_base_url}/metadata_templates/"
+            f"{self._metadata_scope}/{self._metadata_template_key}/schema"
+        )
+        payload = [
+            {
+                "op": "editTemplate",
+                "data": {
+                    "displayName": display_name,
+                },
+            }
+        ]
+        try:
+            resp = requests.put(
+                url,
+                headers=self._headers("application/json", as_user=False),
+                json=payload,
+                timeout=self._timeout,
+            )
+            resp.raise_for_status()
+        except requests.RequestException as exc:
+            raise BoxAutomationError(
+                f"Failed to rename metadata template to '{display_name}': {exc}"
+            ) from exc
+
+        logger.info(
+            "Renamed Box metadata template %s/%s to '%s'",
+            self._metadata_scope,
+            self._metadata_template_key,
+            display_name,
+        )
+        return resp.json() if resp.content else {"displayName": display_name}
+
     def _query_metadata_entry(self, field_key: str, value: Optional[str]) -> Optional[dict]:
         value = (value or "").strip()
         if not value or not self._metadata_scope or not self._metadata_template_key:
@@ -470,14 +511,19 @@ class BoxFolderService:
                 return entry
         return None
 
-    def _headers(self, content_type: Optional[str] = None) -> dict:
+    def _headers(
+        self,
+        content_type: Optional[str] = None,
+        *,
+        as_user: bool = True,
+    ) -> dict:
         headers = {
             "Authorization": f"Bearer {self._token}",
             "Accept": "application/json",
         }
         if content_type:
             headers["Content-Type"] = content_type
-        if self._as_user_id:
+        if as_user and self._as_user_id:
             headers["As-User"] = self._as_user_id
         return headers
 

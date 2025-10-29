@@ -43,6 +43,12 @@
           <span>Deal ID (hs_deal_record_id)</span>
           <input id="create-deal-id" type="text" autocomplete="off" required />
         </label>
+        <div class="inline-actions">
+          <button type="button" class="secondary" id="create-populate-btn" data-default="Populate from HubSpot">
+            Populate from HubSpot
+          </button>
+          <span id="create-populate-status" class="muted small"></span>
+        </div>
         <label>
           <span>Folder Name Override (optional)</span>
           <input id="create-folder-name" type="text" autocomplete="off" placeholder="Leave blank for auto naming" />
@@ -294,6 +300,16 @@
     gap: 12px;
   }
 
+  .inline-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .inline-actions .muted {
+    font-size: 0.8em;
+  }
+
   .input-grid label {
     display: flex;
     flex-direction: column;
@@ -457,6 +473,8 @@
 <script>
   const statusLabel = document.getElementById('status-label');
   const actionLog = document.getElementById('action-log');
+  const populateButton = document.getElementById('create-populate-btn');
+  const populateStatus = document.getElementById('create-populate-status');
 
   const forms = {
     create: {
@@ -569,6 +587,13 @@
     return el ? el.value.trim() : '';
   }
 
+  function setValue(id, value) {
+    const el = document.getElementById(id);
+    if (el) {
+      el.value = value ?? '';
+    }
+  }
+
   function setIfEmpty(id, value) {
     if (!value) return;
     const el = document.getElementById(id);
@@ -586,6 +611,117 @@
     } else {
       button.textContent = button.dataset.default || 'Submit';
       button.disabled = false;
+    }
+  }
+
+  function findContact(contacts, preferredId, fallbackIndex = 0) {
+    if (!Array.isArray(contacts) || !contacts.length) {
+      return {};
+    }
+    if (preferredId) {
+      const match = contacts.find((contact) => String(contact.id || '') === String(preferredId));
+      if (match) {
+        return match;
+      }
+    }
+    if (contacts[fallbackIndex]) {
+      return contacts[fallbackIndex];
+    }
+    return contacts[0] || {};
+  }
+
+  function normaliseContact(contact) {
+    if (!contact) {
+      return { id: '', firstname: '', lastname: '', email: '' };
+    }
+    const id = contact.id || '';
+    let firstname = contact.firstname || contact.firstName || '';
+    let lastname = contact.lastname || contact.lastName || '';
+    const email = contact.email || '';
+    if ((!firstname || !lastname) && contact.display_name) {
+      const parts = String(contact.display_name).trim().split(/\s+/);
+      if (!firstname && parts.length) {
+        firstname = parts.shift() || '';
+      }
+      if (!lastname && parts.length) {
+        lastname = parts.join(' ');
+      }
+    }
+    return { id, firstname, lastname, email };
+  }
+
+  function applyPopulateResults(dealId, body) {
+    const metadata = body?.metadata || {};
+    const contacts = Array.isArray(metadata.associated_contacts) ? metadata.associated_contacts : [];
+
+    const primary = normaliseContact(findContact(contacts, metadata.primary_contact_id, 0));
+    const spouse = normaliseContact(findContact(contacts, metadata.hs_spouse_id, 1));
+
+    if (dealId) {
+      setValue('create-deal-id', dealId);
+      setValue('tag-deal-id', dealId);
+      setIfEmpty('share-deal-id', dealId);
+    }
+
+    if (body?.folder_name) {
+      setIfEmpty('create-folder-name', body.folder_name);
+    }
+
+    // Action 1 fields
+    setValue('create-primary-first', primary.firstname || '');
+    setValue('create-primary-last', primary.lastname || '');
+    setValue('create-spouse-first', spouse.firstname || '');
+    setValue('create-spouse-last', spouse.lastname || '');
+    setValue('create-salutation', metadata.deal_salutation || '');
+
+    // Action 2 fields
+    setValue('tag-contact-id', metadata.primary_contact_id || primary.id || '');
+    setValue('tag-contact-first', primary.firstname || '');
+    setValue('tag-contact-last', primary.lastname || '');
+    setValue('tag-contact-email', primary.email || body?.share_email || '');
+    setValue('tag-spouse-id', metadata.hs_spouse_id || spouse.id || '');
+    setValue('tag-spouse-first', spouse.firstname || '');
+    setValue('tag-spouse-last', spouse.lastname || '');
+    setValue('tag-spouse-email', spouse.email || '');
+    setValue('tag-salutation', metadata.deal_salutation || '');
+    setValue('tag-household', metadata.household_type || '');
+
+    // Action 3 fields
+    setValue('share-contact-email', primary.email || body?.share_email || '');
+    setValue('share-spouse-email', spouse.email || '');
+  }
+
+  async function populateFromHubspot() {
+    if (!populateButton) return;
+    const dealId = getValue('create-deal-id');
+    if (!dealId) {
+      populateStatus.textContent = 'Enter a deal id first.';
+      return;
+    }
+
+    populateStatus.textContent = '';
+    setBusy(populateButton, true, 'Loading…');
+    try {
+      const resp = await fetch('/post/create_box_folder/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deal_id: dealId }),
+      });
+      const body = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        const message = body?.message || `HTTP ${resp.status}`;
+        populateStatus.textContent = `Error: ${message}`;
+        return;
+      }
+
+      applyPopulateResults(dealId, body);
+      const source = body?.metadata_source ? ` (${body.metadata_source})` : '';
+      populateStatus.textContent = `Populated${source}`;
+      statusLabel.textContent = `Prefilled from HubSpot deal ${dealId}`;
+    } catch (error) {
+      populateStatus.textContent = `Error: ${error?.message || String(error)}`;
+    } finally {
+      setBusy(populateButton, false);
     }
   }
 
@@ -655,6 +791,10 @@
     }
   });
 }
+
+  if (populateButton) {
+    populateButton.addEventListener('click', populateFromHubspot);
+  }
 
   handleSubmit(forms.create, 'Action 1 – Create Folder');
   handleSubmit(forms.tag, 'Action 2 – Apply Metadata');

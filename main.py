@@ -107,6 +107,7 @@ def require_login():
         '/post/create_box_folder',
         '/box/folder/create',
         '/box/folder/tag',
+        '/box/folder/tag/auto',
         '/box/folder/share',
     ]
     

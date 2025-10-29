@@ -73,6 +73,12 @@
   <div id="contact-details" class="contact-details muted small">
     Select a collaborator to load HubSpot details.
   </div>
+  <div id="metadata-actions" class="contact-actions hidden">
+    <button type="button" class="primary" id="metadata-create-btn" data-default="Create Box Metadata">
+      Create Box Metadata
+    </button>
+    <p id="metadata-status" class="muted small"></p>
+  </div>
 </div>
 
 <div id="error-card" class="card error-card hidden"></div>
@@ -191,6 +197,16 @@
     border-bottom: 1px solid rgba(148, 163, 184, 0.35);
   }
 
+  .contact-actions {
+    margin-top: 12px;
+    display: grid;
+    gap: 6px;
+  }
+
+  .contact-actions button {
+    width: fit-content;
+  }
+
   .hubspot-btn {
     font-size: 0.8em;
     padding: 4px 10px;
@@ -258,10 +274,15 @@
   const errorCard = document.getElementById('error-card');
   const contactCard = document.getElementById('contact-card');
   const contactDetails = document.getElementById('contact-details');
+  const metadataActions = document.getElementById('metadata-actions');
+  const metadataButton = document.getElementById('metadata-create-btn');
+  const metadataStatus = document.getElementById('metadata-status');
 
   let selectedSubfolderId = null;
   let selectedSubfolderName = null;
   let currentFolderId = '';
+  let lastCollabResponse = null;
+  let lastContactData = null;
 
   function setBusy(button, busy, label) {
     if (!button) return;
@@ -280,6 +301,9 @@
     externalCard.classList.add('hidden');
     errorCard.classList.add('hidden');
     contactCard.classList.add('hidden');
+    if (metadataActions) {
+      metadataActions.classList.add('hidden');
+    }
     contactDetails.textContent = 'Select a collaborator to load HubSpot details.';
     collabTableBody.innerHTML = '<tr><td colspan="5" class="muted">No results yet.</td></tr>';
     externalList.innerHTML = '';
@@ -297,12 +321,17 @@
     selectedSubfolderId = null;
     selectedSubfolderName = null;
     currentFolderId = '';
+    lastCollabResponse = null;
+    lastContactData = null;
+    if (metadataStatus) {
+      metadataStatus.textContent = '';
+    }
   }
 
-  async function fetchJSON(url) {
+  async function fetchJSON(url, options) {
     let resp;
     try {
-      resp = await fetch(url);
+      resp = await fetch(url, options);
     } catch (networkError) {
       const error = new Error('Network error while contacting the server');
       error.detail = { network: true, original: String(networkError) };
@@ -475,6 +504,16 @@
   }
 
   function renderCollaborators(data) {
+    lastCollabResponse = data || null;
+    lastContactData = null;
+    contactCard.classList.add('hidden');
+    contactDetails.textContent = 'Select a collaborator to load HubSpot details.';
+    if (metadataActions) {
+      metadataActions.classList.add('hidden');
+      metadataStatus.textContent = '';
+      metadataButton.disabled = false;
+    }
+
     const pivotDomain = '@pivotwealth.com.au';
     const external = (data.external && Array.isArray(data.external))
       ? data.external
@@ -537,11 +576,17 @@
 
   function renderContactDetails(data) {
     if (!data || !data.contact) {
+      lastContactData = null;
       contactDetails.textContent = 'No HubSpot details found.';
       contactCard.classList.remove('hidden');
+      if (metadataActions) {
+        metadataActions.classList.add('hidden');
+        metadataStatus.textContent = 'Metadata creation requires contact and deal context.';
+      }
       return;
     }
 
+    lastContactData = data;
     const contact = data.contact;
     const props = contact.properties || {};
     const deals = data.deals || [];
@@ -573,6 +618,111 @@
 
     contactDetails.innerHTML = html;
     contactCard.classList.remove('hidden');
+    if (metadataActions) {
+      metadataActions.classList.remove('hidden');
+      metadataStatus.textContent = deals.length
+        ? 'Ready. Click to apply metadata and confirm the deal id when prompted.'
+        : 'No associated deals found. You will be prompted for a deal id.';
+      metadataButton.disabled = false;
+    }
+  }
+
+  function determineDefaultDealId() {
+    const deals = lastContactData?.deals;
+    if (!Array.isArray(deals) || !deals.length) {
+      return '';
+    }
+    const byRecordId = deals.find((deal) => {
+      const props = deal.properties || {};
+      return props.hs_deal_record_id;
+    });
+    if (byRecordId) {
+      return byRecordId.properties.hs_deal_record_id;
+    }
+    return String(deals[0].id || '');
+  }
+
+  async function createMetadata() {
+    if (!metadataButton) {
+      return;
+    }
+
+    const folderId = (lastCollabResponse && lastCollabResponse.inspected && lastCollabResponse.inspected.id)
+      || currentFolderId
+      || folderInput.value.trim();
+    if (!folderId) {
+      metadataStatus.textContent = 'Folder id is unavailable. Load collaborators first.';
+      return;
+    }
+
+    const defaultDealId = determineDefaultDealId();
+    let dealId = window.prompt('Enter HubSpot deal id for metadata tagging', defaultDealId);
+    if (dealId === null) {
+      metadataStatus.textContent = 'Metadata creation cancelled.';
+      return;
+    }
+    dealId = (dealId || '').trim();
+    if (!dealId) {
+      metadataStatus.textContent = 'Deal id is required to apply metadata.';
+      return;
+    }
+
+    const payload = {
+      folder_id: folderId,
+      deal_id: dealId,
+      hs_deal_record_id: dealId,
+    };
+
+    if (lastContactData && lastContactData.contact) {
+      const contact = lastContactData.contact;
+      const props = contact.properties || {};
+      if (contact.id) payload.hs_contact_id = contact.id;
+      if (props.firstname) payload.hs_contact_firstname = props.firstname;
+      if (props.lastname) payload.hs_contact_lastname = props.lastname;
+      if (props.email) payload.hs_contact_email = props.email;
+    }
+
+    const deals = Array.isArray(lastContactData?.deals) ? lastContactData.deals : [];
+    const selectedDeal = deals.find((deal) => {
+      const props = deal.properties || {};
+      return props.hs_deal_record_id === dealId || String(deal.id) === dealId;
+    }) || deals[0];
+    if (selectedDeal && selectedDeal.properties) {
+      const props = selectedDeal.properties;
+      if (props.deal_salutation) payload.deal_salutation = props.deal_salutation;
+      if (props.household_type) payload.household_type = props.household_type;
+      if (props.hs_spouse_id) payload.hs_spouse_id = props.hs_spouse_id;
+      if (props.hs_spouse_firstname) payload.hs_spouse_firstname = props.hs_spouse_firstname;
+      if (props.hs_spouse_lastname) payload.hs_spouse_lastname = props.hs_spouse_lastname;
+      if (props.hs_spouse_email) payload.hs_spouse_email = props.hs_spouse_email;
+    }
+
+    statusText.textContent = 'Applying metadata…';
+    metadataStatus.textContent = 'Applying metadata…';
+    setBusy(metadataButton, true, 'Working…');
+
+    try {
+      const data = await fetchJSON('/box/folder/tag/auto', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+      metadataStatus.textContent = `Metadata applied. Fields updated: ${data.metadata_fields.length}`;
+      statusText.textContent = `Metadata applied to folder ${data.folder_id}`;
+    } catch (error) {
+      metadataStatus.textContent = `Metadata creation failed: ${error.message}`;
+      statusText.textContent = `Metadata error · ${error.message}`;
+      errorCard.classList.remove('hidden');
+      const detailText = error.detail && Object.keys(error.detail).length
+        ? `<br/><code>${JSON.stringify(error.detail, null, 2)}</code>`
+        : '';
+      errorCard.innerHTML = `<strong>Error:</strong> ${error.message}${detailText}`;
+      console.error(error);
+    } finally {
+      setBusy(metadataButton, false);
+    }
   }
 
   function showError(error) {
@@ -653,6 +803,12 @@
   }
 
   folderInput.addEventListener('keypress', handleEnterKey);
+
+  if (metadataButton) {
+    metadataButton.addEventListener('click', () => {
+      createMetadata();
+    });
+  }
 
   resetUI();
 </script>

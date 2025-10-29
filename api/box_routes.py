@@ -85,6 +85,46 @@ def _extract_payload_value(payload: dict, key: str) -> Optional[str]:
     return None
 
 
+REQUIRED_METADATA_PAYLOAD_FIELDS = [
+    "hs_deal_record_id",
+    "hs_contact_id",
+    "hs_contact_firstname",
+    "hs_contact_lastname",
+    "hs_contact_email",
+    "hs_spouse_id",
+    "hs_spouse_firstname",
+    "hs_spouse_lastname",
+    "hs_spouse_email",
+    "deal_salutation",
+    "household_type",
+]
+
+REQUIRED_METADATA_TEMPLATE_FIELDS = {
+    "deal_salutation",
+    "household_type",
+    "primary_contact_id",
+    "primary_contact_link",
+    "hs_spouse_id",
+    "spouse_contact_link",
+}
+
+
+def _missing_metadata_fields(metadata: Optional[dict]) -> List[str]:
+    if not metadata:
+        return sorted(list(REQUIRED_METADATA_TEMPLATE_FIELDS))
+
+    missing: List[str] = []
+    for key in REQUIRED_METADATA_TEMPLATE_FIELDS:
+        value = metadata.get(key)
+        if value is None:
+            missing.append(key)
+            continue
+        if isinstance(value, str) and not value.strip():
+            missing.append(key)
+            continue
+    return missing
+
+
 def _build_metadata_from_payload(payload: dict) -> Tuple[dict, List[dict], Optional[str]]:
     """
     Build metadata and contact hints from a HubSpot workflow event payload.
@@ -578,21 +618,8 @@ def box_folder_apply_metadata():
         return jsonify({"message": "folder_id is required"}), 400
 
     deal_id = _resolve_deal_id(payload)
-    required_payload_fields = [
-        "hs_deal_record_id",
-        "hs_contact_id",
-        "hs_contact_firstname",
-        "hs_contact_lastname",
-        "hs_contact_email",
-        "hs_spouse_id",
-        "hs_spouse_firstname",
-        "hs_spouse_lastname",
-        "hs_spouse_email",
-        "deal_salutation",
-        "household_type",
-    ]
     missing_payload_fields = [
-        key for key in required_payload_fields if not _extract_payload_value(payload, key)
+        key for key in REQUIRED_METADATA_PAYLOAD_FIELDS if not _extract_payload_value(payload, key)
     ]
     if missing_payload_fields:
         return (
@@ -609,15 +636,7 @@ def box_folder_apply_metadata():
     metadata_override = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else None
     metadata = _merge_metadata(metadata_payload, metadata_override) or {}
 
-    required_metadata_keys = {
-        "deal_salutation",
-        "household_type",
-        "primary_contact_id",
-        "primary_contact_link",
-        "hs_spouse_id",
-        "spouse_contact_link",
-    }
-    missing_metadata = [key for key in required_metadata_keys if not metadata.get(key)]
+    missing_metadata = _missing_metadata_fields(metadata)
     if missing_metadata:
         return (
             jsonify(
@@ -644,6 +663,65 @@ def box_folder_apply_metadata():
         "folder_id": folder_id,
         "metadata_fields": sorted(metadata.keys()),
         "status": "tagged",
+    }
+    return jsonify(response), 200
+
+
+@box_bp.route("/box/folder/tag/auto", methods=["POST"])
+def box_folder_apply_metadata_auto():
+    """Apply metadata using minimal payload, fetching missing fields from HubSpot if required."""
+    if not request.is_json:
+        return jsonify({"message": "Invalid Content-Type"}), 415
+
+    payload = request.get_json() or {}
+    folder_id = _extract_folder_id(payload)
+    if not folder_id:
+        return jsonify({"message": "folder_id is required"}), 400
+
+    deal_id = _resolve_deal_id(payload)
+    if not deal_id:
+        return jsonify({"message": "deal_id is required"}), 400
+
+    metadata_payload, _, _ = _build_metadata_from_payload(payload)
+    metadata_override = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else None
+    metadata = _merge_metadata(metadata_payload, metadata_override) or {}
+    metadata_source = "payload" if metadata else ""
+
+    missing_metadata = _missing_metadata_fields(metadata)
+    if missing_metadata:
+        fetched_metadata = _fetch_deal_metadata(str(deal_id)) or {}
+        if fetched_metadata:
+            metadata = _merge_metadata(metadata, fetched_metadata) or fetched_metadata
+            metadata_source = "payload+hubspot" if metadata_source == "payload" else "hubspot"
+        missing_metadata = _missing_metadata_fields(metadata)
+
+    if missing_metadata:
+        return (
+            jsonify(
+                {
+                    "message": "Unable to build complete metadata",
+                    "missing": missing_metadata,
+                }
+            ),
+            400,
+        )
+
+    service = ensure_box_service()
+    if not service:
+        return jsonify({"message": "Box automation not configured"}), 503
+
+    try:
+        service.apply_metadata_template(folder_id, metadata)
+    except BoxAutomationError as exc:
+        logger.error("Auto metadata apply failed for folder %s deal %s: %s", folder_id, deal_id, exc)
+        return jsonify({"message": "Box metadata apply failed", "error": str(exc)}), 500
+
+    response = {
+        "deal_id": str(deal_id),
+        "folder_id": folder_id,
+        "metadata_fields": sorted(metadata.keys()),
+        "status": "tagged",
+        "metadata_source": metadata_source or "hubspot",
     }
     return jsonify(response), 200
 
