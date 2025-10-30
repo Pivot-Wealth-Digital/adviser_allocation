@@ -834,15 +834,24 @@ def _format_contact_display(contact: dict, position: int = 0) -> str:
         return first if first else (last or "").strip()
 
 
-def build_client_folder_name(deal_id: str, contacts: List[dict]) -> str:
-    """Build Box folder name from deal contacts.
+def build_client_folder_name(
+    deal_id: str,
+    contacts: List[dict],
+    *,
+    deal_salutation: Optional[str] = None,
+) -> str:
+    """Determine the Box folder name for a deal.
 
-    Naming convention: "Last, First & First & First"
-    - First contact: Last, First
-    - Additional contacts: First name only
-
-    Example: "Smith, John & Jane & Bob"
+    Preferred naming convention is the deal salutation. If no salutation is
+    supplied, fall back to contact-based naming:
+      - First contact: "Last, First"
+      - Additional contacts: "First"
+      - Joined with " & "
     """
+    salutation = (deal_salutation or "").strip()
+    if salutation:
+        return sanitize_folder_name(salutation)
+
     unique_names: List[str] = []
     for idx, contact in enumerate(contacts):
         display = _format_contact_display(contact, position=idx)
@@ -860,6 +869,8 @@ def provision_box_folder(
     deal_id: str,
     contacts_override: Optional[List[dict]] = None,
     folder_name_override: Optional[str] = None,
+    *,
+    deal_salutation: Optional[str] = None,
 ) -> dict:
     """Create the Box client folder without applying metadata or sharing.
 
@@ -867,6 +878,7 @@ def provision_box_folder(
         deal_id: HubSpot deal ID
         contacts_override: Optional contacts list to use when building the folder name
         folder_name_override: Optional explicit folder name
+        deal_salutation: Optional pre-formatted salutation to prioritise for naming
 
     Returns:
         Dict describing the folder result.
@@ -885,7 +897,11 @@ def provision_box_folder(
     contacts = contacts_override or get_hubspot_deal_contacts(deal_id)
     folder_name = (folder_name_override or "").strip()
     if not folder_name:
-        folder_name = build_client_folder_name(deal_id, contacts)
+        folder_name = build_client_folder_name(
+            deal_id,
+            contacts,
+            deal_salutation=deal_salutation,
+        )
 
     folder = service.ensure_client_folder(folder_name)
     folder_id = folder.get("id") if folder else None
@@ -971,6 +987,7 @@ def create_box_folder_for_deal(
     folder_name = None
 
     metadata_payload = dict(deal_metadata or {})
+    deal_salutation_value = (metadata_payload.get("deal_salutation") or "").strip()
     metadata_response = dict(metadata_payload)
     logger.debug(
         "Prepared metadata payload for deal %s with keys=%s",
@@ -1007,7 +1024,11 @@ def create_box_folder_for_deal(
                 BOX_ACTIVE_CLIENTS_PATH,
             )
         else:
-            folder_name = build_client_folder_name(deal_id, contacts)
+            folder_name = build_client_folder_name(
+                deal_id,
+                contacts,
+                deal_salutation=deal_salutation_value,
+            )
             logger.info('Using folder name %s under %s', folder_name, BOX_ACTIVE_CLIENTS_PATH)
         folder = service.ensure_client_folder(folder_name)
         logger.info('Created Box folder for deal %s (id=%s)', deal_id, folder.get('id'))
@@ -1109,7 +1130,11 @@ def create_box_folder_for_deal(
     resolved_folder_name = (
         (folder.get("name") if folder else None)
         or folder_name
-        or build_client_folder_name(deal_id, contacts)
+        or build_client_folder_name(
+            deal_id,
+            contacts,
+            deal_salutation=deal_salutation_value,
+        )
     )
     parent_path = BOX_ACTIVE_CLIENTS_PATH
     full_path = None
