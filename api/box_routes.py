@@ -545,7 +545,6 @@ def box_folder_create_only():
             deal_id,
             contacts_override=contacts_hint,
             folder_name_override=folder_name_override,
-            deal_salutation=salutation,
         )
     except BoxAutomationError as exc:
         logger.error("Box folder creation failed for deal %s: %s", deal_id, exc)
@@ -967,22 +966,12 @@ def box_folder_preview():
         if (display := box_service._format_contact_display(contact, position=idx))
     ]
 
-    metadata_source = "payload" if metadata else "hubspot"
+    metadata_source = "payload"
     if not metadata:
         metadata = _fetch_deal_metadata(deal_id) or {}
-    else:
-        salutation_present = bool((metadata.get("deal_salutation") or "").strip())
-        if not salutation_present:
-            fetched = _fetch_deal_metadata(deal_id) or {}
-            if fetched:
-                metadata = _merge_metadata(metadata, fetched) or fetched
-                metadata_source = "payload+hubspot"
+        metadata_source = "hubspot"
 
-    folder_name = box_service.build_client_folder_name(
-        deal_id,
-        contacts,
-        deal_salutation=(metadata.get("deal_salutation") if metadata else None),
-    )
+    folder_name = box_service.build_client_folder_name(deal_id, contacts)
 
     response = {
         "deal_id": deal_id,
