@@ -24,6 +24,18 @@
 </div>
 
 <div class="card">
+  <h3>Folder Naming Rules</h3>
+  <ul>
+    <li>Single contact → <code>First Last</code> (e.g. <em>Alex Taylor</em>).</li>
+    <li>Two contacts with the same surname → <code>First &amp; PartnerFirst Last</code> (e.g. <em>Alex &amp; Sam Taylor</em>).</li>
+    <li>Two contacts with different surnames → <code>First Last &amp; PartnerFirst PartnerLast</code> (e.g. <em>Priya Patel &amp; Chris Williams</em>).</li>
+    <li>Primary + spouse only — additional associated contacts do not appear in the folder name.</li>
+    <li>If no contact names are available, the system falls back to <code>Deal {deal_id}</code>.</li>
+  </ul>
+  <p class="muted">Names come directly from the associated HubSpot contacts included in the deal payload—provide them in the order you want them to appear.</p>
+</div>
+
+<div class="card">
   <h3>Endpoint Input Reference</h3>
   <table class="input-table">
     <thead>

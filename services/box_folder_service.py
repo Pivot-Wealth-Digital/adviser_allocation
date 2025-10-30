@@ -878,13 +878,6 @@ def build_client_folder_name(deal_id: str, contacts: List[dict]) -> str:
     elif primary_first or primary_last:
         candidate = _join(primary_first, primary_last)
 
-    extra_contacts = []
-    if len(contacts) > 2:
-        for idx, contact in enumerate(contacts[2:], start=2):
-            display = _format_contact_display(contact, position=idx)
-            if display:
-                extra_contacts.append(display)
-
     if not candidate:
         unique_names: List[str] = []
         for idx, contact in enumerate(contacts):
@@ -894,8 +887,6 @@ def build_client_folder_name(deal_id: str, contacts: List[dict]) -> str:
         if not unique_names:
             unique_names.append(f"Deal {deal_id}")
         candidate = " & ".join(unique_names)
-    elif extra_contacts:
-        candidate = " & ".join([candidate, *extra_contacts])
 
     return sanitize_folder_name(candidate)
 
