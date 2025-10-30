@@ -243,6 +243,15 @@ def workflows_box_details():
     )
 
 
+@app.route("/workflows/adviser-allocation")
+def workflows_adviser_allocation():
+    return render_template(
+        "workflows_adviser_allocation.html",
+        today=sydney_today().isoformat(),
+        app_version=APP_VERSION,
+    )
+
+
 @app.route("/docs/<path:filename>")
 def serve_docs(filename: str):
     """Serve workflow documentation assets."""

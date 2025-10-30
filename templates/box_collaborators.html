@@ -50,6 +50,7 @@
   <p class="muted small" id="summary-target"></p>
   <p><strong>Total collaborators:</strong> <span id="collab-total">0</span></p>
   <p><strong>External collaborators:</strong> <span id="external-total">0</span></p>
+
   <div class="table-wrapper">
     <table>
       <thead>
@@ -68,6 +69,14 @@
   </div>
 </div>
 
+<div id="deal-card" class="card hidden">
+  <div class="deal-header">
+    <h3>Associated Deals</h3>
+    <select id="deal-select" class="deal-select"></select>
+  </div>
+  <p class="muted small" id="deal-message">Select a deal to load metadata values.</p>
+</div>
+
 <div id="contact-card" class="card hidden">
   <h3>HubSpot Contact Details</h3>
   <div id="contact-details" class="contact-details muted small">
@@ -78,6 +87,10 @@
       Create Box Metadata
     </button>
     <p id="metadata-status" class="muted small"></p>
+    <div id="metadata-preview" class="metadata-preview hidden">
+      <h4 class="muted small">Metadata preview</h4>
+      <pre id="metadata-preview-content"></pre>
+    </div>
   </div>
 </div>
 
@@ -180,6 +193,27 @@
     gap: 6px;
   }
 
+  .deal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .deal-select {
+    min-width: 220px;
+    padding: 6px 8px;
+  }
+
+  .pivot-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.85em;
+    color: #52606d;
+    margin-bottom: 12px;
+  }
+
   .contact-details {
     display: grid;
     gap: 10px;
@@ -205,6 +239,21 @@
 
   .contact-actions button {
     width: fit-content;
+  }
+
+  .metadata-preview {
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 10px;
+    padding: 10px;
+    background: rgba(15, 23, 42, 0.02);
+    max-width: 420px;
+  }
+
+  .metadata-preview pre {
+    margin: 6px 0 0 0;
+    font-size: 0.82em;
+    max-height: 220px;
+    overflow: auto;
   }
 
   .hubspot-btn {
@@ -271,18 +320,26 @@
   const externalCard = document.getElementById('external-card');
   const externalList = document.getElementById('external-list');
   const externalEmpty = document.getElementById('external-empty');
+  const dealCard = document.getElementById('deal-card');
+  const dealSelect = document.getElementById('deal-select');
+  const dealMessage = document.getElementById('deal-message');
   const errorCard = document.getElementById('error-card');
   const contactCard = document.getElementById('contact-card');
   const contactDetails = document.getElementById('contact-details');
   const metadataActions = document.getElementById('metadata-actions');
   const metadataButton = document.getElementById('metadata-create-btn');
   const metadataStatus = document.getElementById('metadata-status');
+  const metadataPreview = document.getElementById('metadata-preview');
+  const metadataPreviewContent = document.getElementById('metadata-preview-content');
 
   let selectedSubfolderId = null;
   let selectedSubfolderName = null;
   let currentFolderId = '';
   let lastCollabResponse = null;
   let lastContactData = null;
+  let rootFolderId = '';
+  let currentDealList = [];
+  let currentSelectedDeal = null;
 
   function setBusy(button, busy, label) {
     if (!button) return;
@@ -304,11 +361,20 @@
     if (metadataActions) {
       metadataActions.classList.add('hidden');
     }
+    if (metadataPreview) {
+      metadataPreview.classList.add('hidden');
+    }
+    if (metadataPreviewContent) {
+      metadataPreviewContent.textContent = '';
+    }
     contactDetails.textContent = 'Select a collaborator to load HubSpot details.';
     collabTableBody.innerHTML = '<tr><td colspan="5" class="muted">No results yet.</td></tr>';
     externalList.innerHTML = '';
     externalList.classList.add('hidden');
     externalEmpty.classList.remove('hidden');
+    if (dealSelect) dealSelect.innerHTML = '';
+    if (dealMessage) dealMessage.textContent = 'Select a deal to load metadata values.';
+    if (dealCard) dealCard.classList.add('hidden');
     collabTotal.textContent = '0';
     externalTotal.textContent = '0';
     statusText.textContent = 'Awaiting folder id';
@@ -323,6 +389,9 @@
     currentFolderId = '';
     lastCollabResponse = null;
     lastContactData = null;
+    currentDealList = [];
+    currentSelectedDeal = null;
+    rootFolderId = '';
     if (metadataStatus) {
       metadataStatus.textContent = '';
     }
@@ -391,11 +460,27 @@
     }
   }
 
+  function normalizeFolderId(raw) {
+    const value = (raw || '').trim();
+    if (!value) return '';
+    const urlMatch = value.match(/(?:folder=|folders\/|folder\/)(\d{5,})/i);
+    if (urlMatch) {
+      return urlMatch[1];
+    }
+    const idMatch = value.match(/(\d{5,})/);
+    return idMatch ? idMatch[1] : value;
+  }
+
   async function loadSubfolders() {
-    const folderId = folderInput.value.trim();
+    const rawFolderValue = folderInput.value.trim();
+    const folderId = normalizeFolderId(rawFolderValue);
     if (!folderId) {
       statusText.textContent = 'Validation error · folder id required';
       return;
+    }
+
+    if (folderId !== rawFolderValue) {
+      folderInput.value = folderId;
     }
 
     setBusy(loadSubfoldersButton, true, 'Loading…');
@@ -406,6 +491,7 @@
       url.searchParams.set('folder_id', folderId);
       const data = await fetchJSON(url);
       currentFolderId = folderId;
+      rootFolderId = folderId;
       renderSubfolders(data.subfolders || [], folderId);
       statusText.textContent = (data.subfolders || []).length
         ? 'Select a subfolder then choose Show Collaborators.'
@@ -471,9 +557,19 @@
   }
 
   async function showCollaborators(button, folderId, subfolderId, subfolderName) {
+    const normalizedFolderId = normalizeFolderId(folderId);
+    if (normalizedFolderId !== folderId) {
+      folderId = normalizedFolderId;
+      folderInput.value = folderId;
+    }
+
     if (!folderId) {
       statusText.textContent = 'Validation error · folder id required';
       return;
+    }
+
+    if (!subfolderId) {
+      rootFolderId = folderId;
     }
 
     setBusy(button, true, 'Loading…');
@@ -482,7 +578,6 @@
     try {
       const url = new URL('/box/folder/collaborators', window.location.origin);
       url.searchParams.set('folder_id', folderId);
-      url.searchParams.set('include_subfolders', '1');
       if (subfolderId) {
         url.searchParams.set('subfolder_id', subfolderId);
         if (subfolderName) {
@@ -491,10 +586,11 @@
       }
       const data = await fetchJSON(url);
       currentFolderId = folderId;
-      renderCollaborators(data);
-      if (Array.isArray(data.subfolders)) {
-        renderSubfolders(data.subfolders, folderId, subfolderId);
+      if (!rootFolderId) {
+        rootFolderId = folderId;
       }
+      renderCollaborators(data);
+      rootFolderId = data.folder_id || rootFolderId || folderId;
       statusText.textContent = `Success · ${data.total} collaborators found`;
     } catch (error) {
       showError(error);
@@ -513,17 +609,28 @@
       metadataStatus.textContent = '';
       metadataButton.disabled = false;
     }
+    if (metadataPreview) {
+      metadataPreview.classList.add('hidden');
+    }
+    if (metadataPreviewContent) {
+      metadataPreviewContent.textContent = '';
+    }
+    if (dealSelect) dealSelect.innerHTML = '';
+    if (dealMessage) dealMessage.textContent = 'Select a deal to load metadata values.';
+    if (dealCard) dealCard.classList.add('hidden');
+    currentDealList = [];
+    currentSelectedDeal = null;
 
     const pivotDomain = '@pivotwealth.com.au';
+    const collaborators = Array.isArray(data.collaborators) ? data.collaborators : [];
     const external = (data.external && Array.isArray(data.external))
       ? data.external
-      : (data.collaborators || []).filter(
+      : collaborators.filter(
           (collab) => collab.email && !collab.email.endsWith(pivotDomain)
         );
-    const displayed = external;
-
-    collabTotal.textContent = displayed.length;
-    externalTotal.textContent = displayed.length;
+    collabTotal.textContent = collaborators.length;
+    const externalCount = external.length;
+    externalTotal.textContent = externalCount;
 
     let summaryText;
     if (data.inspected && data.inspected.id) {
@@ -532,16 +639,18 @@
     } else {
       summaryText = `Inspecting folder ${data.target_folder_id}`;
     }
-    summaryTarget.textContent = `${summaryText} · Pivot emails hidden`;
+    summaryTarget.textContent = `${summaryText} · ${externalCount} external collaborators highlighted`;
 
     collabTableBody.innerHTML = '';
-    if (!displayed.length) {
+    if (!external.length) {
       collabTableBody.innerHTML = '<tr><td colspan="5" class="muted">No external collaborators found.</td></tr>';
     } else {
-      displayed.forEach((collab) => {
+      external.forEach((collab) => {
         const tr = document.createElement('tr');
         const email = collab.email || '—';
         tr.classList.add('external');
+        tr.dataset.isExternal = '1';
+
         tr.innerHTML = `
           <td>${email}</td>
           <td>${collab.name || '—'}</td>
@@ -553,9 +662,9 @@
       });
     }
 
-    if (displayed.length) {
+    if (externalCount) {
       externalList.innerHTML = '';
-      displayed.forEach((collab) => {
+      external.forEach((collab) => {
         const li = document.createElement('li');
         li.textContent = `${collab.email} (${collab.name || 'no name'})`;
         externalList.appendChild(li);
@@ -567,6 +676,7 @@
       externalCard.classList.add('hidden');
       externalList.classList.add('hidden');
       externalEmpty.classList.remove('hidden');
+      externalEmpty.textContent = 'No external collaborators detected.';
     }
 
     contactCard.classList.add('hidden');
@@ -582,6 +692,12 @@
       if (metadataActions) {
         metadataActions.classList.add('hidden');
         metadataStatus.textContent = 'Metadata creation requires contact and deal context.';
+      }
+      if (metadataPreview) {
+        metadataPreview.classList.add('hidden');
+      }
+      if (metadataPreviewContent) {
+        metadataPreviewContent.textContent = '';
       }
       return;
     }
@@ -617,54 +733,77 @@
     }
 
     contactDetails.innerHTML = html;
-    contactCard.classList.remove('hidden');
+  contactCard.classList.remove('hidden');
     if (metadataActions) {
       metadataActions.classList.remove('hidden');
       metadataStatus.textContent = deals.length
-        ? 'Ready. Click to apply metadata and confirm the deal id when prompted.'
-        : 'No associated deals found. You will be prompted for a deal id.';
+        ? 'Select a deal from the dropdown below before applying metadata.'
+        : 'No associated deals found. You will be prompted for details before applying.';
       metadataButton.disabled = false;
     }
+  if (metadataPreview) {
+    metadataPreview.classList.add('hidden');
   }
-
-  function determineDefaultDealId() {
-    const deals = lastContactData?.deals;
-    if (!Array.isArray(deals) || !deals.length) {
-      return '';
-    }
-    const byRecordId = deals.find((deal) => {
-      const props = deal.properties || {};
-      return props.hs_deal_record_id;
-    });
-    if (byRecordId) {
-      return byRecordId.properties.hs_deal_record_id;
-    }
-    return String(deals[0].id || '');
+  if (metadataPreviewContent) {
+    metadataPreviewContent.textContent = '';
   }
+  populateDealDropdown(deals);
+}
 
   async function createMetadata() {
     if (!metadataButton) {
       return;
     }
 
-    const folderId = (lastCollabResponse && lastCollabResponse.inspected && lastCollabResponse.inspected.id)
+    const folderValue = rootFolderId
+      || (lastCollabResponse && lastCollabResponse.inspected && lastCollabResponse.inspected.id)
       || currentFolderId
       || folderInput.value.trim();
+    const folderId = normalizeFolderId(folderValue);
     if (!folderId) {
       metadataStatus.textContent = 'Folder id is unavailable. Load collaborators first.';
       return;
     }
-
-    const defaultDealId = determineDefaultDealId();
-    let dealId = window.prompt('Enter HubSpot deal id for metadata tagging', defaultDealId);
-    if (dealId === null) {
-      metadataStatus.textContent = 'Metadata creation cancelled.';
-      return;
+    if (folderId !== folderValue) {
+      folderInput.value = folderId;
     }
-    dealId = (dealId || '').trim();
-    if (!dealId) {
-      metadataStatus.textContent = 'Deal id is required to apply metadata.';
-      return;
+
+    let selectedDeal = currentSelectedDeal;
+    let dealId = '';
+    if (!selectedDeal) {
+      const manual = window.prompt('Enter HubSpot deal id for metadata tagging');
+      if (manual === null) {
+        metadataStatus.textContent = 'Metadata creation cancelled.';
+        return;
+      }
+      dealId = (manual || '').trim();
+      if (!dealId) {
+        metadataStatus.textContent = 'Deal id is required to apply metadata.';
+        return;
+      }
+      if (metadataStatus) {
+        metadataStatus.textContent = 'Using manually supplied deal id.';
+      }
+      const possibleDeals = Array.isArray(lastContactData?.deals) ? lastContactData.deals : [];
+      selectedDeal = possibleDeals.find((deal) => {
+        const props = deal.properties || {};
+        return props.hs_deal_record_id === dealId || String(deal.id) === dealId;
+      }) || null;
+      if (selectedDeal) {
+        currentSelectedDeal = selectedDeal;
+      }
+      if (dealMessage) {
+        dealMessage.textContent = selectedDeal
+          ? `Using ${selectedDeal.properties?.dealname || dealId}`
+          : `Using manual deal id ${dealId}`;
+      }
+    } else {
+      const dealProps = selectedDeal.properties || {};
+      dealId = String(dealProps.hs_deal_record_id || selectedDeal.id || '').trim();
+      if (!dealId) {
+        metadataStatus.textContent = 'Selected deal is missing an id; please choose another deal.';
+        return;
+      }
     }
 
     const payload = {
@@ -682,11 +821,6 @@
       if (props.email) payload.hs_contact_email = props.email;
     }
 
-    const deals = Array.isArray(lastContactData?.deals) ? lastContactData.deals : [];
-    const selectedDeal = deals.find((deal) => {
-      const props = deal.properties || {};
-      return props.hs_deal_record_id === dealId || String(deal.id) === dealId;
-    }) || deals[0];
     if (selectedDeal && selectedDeal.properties) {
       const props = selectedDeal.properties;
       if (props.deal_salutation) payload.deal_salutation = props.deal_salutation;
@@ -695,6 +829,14 @@
       if (props.hs_spouse_firstname) payload.hs_spouse_firstname = props.hs_spouse_firstname;
       if (props.hs_spouse_lastname) payload.hs_spouse_lastname = props.hs_spouse_lastname;
       if (props.hs_spouse_email) payload.hs_spouse_email = props.hs_spouse_email;
+    }
+
+    generateMetadataPreview(payload, selectedDeal);
+    const confirmed = window.confirm('Apply metadata using the previewed values?');
+    if (!confirmed) {
+      metadataStatus.textContent = 'Metadata creation cancelled.';
+      statusText.textContent = 'Metadata apply cancelled.';
+      return;
     }
 
     statusText.textContent = 'Applying metadata…';
@@ -734,6 +876,15 @@
     resultsWrapper.classList.add('hidden');
     externalCard.classList.add('hidden');
     contactCard.classList.add('hidden');
+    if (dealCard) dealCard.classList.add('hidden');
+    if (dealSelect) dealSelect.innerHTML = '';
+    if (dealMessage) dealMessage.textContent = 'Select a deal to load metadata values.';
+    if (metadataPreview) {
+      metadataPreview.classList.add('hidden');
+    }
+    if (metadataPreviewContent) {
+      metadataPreviewContent.textContent = '';
+    }
     console.error(error);
   }
 
@@ -808,6 +959,290 @@
     metadataButton.addEventListener('click', () => {
       createMetadata();
     });
+  }
+
+  function buildMetadataPreview(payload, deal, contact) {
+    const primaryName = [payload.hs_contact_firstname, payload.hs_contact_lastname]
+      .filter(Boolean)
+      .join(' ')
+      .trim();
+    const spouseName = [payload.hs_spouse_firstname, payload.hs_spouse_lastname]
+      .filter(Boolean)
+      .join(' ')
+      .trim();
+
+    const contacts = {
+      primary: {
+        id: payload.hs_contact_id || '',
+        name: primaryName || '',
+        email: payload.hs_contact_email || '',
+      },
+      spouse: {
+        id: payload.hs_spouse_id || '',
+        name: spouseName || '',
+        email: payload.hs_spouse_email || '',
+      },
+    };
+
+    const portalId = extractPortalIdFromUrl(contact?.url);
+    const primaryLink = contact?.url || buildContactLink(portalId, payload.hs_contact_id);
+    const spouseLink = buildContactLink(portalId, payload.hs_spouse_id);
+
+    const associatedIds = [];
+    const associatedContacts = [];
+    if (payload.hs_contact_id) associatedIds.push(payload.hs_contact_id);
+    if (payload.hs_spouse_id) associatedIds.push(payload.hs_spouse_id);
+
+    if (primary.id || primary.name || primary.email) {
+      associatedContacts.push(
+        formatAssociatedContact({
+          name: primary.name || 'Primary Contact',
+          email: primary.email,
+          id: primary.id,
+          link: primaryLink,
+        })
+      );
+    }
+    if (spouse.id || spouse.name || spouse.email) {
+      associatedContacts.push(
+        formatAssociatedContact({
+          name: spouse.name || 'Spouse',
+          email: spouse.email,
+          id: spouse.id,
+          link: spouseLink,
+        })
+      );
+    }
+
+    const metadataFields = {
+      deal_salutation: payload.deal_salutation || '',
+      household_type: payload.household_type || '',
+      primary_contact_id: payload.hs_contact_id || '',
+      primary_contact_link: primaryLink || '',
+      hs_spouse_id: payload.hs_spouse_id || '',
+      spouse_contact_link: spouseLink || '',
+      associated_contact_ids: associatedIds.join(', ') || '',
+      associated_contacts: associatedContacts.join('\n') || '',
+    };
+
+    const dealDetails = (() => {
+      if (!deal) return undefined;
+      const props = deal.properties || {};
+      return {
+        id: props.hs_deal_record_id || deal.id || '',
+        name: props.dealname || '',
+        stage: props.dealstage || '',
+        close_date: formatDate(extractDealTimestamp(deal)) || '',
+      };
+    })();
+
+    return {
+      folder_id: payload.folder_id,
+      deal_id: payload.deal_id,
+      deal: dealDetails,
+      metadata_fields: metadataFields,
+      contacts,
+    };
+  }
+
+  function extractPortalIdFromUrl(url) {
+    if (!url) return '';
+    const match = String(url).match(/contacts\/(\d+)\/record/);
+    return match ? match[1] : '';
+  }
+
+  function buildContactLink(portalId, contactId) {
+    if (!portalId || !contactId) return undefined;
+    return `https://app.hubspot.com/contacts/${portalId}/record/0-1/${contactId}`;
+  }
+
+  function formatAssociatedContact({ name, email, id, link }) {
+    const parts = [];
+    if (email) parts.push(email);
+    if (id) parts.push(`ID: ${id}`);
+    if (link) parts.push(`Link: ${link}`);
+    if (!parts.length) return name || 'Contact';
+    return `${name || 'Contact'} (${parts.join(' | ')})`;
+  }
+
+  function parseTimestamp(value) {
+    if (!value && value !== 0) return 0;
+    if (typeof value === 'number') return value;
+    const str = String(value).trim();
+    if (!str) return 0;
+    if (/^\d+$/.test(str)) {
+      const num = Number(str);
+      if (Number.isNaN(num)) return 0;
+      return num > 1e12 ? num : num * 1000;
+    }
+    const parsed = Date.parse(str);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+
+  function extractDealTimestamp(deal) {
+    const props = (deal && deal.properties) || {};
+    const candidates = [
+      props.closedate,
+      props.hs_closed_won_date,
+      deal?.updatedAt,
+      deal?.createdAt,
+    ];
+    for (const candidate of candidates) {
+      const ts = parseTimestamp(candidate);
+      if (ts) return ts;
+    }
+    return 0;
+  }
+
+  function formatDate(ts) {
+    if (!ts) return 'n/a';
+    const d = new Date(ts);
+    if (Number.isNaN(d.getTime())) return 'n/a';
+    return d.toISOString().slice(0, 10);
+  }
+
+  function populateDealDropdown(deals) {
+    if (!dealSelect || !dealCard) return;
+    if (!Array.isArray(deals) || !deals.length) {
+      dealSelect.innerHTML = '';
+      dealSelect.disabled = true;
+      dealCard.classList.add('hidden');
+      if (dealMessage) {
+        dealMessage.textContent = 'No associated deals found.';
+      }
+      currentDealList = [];
+      currentSelectedDeal = null;
+      return;
+    }
+
+    const sorted = [...deals].sort((a, b) => extractDealTimestamp(b) - extractDealTimestamp(a));
+    currentDealList = sorted;
+    dealSelect.innerHTML = '';
+
+    sorted.forEach((deal, index) => {
+      const props = deal.properties || {};
+      const displayId = props.hs_deal_record_id || deal.id || `deal-${index}`;
+      const name = props.dealname || `Deal ${displayId}`;
+      const stage = props.dealstage || 'Unknown stage';
+      const closeDate = formatDate(extractDealTimestamp(deal));
+      const option = document.createElement('option');
+      option.value = String(index);
+      option.textContent = `${name} · ${stage} · ${closeDate}`;
+      dealSelect.appendChild(option);
+    });
+
+    dealCard.classList.remove('hidden');
+    dealSelect.disabled = false;
+    if (dealMessage) {
+      dealMessage.textContent = 'Select a deal to load metadata values.';
+    }
+    setSelectedDeal(0, { renderPreview: true });
+  }
+
+  function setSelectedDeal(index, options = {}) {
+    const renderPreview = options.renderPreview !== false;
+
+    if (!Array.isArray(currentDealList) || !currentDealList[index]) {
+      currentSelectedDeal = null;
+      if (dealSelect) {
+        dealSelect.value = '';
+        dealSelect.disabled = true;
+      }
+      if (dealMessage) dealMessage.textContent = 'Select a deal to load metadata values.';
+      if (metadataPreview) metadataPreview.classList.add('hidden');
+      if (metadataPreviewContent) metadataPreviewContent.textContent = '';
+      return;
+    }
+
+    currentSelectedDeal = currentDealList[index];
+    if (dealSelect) {
+      dealSelect.value = String(index);
+      dealSelect.disabled = false;
+    }
+    const props = currentSelectedDeal.properties || {};
+    const displayId = props.hs_deal_record_id || currentSelectedDeal.id || '';
+    const name = props.dealname || `Deal ${displayId || currentSelectedDeal.id}`;
+    const stage = props.dealstage || 'Unknown stage';
+    const closeDate = formatDate(extractDealTimestamp(currentSelectedDeal));
+    if (dealMessage) {
+      dealMessage.textContent = `Using ${name} · Stage: ${stage} · Close: ${closeDate}`;
+    }
+    if (metadataStatus) {
+      metadataStatus.textContent = `Deal selected: ${name}. Review the metadata preview before applying.`;
+    }
+    if (renderPreview) {
+      generateMetadataPreview();
+    }
+  }
+
+  if (dealSelect) {
+    dealSelect.addEventListener('change', (event) => {
+      const nextIndex = Number(event.target.value);
+      setSelectedDeal(Number.isNaN(nextIndex) ? 0 : nextIndex);
+    });
+  }
+
+  function generateMetadataPreview(existingPayload, selectedDealOverride) {
+    const payload = existingPayload || buildPayloadFromSelectedDeal(selectedDealOverride);
+    if (!payload) return;
+    const previewData = buildMetadataPreview(payload, selectedDealOverride || currentSelectedDeal, lastContactData?.contact);
+    if (metadataPreviewContent) {
+      metadataPreviewContent.textContent = JSON.stringify(previewData, null, 2);
+    }
+    if (metadataPreview) {
+      metadataPreview.classList.remove('hidden');
+    }
+    if (metadataStatus) {
+      metadataStatus.textContent = 'Metadata preview generated automatically. Review before applying.';
+    }
+    if (statusText) {
+      statusText.textContent = 'Metadata preview generated.';
+    }
+  }
+
+  function buildPayloadFromSelectedDeal(selectedDealOverride) {
+    const folderValue = rootFolderId
+      || (lastCollabResponse && lastCollabResponse.folder_id)
+      || (lastCollabResponse && lastCollabResponse.inspected && lastCollabResponse.inspected.id)
+      || currentFolderId
+      || folderInput.value.trim();
+    const folderId = normalizeFolderId(folderValue);
+    if (!folderId) {
+      return null;
+    }
+
+    const deal = selectedDealOverride || currentSelectedDeal;
+    const dealProps = (deal && deal.properties) || {};
+    const dealId = String(dealProps.hs_deal_record_id || deal?.id || '').trim();
+    if (!dealId) {
+      return null;
+    }
+
+    const payload = {
+      folder_id: folderId,
+      deal_id: dealId,
+      hs_deal_record_id: dealId,
+    };
+
+    if (lastContactData && lastContactData.contact) {
+      const contact = lastContactData.contact;
+      const props = contact.properties || {};
+      if (contact.id) payload.hs_contact_id = contact.id;
+      if (props.firstname) payload.hs_contact_firstname = props.firstname;
+      if (props.lastname) payload.hs_contact_lastname = props.lastname;
+      if (props.email) payload.hs_contact_email = props.email;
+    }
+
+    if (dealProps) {
+      if (dealProps.deal_salutation) payload.deal_salutation = dealProps.deal_salutation;
+      if (dealProps.household_type) payload.household_type = dealProps.household_type;
+      if (dealProps.hs_spouse_id) payload.hs_spouse_id = dealProps.hs_spouse_id;
+      if (dealProps.hs_spouse_firstname) payload.hs_spouse_firstname = dealProps.hs_spouse_firstname;
+      if (dealProps.hs_spouse_lastname) payload.hs_spouse_lastname = dealProps.hs_spouse_lastname;
+      if (dealProps.hs_spouse_email) payload.hs_spouse_email = dealProps.hs_spouse_email;
+    }
+
+    return payload;
   }
 
   resetUI();

@@ -79,14 +79,17 @@ flowchart TD
     A1 --> A2 --> B1 --> A3 --> B2 --> A4 --> B3 --> E["End"]
       </div>
     </div>
-    <div class="actions" style="margin-top:12px;">
-      <a class="secondary" href="{{ url_for('workflows_box_details') }}">
-        Box Workflow Custom-Code Guide →
-      </a>
-      <a class="secondary" href="{{ url_for('box_api.box_folder_collaborators_page') }}">
-        Check Box Collaborators →
-      </a>
-    </div>
+  <div class="actions" style="margin-top:12px;">
+    <a class="secondary" href="{{ url_for('workflows_box_details') }}">
+      Box Workflow Custom-Code Guide →
+    </a>
+    <a class="secondary" href="{{ url_for('workflows_adviser_allocation') }}">
+      Adviser Allocation Automation Guide →
+    </a>
+    <a class="secondary" href="{{ url_for('box_api.box_folder_collaborators_page') }}">
+      Check Box Collaborators →
+    </a>
+  </div>
   </article>
 </div>
 {% endblock %}

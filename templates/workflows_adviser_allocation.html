@@ -1,0 +1,169 @@
+{% extends 'layout.html' %}
+{% set title = 'Adviser Allocation Automation' %}
+
+{% block content %}
+<div class="topbar">
+  <div style="display:flex;align-items:center;gap:16px;">
+    <a href="{{ url_for('workflows') }}" style="color:#d0d7e2;text-decoration:none;font-size:0.9em;">← Workflows</a>
+    <h2>Adviser Allocation Automation Guide</h2>
+  </div>
+  <div class="datebox">
+    <span>Today: {{ today }}</span>
+    <span>Version: {{ app_version or 'n/a' }}</span>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Workflow Overview</h3>
+  <ol>
+    <li><strong>Receive HubSpot webhook</strong> (`POST /post/allocate`) when a deal enters the allocation stage.</li>
+    <li><strong>Load capacity data</strong> from Firestore caches, Employment Hero leave feed, and existing HubSpot meetings.</li>
+    <li><strong>Run allocation algorithm</strong> to determine the earliest available adviser.</li>
+    <li><strong>Update HubSpot</strong> with the selected adviser owner and audit note.</li>
+    <li><strong>Persist audit trail</strong> to Firestore for reporting and diagnostics.</li>
+  </ol>
+  <p class="muted">The automation eliminates manual deal routing and relies on up-to-date HR and CRM data. Ensure upstream sync jobs are healthy before triggering large batches.</p>
+</div>
+
+<div class="card">
+  <h3>Allocation Inputs</h3>
+  <ul>
+    <li><strong>HubSpot deal data</strong>: service package, agreement start, clarify meetings, pipeline stage.</li>
+    <li><strong>Employment Hero</strong>: approved leave, employment status, pod and tenure attributes.</li>
+    <li><strong>Firestore caches</strong>: adviser profiles, office closures, prior allocation history.</li>
+  </ul>
+  <p class="muted">The scheduler refreshes leave and capacity caches hourly. Use the dashboard to force a refresh before running a backfill.</p>
+</div>
+
+<div class="card">
+  <h3>Algorithm Highlights</h3>
+  <ul>
+    <li>Weekly capacity target per adviser (fortnightly basis) compared to clarify meetings and backlog.</li>
+    <li>Earliest availability search projects 6+ months forward, respecting leave and closures.</li>
+    <li>Tiebreakers favour the lowest utilisation ratio, then randomise to avoid bias.</li>
+    <li>Graceful fallbacks when no adviser is available (defers deal and raises Ops alert).</li>
+  </ul>
+  <p class="muted">Full technical write-up lives in <code>docs/adviser_allocation_explanation.md</code>. Keep this page focused on the automation steps and integration points.</p>
+</div>
+
+<div class="card">
+  <h3>Automation Endpoints</h3>
+  <table class="input-table">
+    <thead>
+      <tr>
+        <th>Endpoint</th>
+        <th>Purpose</th>
+        <th>Key Payload Fields</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>POST /post/allocate</code></td>
+        <td>Primary webhook invoked by HubSpot when a deal needs an adviser.</td>
+        <td><code>deal_id</code>, <code>service_package</code>, <code>agreement_start_date</code>, <code>hs_owner_id</code></td>
+      </tr>
+      <tr>
+        <td><code>GET /availability/earliest</code></td>
+        <td>Interactive view to compare advisers' earliest open weeks and tags.</td>
+        <td>Querystring: <code>agreement_start_date</code>, <code>include_no</code>.</td>
+      </tr>
+      <tr>
+        <td><code>GET /availability/schedule</code></td>
+        <td>Week-by-week capacity explorer for a specific adviser.</td>
+        <td>Querystring: <code>adviser</code>, optional <code>agreement_start_date</code>.</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="muted">Keep the webhook locked down via HubSpot IP allowlists and our shared secret validation middleware.</p>
+</div>
+
+<div class="card">
+  <h3>Runbook</h3>
+  <ol>
+    <li>Confirm Employment Hero sync job succeeded (check the scheduler logs or run <code>python scripts/sync_leave.py</code>).</li>
+    <li>Verify HubSpot webhook subscription is active and pointed at the correct environment.</li>
+    <li>Trigger a single test allocation by POSTing a sample payload to <code>/post/allocate</code> (set <code>send_chat_alert=0</code> to suppress notifications).</li>
+    <li>Inspect Firestore collection <code>allocation_history</code> for the new entry and cross-check the deal owner in HubSpot.</li>
+    <li>Backfill or replay historical deals by feeding their IDs through the same test endpoint (set <code>skip_hubspot=true</code> for dry runs).</li>
+  </ol>
+  <p class="muted">During incident response you can pause automatic updates by revoking the webhook secret in HubSpot and switching the app to manual mode.</p>
+</div>
+
+<div class="card">
+  <h3>Common Checks</h3>
+  <ul>
+    <li>Firestore cache older than two hours → run the cache refresh task.</li>
+    <li>Employment Hero leave mismatch → re-run the HR sync or pull the latest report manually.</li>
+    <li>Deal stuck in queue → confirm no adviser meets the availability criteria; escalate to Ops for manual assignment.</li>
+    <li>Repeated failures → tail the Cloud Run logs for <code>AllocationError</code> and validate upstream API limits.</li>
+  </ul>
+  <p class="muted">Document anomalies in the allocation runbook so future on-call engineers have traceability.</p>
+</div>
+
+<div class="card">
+  <h3>References</h3>
+  <div class="actions">
+    <a class="secondary" href="{{ url_for('serve_docs', filename='adviser_allocation_explanation.md') }}" target="_blank">
+      Full Algorithm Documentation →
+    </a>
+    <a class="secondary" href="{{ url_for('availability_earliest') }}" target="_blank">
+      Earliest Availability →
+    </a>
+    <a class="secondary" href="{{ url_for('availability_schedule') }}" target="_blank">
+      Adviser Schedule →
+    </a>
+  </div>
+</div>
+{% endblock %}
+
+{% block head %}
+{{ super() }}
+<style>
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 12px 24px rgba(15, 23, 42, 0.05);
+    margin-bottom: 20px;
+  }
+
+  .card h3 {
+    margin-top: 0;
+  }
+
+  .muted {
+    color: #64748b;
+  }
+
+  .input-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 12px;
+  }
+
+  .input-table th,
+  .input-table td {
+    border: 1px solid #d9e2ef;
+    padding: 8px 10px;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .input-table th {
+    background: rgba(15, 23, 42, 0.06);
+    font-weight: 600;
+  }
+
+  .actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+  }
+
+  .actions a {
+    text-decoration: none;
+  }
+</style>
+{% endblock %}
