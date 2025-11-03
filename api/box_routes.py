@@ -1,7 +1,9 @@
 import logging
 import os
+from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Optional, Tuple, List, Dict
+import hashlib
 
 import requests
 from flask import Blueprint, jsonify, redirect, render_template, request, session
@@ -15,6 +17,13 @@ from services.box_folder_service import (
 )
 from services import box_folder_service as box_service
 from utils.secrets import get_secret
+from utils.common import (
+    get_firestore_client,
+    USE_FIRESTORE,
+    sydney_today,
+    sydney_now,
+    SYDNEY_TZ,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +57,24 @@ def _resolve_deal_id(payload: dict) -> Optional[str]:
         or (payload.get("object") or {}).get("id")
         or (payload.get("fields") or {}).get("hs_deal_record_id")
     )
+
+
+def _stable_bucket(value: str, slots: int) -> int:
+    normalized = (value or "").strip()
+    if not normalized or slots <= 1:
+        return 0
+    if normalized.isdigit():
+        return int(normalized) % slots
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+    return int(digest[:8], 16) % slots
+
+
+def _parse_assignee_names(raw: Optional[str], default_slots: int = 8) -> List[str]:
+    if raw:
+        names = [name.strip() for name in raw.split(",") if name.strip()]
+        if names:
+            return names[:64]
+    return [f"Slot {idx + 1}" for idx in range(default_slots)]
 
 
 def _hubspot_headers() -> dict:
@@ -875,6 +902,281 @@ def box_folder_list_subfolders():
     ), 200
 
 
+@box_bp.route("/_public/box/folder/missing-metadata", methods=["GET"])
+def box_folder_find_missing_metadata():
+    """Return up to five active client folders that currently lack metadata."""
+    service = ensure_box_service()
+    if not service:
+        return jsonify({"message": "Box automation not configured"}), 503
+
+    cursor_param = request.args.get("cursor")
+    start_index = 0
+    if cursor_param is not None and cursor_param != "":
+        try:
+            start_index = int(cursor_param)
+            if start_index < 0:
+                raise ValueError
+        except ValueError:
+            return jsonify({"message": "cursor must be a non-negative integer"}), 400
+
+    try:
+        folders, issues, next_cursor = service.find_folder_missing_metadata(start_index=start_index)
+    except BoxAutomationError as exc:
+        logger.error("Failed to locate folder missing metadata: %s", exc)
+        return jsonify({"message": "Unable to scan folders for metadata", "error": str(exc)}), 500
+
+    issues = issues or []
+    folders = folders or []
+    if not folders:
+        message = (
+            "All active client folders already have metadata"
+            if not issues
+            else "Unable to locate an untagged folder because some folders could not be inspected."
+        )
+        payload = {"message": message, "folders": []}
+        if issues:
+            payload["issues"] = issues
+        return jsonify(payload), 200
+
+    payload = {"status": "ok", "folders": folders}
+    # Backwards compatibility: include first folder as `folder`
+    if folders:
+        payload["folder"] = folders[0]
+    if issues:
+        payload["issues"] = issues
+    if next_cursor is not None:
+        payload["next_cursor"] = next_cursor
+    return jsonify(payload), 200
+
+
+@box_bp.route("/box/folder/metadata/cache", methods=["POST"])
+def box_folder_cache_metadata_status():
+    """Scan Box folders and persist tagged/untagged ids to Firestore."""
+    guard = _ensure_logged_in()
+    if guard is not None:
+        return guard
+
+    if not USE_FIRESTORE:
+        return jsonify({"message": "Firestore is not enabled; cannot persist metadata status"}), 503
+
+    db = get_firestore_client()
+    if not db:
+        return jsonify({"message": "Firestore client unavailable"}), 503
+
+    service = ensure_box_service()
+    if not service:
+        return jsonify({"message": "Box automation not configured"}), 503
+
+    try:
+        tagged_entries, untagged_entries, issues = service.collect_metadata_tagging_status()
+    except BoxAutomationError as exc:
+        logger.error("Failed to collect Box metadata status: %s", exc)
+        return jsonify({"message": "Unable to collect metadata status", "error": str(exc)}), 500
+
+    snapshot = {
+        "tagged": tagged_entries,
+        "untagged": untagged_entries,
+        "issue_count": len(issues),
+        "issues": issues,
+        "total_tagged": len(tagged_entries),
+        "total_untagged": len(untagged_entries),
+        "total_scanned": len(tagged_entries) + len(untagged_entries),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    try:
+        db.collection("box_folder_metadata").document("tagging_status").set(snapshot)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Failed to persist Box metadata status to Firestore: %s", exc)
+        return jsonify({"message": "Failed to store metadata status", "error": str(exc)}), 500
+
+    return jsonify(
+        {
+            "status": "ok",
+            "counts": {
+                "tagged": len(tagged_entries),
+                "untagged": len(untagged_entries),
+            },
+            "issues": issues,
+        }
+    ), 200
+
+
+@box_bp.route("/box/folder/metadata/status", methods=["GET"])
+def box_folder_metadata_status_page():
+    """Render cached metadata tagging status from Firestore."""
+    guard = _ensure_logged_in()
+    if guard is not None:
+        return guard
+
+    error_message = None
+    tagged_entries: List[Dict[str, Optional[str]]] = []
+    untagged_entries: List[Dict[str, Optional[str]]] = []
+    issues: List[str] = []
+    counts = {"tagged": 0, "untagged": 0, "issues": 0}
+    updated_at_display: Optional[str] = None
+    updated_at_raw: Optional[str] = None
+    snapshot_exists = False
+
+    assignment_slots: List[Dict[str, object]] = []
+
+    if not USE_FIRESTORE:
+        error_message = "Firestore is not enabled for this environment."
+    else:
+        db = get_firestore_client()
+        if not db:
+            error_message = "Firestore client unavailable."
+        else:
+            try:
+                doc = db.collection("box_folder_metadata").document("tagging_status").get()
+            except Exception as exc:  # noqa: BLE001
+                logger.error("Failed to read Box metadata status from Firestore: %s", exc)
+                error_message = "Unable to read metadata snapshot from Firestore."
+            else:
+                if doc.exists:
+                    snapshot = doc.to_dict() or {}
+                    raw_tagged = snapshot.get("tagged") or []
+                    raw_untagged = snapshot.get("untagged") or []
+
+                    def _normalize(entry):
+                        if entry is None:
+                            return None
+                        if isinstance(entry, str):
+                            folder_id = entry.strip()
+                            if not folder_id:
+                                return None
+                            return {
+                                "id": folder_id,
+                                "name": "",
+                                "path": "",
+                                "url": f"https://app.box.com/folder/{folder_id}",
+                                "tagged_at": None,
+                            }
+                        if isinstance(entry, dict):
+                            folder_id = (
+                                str(
+                                    entry.get("id")
+                                    or entry.get("folder_id")
+                                    or entry.get("folderId")
+                                    or ""
+                                ).strip()
+                            )
+                            if not folder_id:
+                                return None
+                            name = str(entry.get("name") or entry.get("folder_name") or "").strip()
+                            path = str(entry.get("path") or entry.get("display_path") or "").strip()
+                            url = str(entry.get("url") or entry.get("folder_url") or "").strip()
+                            if not url and folder_id:
+                                url = f"https://app.box.com/folder/{folder_id}"
+                            tagged_at = entry.get("tagged_at") or entry.get("timestamp")
+                            return {
+                                "id": folder_id,
+                                "name": name,
+                                "path": path,
+                                "url": url or None,
+                                "tagged_at": tagged_at,
+                            }
+                        return None
+
+                    tagged_entries = [
+                        normalized for item in raw_tagged if (normalized := _normalize(item))
+                    ]
+                    untagged_entries = [
+                        normalized for item in raw_untagged if (normalized := _normalize(item))
+                    ]
+                    tagged_entries.sort(key=lambda item: item["id"])
+                    untagged_entries.sort(key=lambda item: item["id"])
+                    issues = list(snapshot.get("issues") or [])
+                    counts = {
+                        "tagged": len(tagged_entries),
+                        "untagged": len(untagged_entries),
+                        "issues": len(issues),
+                    }
+                    updated_at_raw = snapshot.get("updated_at")
+                    if updated_at_raw:
+                        try:
+                            parsed = datetime.fromisoformat(updated_at_raw)
+                            if parsed.tzinfo is None:
+                                parsed = parsed.replace(tzinfo=timezone.utc)
+                            updated_at_display = parsed.astimezone(SYDNEY_TZ).strftime(
+                                "%Y-%m-%d %H:%M:%S %Z"
+                            )
+                        except ValueError:
+                            updated_at_display = str(updated_at_raw)
+                    snapshot_exists = True
+                    service = ensure_box_service()
+                    if service:
+                        def _hydrate(entries: List[Dict[str, Optional[str]]]) -> None:
+                            for entry in entries:
+                                if not entry.get("id"):
+                                    continue
+                                needs_name = not entry.get("name")
+                                needs_url = not entry.get("url")
+                                if not (needs_name or needs_url):
+                                    continue
+                                info = service.get_folder_snapshot_info(entry["id"])
+                                if not info:
+                                    continue
+                                if needs_name and info.get("name"):
+                                    entry["name"] = info["name"]
+                                if not entry.get("path") and info.get("path"):
+                                    entry["path"] = info["path"]
+                                if needs_url and info.get("url"):
+                                    entry["url"] = info["url"]
+
+                        _hydrate(tagged_entries)
+                        _hydrate(untagged_entries)
+                else:
+                    snapshot_exists = False
+
+    allow_refresh = error_message is None
+
+    assignee_names = _parse_assignee_names(request.args.get("assignees"))
+    slot_count = max(1, len(assignee_names))
+    if not assignee_names:
+        assignee_names = [f"Slot {idx + 1}" for idx in range(8)]
+        slot_count = len(assignee_names)
+
+    if untagged_entries:
+        buckets: List[List[Dict[str, Optional[str]]]] = [[] for _ in range(slot_count)]
+        for entry in untagged_entries:
+            folder_id = entry.get("id")
+            if not folder_id:
+                continue
+            bucket_index = _stable_bucket(str(folder_id), slot_count)
+            buckets[bucket_index].append(entry)
+
+        assignment_slots = []
+        for idx, name in enumerate(assignee_names):
+            folders = sorted(buckets[idx], key=lambda item: item.get("id") or "")
+            assignment_slots.append(
+                {
+                    "index": idx,
+                    "assignee": name,
+                    "count": len(folders),
+                    "folders": folders,
+                }
+            )
+
+    return render_template(
+        "box_metadata_status.html",
+        today=sydney_today().isoformat(),
+        sydney_time=sydney_now().strftime("%Y-%m-%d %H:%M:%S %Z"),
+        app_version=os.environ.get("APP_VERSION", "1.0.0"),
+        counts=counts,
+        tagged_entries=tagged_entries,
+        untagged_entries=untagged_entries,
+        issues=issues,
+        updated_at_display=updated_at_display,
+        updated_at_raw=updated_at_raw,
+        snapshot_exists=snapshot_exists,
+        error_message=error_message,
+        allow_refresh=allow_refresh,
+        assignment_slots=assignment_slots,
+        assignee_names=assignee_names,
+    )
+
+
 @box_bp.route("/box/collaborators/contact", methods=["GET"])
 def box_collaborator_contact_details():
     """Return HubSpot contact and associated deal details for a given email."""
@@ -894,32 +1196,91 @@ def box_collaborator_contact_details():
     contact_id = contact.get("id")
     properties = contact.get("properties") or {}
 
+    warnings: List[Dict[str, str]] = []
     deals: List[dict] = []
     try:
         deal_ids = _fetch_contact_associated_deal_ids(contact_id)
-        for deal_id in deal_ids:
-            deal = _fetch_hubspot_deal(deal_id)
-            if not deal:
-                continue
-            deals.append(
-                {
-                    "id": deal_id,
-                    "properties": deal.get("properties", {}),
-                    "url": deal.get("url"),
-                }
-            )
     except requests.RequestException as exc:
         logger.error("HubSpot deal lookup failed for contact %s: %s", contact_id, exc)
-        return jsonify({"message": "HubSpot deal lookup failed", "error": str(exc)}), 502
+        warnings.append(
+            {
+                "source": "hubspot",
+                "scope": "deals",
+                "message": "Unable to load associated deals from HubSpot.",
+            }
+        )
+        deal_ids = []
+
+    for deal_id in deal_ids:
+        deal = _fetch_hubspot_deal(deal_id)
+        if not deal:
+            warnings.append(
+                {
+                    "source": "hubspot",
+                    "scope": "deal",
+                    "message": f"Deal {deal_id} could not be retrieved from HubSpot.",
+                }
+            )
+            continue
+
+        associated_contacts: List[dict] = []
+        associated_status = "complete"
+        try:
+            deal_contacts = box_service.get_hubspot_deal_contacts(deal_id)
+            for idx, contact_entry in enumerate(deal_contacts):
+                contact_props = contact_entry.get("properties") or {}
+                assoc_id = contact_entry.get("id")
+                associated_contacts.append(
+                    {
+                        "id": assoc_id,
+                        "firstname": contact_props.get("firstname"),
+                        "lastname": contact_props.get("lastname"),
+                        "email": contact_props.get("email"),
+                        "display_name": box_service._format_contact_display(contact_entry, position=idx),
+                        "url": _hubspot_contact_url(assoc_id),
+                    }
+                )
+        except requests.RequestException as exc:
+            logger.warning("Failed to load associated contacts for deal %s: %s", deal_id, exc)
+            warnings.append(
+                {
+                    "source": "hubspot",
+                    "scope": "associated_contacts",
+                    "message": f"Associated contacts for deal {deal_id} could not be loaded.",
+                }
+            )
+            associated_status = "partial"
+        except Exception as exc:  # pragma: no cover
+            logger.warning("Unexpected error loading associated contacts for deal %s: %s", deal_id, exc)
+            warnings.append(
+                {
+                    "source": "internal",
+                    "scope": "associated_contacts",
+                    "message": f"Unexpected error loading contacts for deal {deal_id}.",
+                }
+            )
+            associated_status = "partial"
+
+        deals.append(
+            {
+                "id": deal_id,
+                "properties": deal.get("properties", {}),
+                "url": deal.get("url"),
+                "associated_contacts": associated_contacts,
+                "associated_contacts_status": associated_status,
+            }
+        )
 
     return jsonify(
         {
+            "status": "ok",
             "contact": {
                 "id": contact_id,
                 "properties": properties,
                 "url": _hubspot_contact_url(contact_id),
             },
             "deals": deals,
+            "warnings": warnings,
         }
     ), 200
 

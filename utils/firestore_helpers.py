@@ -65,3 +65,20 @@ def get_global_closures() -> List[Dict[str, Any]]:
         logging.error("Failed to list office closures: %s", exc)
     return closures
 
+
+def get_capacity_overrides() -> List[Dict[str, Any]]:
+    """Return adviser capacity override documents from Firestore."""
+    db = _client()
+    if not db:
+        logging.warning("Firestore unavailable when loading capacity overrides")
+        return []
+
+    overrides: List[Dict[str, Any]] = []
+    try:
+        for doc in db.collection("adviser_capacity_overrides").stream():
+            data = doc.to_dict() or {}
+            data["id"] = doc.id
+            overrides.append(data)
+    except Exception as exc:  # pragma: no cover
+        logging.error("Failed to list adviser capacity overrides: %s", exc)
+    return overrides

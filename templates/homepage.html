@@ -13,7 +13,6 @@
 </div>
 
 <div class="grid-2">
-  <!-- Main Features -->
   <div class="card">
     <h4>📊 Availability & Scheduling</h4>
     <p class="muted">View and manage adviser availability and schedules</p>
@@ -40,9 +39,73 @@
       <a href="/allocations/history" style="text-decoration: none;">
         <button class="primary">Allocation History</button>
       </a>
-      <a href="/box/create" style="text-decoration: none;">
-        <button class="primary">Create Box Folder</button>
+      <a href="/workflows" style="text-decoration: none;">
+        <button class="primary">Automation Workflows</button>
       </a>
+    </div>
+  </div>
+
+  <div class="card">
+    <h4>📦 Box Automation</h4>
+    <p class="muted">Jump straight into the primary Box tools, then explore step-by-step guides and diagnostics.</p>
+    <div class="button-groups">
+      <div class="button-group main-tools">
+        <strong>Main tools</strong>
+        <div class="row button-row">
+      <a href="/box/create" style="text-decoration: none;">
+        <button class="primary">Manual Run UI</button>
+      </a>
+      <a href="/box/collaborators" style="text-decoration: none;">
+        <button class="primary">Collaborator Audit UI</button>
+      </a>
+      <a href="/box/folder/metadata/status" style="text-decoration: none;">
+        <button class="primary">Metadata Snapshot</button>
+      </a>
+      <a href="/workflows/box-details" style="text-decoration: none;">
+        <button class="primary">Custom-Code Guide</button>
+      </a>
+      <a href="/workflows" style="text-decoration: none;">
+        <button class="primary">Automation Workflows Hub</button>
+          </a>
+        </div>
+      </div>
+      <div class="button-group muted-group">
+        <strong>Workflow step guides</strong>
+        <div class="row button-row">
+          <a href="/workflows/box-details#action-create" style="text-decoration: none;">
+            <button class="ghost">Create Folder Guide</button>
+          </a>
+          <a href="/workflows/box-details#action-tag" style="text-decoration: none;">
+            <button class="ghost">Apply Metadata Guide</button>
+          </a>
+          <a href="/workflows/box-details#action-auto" style="text-decoration: none;">
+            <button class="ghost">Auto Tag Guide</button>
+          </a>
+          <a href="/workflows/box-details#action-share" style="text-decoration: none;">
+            <button class="ghost">Share Subfolder Guide</button>
+          </a>
+        </div>
+      </div>
+      <div class="button-group muted-group">
+        <strong>Diagnostics references</strong>
+        <div class="row button-row">
+          <a href="/workflows/box-details#diagnostics-subfolders" style="text-decoration: none;">
+            <button class="ghost">Subfolder Check</button>
+          </a>
+          <a href="/workflows/box-details#diagnostics-collaborators" style="text-decoration: none;">
+            <button class="ghost">Collaborator Lookup</button>
+          </a>
+          <a href="/workflows/box-details#diagnostics-metadata" style="text-decoration: none;">
+            <button class="ghost">Missing Metadata Guide</button>
+          </a>
+          <a href="/box/folder/metadata/status" style="text-decoration: none;">
+            <button class="ghost">Metadata Snapshot</button>
+          </a>
+          <a href="/workflows/box-details#diagnostics-overview" style="text-decoration: none;">
+            <button class="ghost">Diagnostics Overview</button>
+          </a>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -52,6 +115,16 @@
     <div class="row" style="margin-top: 16px;">
       <a href="/closures/ui" style="text-decoration: none;">
         <button class="primary">Manage Closures</button>
+      </a>
+    </div>
+  </div>
+
+  <div class="card">
+    <h4>⚙️ Capacity Overrides</h4>
+    <p class="muted">Schedule pod and capacity changes for advisers</p>
+    <div class="row" style="margin-top: 16px;">
+      <a href="/capacity_overrides/ui" style="text-decoration: none;">
+        <button class="primary">Manage Overrides</button>
       </a>
     </div>
   </div>
@@ -141,7 +214,7 @@
     background: var(--brand-600);
     border-color: var(--brand-600);
   }
-  
+
   .row {
     gap: 8px;
   }
@@ -190,6 +263,45 @@
     display: flex;
     align-items: center;
     gap: 6px;
+  }
+
+  .button-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    margin-top: 12px;
+  }
+
+  .button-group strong {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 0.9em;
+    color: var(--text);
+  }
+
+  .button-group.main-tools strong {
+    color: var(--text);
+  }
+
+  .button-group.muted-group strong {
+    color: var(--muted);
+  }
+
+  .button-row {
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  button.ghost {
+    background: rgba(148, 163, 184, 0.18);
+    border-color: rgba(148, 163, 184, 0.45);
+    color: var(--muted);
+  }
+
+  button.ghost:hover {
+    background: rgba(148, 163, 184, 0.28);
+    border-color: rgba(148, 163, 184, 0.6);
+    color: var(--text);
   }
 </style>
 {% endblock %}

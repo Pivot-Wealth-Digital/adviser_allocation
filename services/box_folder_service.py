@@ -218,6 +218,213 @@ class BoxFolderService:
         subfolders.sort(key=lambda item: (item.get("name") or "").lower())
         return subfolders
 
+    def _get_folder_details(self, folder_id: str) -> dict:
+        url = f"{self._api_base_url}/folders/{folder_id}"
+        try:
+            resp = requests.get(url, headers=self._headers(), timeout=self._timeout)
+            resp.raise_for_status()
+        except requests.RequestException as exc:
+            raise BoxAutomationError(f"Failed to fetch folder {folder_id}: {exc}") from exc
+        return resp.json()
+
+    def _folder_display_path(self, folder_info: dict) -> str:
+        entries = (folder_info.get("path_collection") or {}).get("entries", [])
+        names = [entry.get("name") for entry in entries if entry.get("name")]
+        name = folder_info.get("name")
+        if name:
+            names.append(name)
+        return " / ".join(names)
+
+    def get_folder_snapshot_info(self, folder_id: str) -> Optional[dict]:
+        """Return friendly information for displaying a folder entry."""
+        folder_id = (folder_id or "").strip()
+        if not folder_id:
+            return None
+        try:
+            info = self._get_folder_details(folder_id)
+        except BoxAutomationError as exc:
+            logger.warning("Unable to load details for folder %s: %s", folder_id, exc)
+            return None
+
+        return {
+            "id": folder_id,
+            "name": info.get("name"),
+            "path": self._folder_display_path(info),
+            "url": f"https://app.box.com/folder/{folder_id}",
+        }
+
+    def find_folder_missing_metadata(
+        self,
+        start_index: int = 0,
+        page_size: int = 5,
+    ) -> tuple[list[dict], list[str], Optional[int]]:
+        if not self._metadata_scope or not self._metadata_template_key:
+            raise BoxAutomationError("Metadata scope/template key not configured")
+
+        try:
+            start_index = int(start_index)
+        except (TypeError, ValueError):
+            start_index = 0
+        if start_index < 0:
+            start_index = 0
+
+        try:
+            page_size = int(page_size)
+        except (TypeError, ValueError):
+            page_size = 5
+        if page_size < 1:
+            page_size = 1
+
+        root_id = self._resolve_path(self._destination_path)
+        subfolders = self.list_subfolders(root_id)
+        total_subfolders = len(subfolders)
+
+        if start_index >= total_subfolders:
+            return [], [], None
+
+        candidates: list[dict] = []
+        scan_errors: list[str] = []
+        next_cursor: Optional[int] = None
+
+        for idx in range(start_index, total_subfolders):
+            entry = subfolders[idx]
+            folder_id = entry.get("id")
+            if not folder_id:
+                continue
+            url = (
+                f"{self._api_base_url}/folders/{folder_id}/metadata/"
+                f"{self._metadata_scope}/{self._metadata_template_key}"
+            )
+            try:
+                resp = requests.get(url, headers=self._headers(), timeout=self._timeout)
+            except requests.RequestException as exc:
+                message = f"Metadata fetch request failed for folder {folder_id}: {exc}"
+                logger.warning(message)
+                scan_errors.append(message)
+                continue
+
+            if resp.status_code == 404:
+                try:
+                    info = self._get_folder_details(folder_id)
+                except BoxAutomationError as exc:
+                    message = f"Failed to load folder details for {folder_id}: {exc}"
+                    logger.warning(message)
+                    scan_errors.append(message)
+                    info = {"name": entry.get("name"), "path": entry.get("name")}
+                candidates.append(
+                    {
+                        "id": folder_id,
+                        "name": info.get("name") or entry.get("name"),
+                        "path": self._folder_display_path(info) if info else entry.get("name"),
+                        "url": f"https://app.box.com/folder/{folder_id}",
+                    }
+                )
+                if len(candidates) >= page_size:
+                    next_cursor = idx + 1 if (idx + 1) < total_subfolders else None
+                    break
+                continue
+
+            if resp.status_code in (401, 403):
+                message = (
+                    f"Skipping folder {folder_id} while checking metadata; "
+                    f"received {resp.status_code} permission error."
+                )
+                logger.warning(message)
+                scan_errors.append(message)
+                continue
+
+            try:
+                resp.raise_for_status()
+            except requests.HTTPError as exc:
+                message = (
+                    f"Metadata check failed for folder {folder_id} "
+                    f"(status={resp.status_code}): {resp.text}"
+                )
+                logger.warning(message)
+                scan_errors.append(message)
+                continue
+
+        issues = scan_errors[:5]
+        return candidates[:page_size], issues, next_cursor
+
+    def collect_metadata_tagging_status(self) -> tuple[list[dict], list[dict], list[str]]:
+        """Return folder metadata grouped by tagging status.
+
+        Returns:
+            tuple containing:
+                tagged folder entries,
+                untagged folder entries,
+                issues encountered while scanning.
+        """
+        if not self._metadata_scope or not self._metadata_template_key:
+            raise BoxAutomationError("Metadata scope/template key not configured")
+
+        root_id = self._resolve_path(self._destination_path)
+        subfolders = self.list_subfolders(root_id)
+
+        tagged: list[dict] = []
+        untagged: list[dict] = []
+        issues: list[str] = []
+
+        for entry in subfolders:
+            folder_id = entry.get("id")
+            if not folder_id:
+                continue
+
+            url = (
+                f"{self._api_base_url}/folders/{folder_id}/metadata/"
+                f"{self._metadata_scope}/{self._metadata_template_key}"
+            )
+            try:
+                resp = requests.get(url, headers=self._headers(), timeout=self._timeout)
+            except requests.RequestException as exc:
+                message = f"Metadata fetch request failed for folder {folder_id}: {exc}"
+                logger.warning(message)
+                issues.append(message)
+                continue
+
+            if resp.status_code == 404:
+                untagged.append(
+                    {
+                        "id": folder_id,
+                        "name": entry.get("name"),
+                        "path": "",
+                        "url": f"https://app.box.com/folder/{folder_id}",
+                    }
+                )
+                continue
+
+            if resp.status_code in (401, 403):
+                message = (
+                    f"Skipping folder {folder_id} while checking metadata; "
+                    f"received {resp.status_code} permission error."
+                )
+                logger.warning(message)
+                issues.append(message)
+                continue
+
+            try:
+                resp.raise_for_status()
+            except requests.HTTPError as exc:
+                message = (
+                    f"Metadata check failed for folder {folder_id} "
+                    f"(status={resp.status_code}): {resp.text}"
+                )
+                logger.warning(message)
+                issues.append(message)
+                continue
+
+            tagged.append(
+                {
+                    "id": folder_id,
+                    "name": entry.get("name"),
+                    "path": "",
+                    "url": f"https://app.box.com/folder/{folder_id}",
+                }
+            )
+
+        return tagged, untagged, issues
+
     def _resolve_path(self, path: str) -> str:
         normalized = "/".join(segment.strip() for segment in (path or "").split("/") if segment.strip())
         if not normalized:

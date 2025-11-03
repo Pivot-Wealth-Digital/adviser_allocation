@@ -1,0 +1,107 @@
+{% extends 'layout.html' %}
+{% set title = 'Adviser Capacity Overrides' %}
+
+{% block content %}
+<div class="topbar">
+  <div style="display: flex; align-items: center; gap: 16px;">
+    <a href="/" style="color: #d0d7e2; text-decoration: none; font-size: 0.9em;">← Home</a>
+    <h2>Adviser Capacity Overrides</h2>
+  </div>
+  <div class="datebox">
+    <span>Today:</span>
+    <input id="todayInput" type="date" value="{{ today }}" readonly />
+  </div>
+  <div id="toast" class="msg" style="display:none"></div>
+  <div id="toast-err" class="msg err" style="display:none"></div>
+  <div id="toast-ok" class="msg ok" style="display:none"></div>
+</div>
+
+<div class="card">
+  <h3>Create Override</h3>
+  <p class="muted" style="margin-top: -4px;">Overrides take effect from the first Monday on or after the effective date.</p>
+  <div class="row">
+    <div>
+      <label for="emailSelect">Adviser Email</label>
+      <select id="emailSelect">
+        <option value="">-- Select adviser --</option>
+        {% for adviser in adviser_options %}
+        <option value="{{ adviser.email }}">{{ adviser.label }}</option>
+        {% endfor %}
+      </select>
+      {% if not adviser_options %}
+      <div class="muted" style="margin-top:4px;font-size:0.85em;">No advisers available. Sync from HubSpot, then reload.</div>
+      {% endif %}
+    </div>
+    <div>
+      <label for="effective">Effective Date</label>
+      <input type="date" id="effective" value="{{ today }}" />
+    </div>
+    <div>
+      <label for="limit">Monthly Client Limit</label>
+      <input type="number" id="limit" min="1" value="6" />
+    </div>
+    <div>
+      <label for="podType">Pod Type</label>
+      <select id="podType">
+        <option value="">-- Optional --</option>
+        {% for pod in pod_type_options %}
+        <option value="{{ pod }}">{{ pod }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="notes">Notes</label>
+      <input type="text" id="notes" placeholder="e.g., Switch to Standard pod" />
+    </div>
+    <div style="margin-top:22px"><button id="submit">Add Override</button></div>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Existing Overrides</h3>
+  <table id="override-table">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Adviser Email</th>
+        <th>Effective Date</th>
+        <th>Monthly Limit</th>
+        <th>Pod Type</th>
+        <th>Notes</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% if overrides %}
+        {% for item in overrides %}
+        <tr data-id="{{ item.id }}">
+          <td class="idx">{{ item.idx }}</td>
+          <td class="email">{{ item.adviser_email }}</td>
+          <td class="effective">{{ item.effective_date }}</td>
+          <td class="limit">{{ item.client_limit_monthly }}</td>
+          <td class="pod_type">{{ item.pod_type }}</td>
+          <td class="notes">{{ item.notes }}</td>
+          <td>
+            <button class="edit">Edit</button>
+            <button class="save" style="display:none">Save</button>
+            <button class="cancel" style="display:none">Cancel</button>
+            <button class="delete" style="margin-left:6px">Delete</button>
+          </td>
+        </tr>
+        {% endfor %}
+      {% else %}
+        <tr><td colspan="7">No overrides yet. Add one above.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  window.CAPACITY_OVERRIDES = {{ overrides | tojson | safe }};
+  window.POD_TYPE_OPTIONS = {{ pod_type_options | tojson | safe }};
+  window.ADVISER_OPTIONS = {{ adviser_options | tojson | safe }};
+</script>
+<script src="{{ url_for('static', filename='js/capacity_overrides.js') }}"></script>
+{% endblock %}

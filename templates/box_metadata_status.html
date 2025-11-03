@@ -1,0 +1,395 @@
+{% extends "layout.html" %}
+{% set title = "Box Metadata Snapshot" %}
+
+{% block content %}
+<div class="topbar">
+  <div style="display:flex;align-items:center;gap:16px;">
+    <a href="/box/collaborators" style="color:#d0d7e2;text-decoration:none;font-size:0.9em;">← Box Tools</a>
+    <h2>Box Metadata Snapshot</h2>
+  </div>
+  <div class="datebox">
+    <span>Today: {{ today }}</span>
+    <span>Updated: {{ updated_at_display or "Not cached yet" }}</span>
+  </div>
+</div>
+
+{% if error_message %}
+<div class="card">
+  <h3>Snapshot unavailable</h3>
+  <p class="muted">{{ error_message }}</p>
+  <p class="muted small">Enable Firestore or check service access to view the cached metadata status.</p>
+</div>
+{% else %}
+<div class="card summary-card">
+  <div class="summary-grid">
+    <div class="summary-tile tagged">
+      <span class="label">Tagged</span>
+      <span class="metric">{{ counts.tagged }}</span>
+    </div>
+    <div class="summary-tile untagged">
+      <span class="label">Untagged</span>
+      <span class="metric">{{ counts.untagged }}</span>
+    </div>
+    <div class="summary-tile issues">
+      <span class="label">Issues</span>
+      <span class="metric">{{ counts.issues }}</span>
+    </div>
+  </div>
+  {% if allow_refresh %}
+  <div class="summary-actions">
+    <button id="refresh-btn" class="primary" data-default="Refresh snapshot">Refresh snapshot</button>
+    <span id="refresh-status" class="muted small"></span>
+  </div>
+  {% endif %}
+  <p class="muted small">
+    Snapshot stored in Firestore at <code>box_folder_metadata/tagging_status</code>.
+  </p>
+</div>
+
+{% if assignment_slots %}
+<details class="card collapsible assignment-card" open>
+  <summary>Assignment queues ({{ assignment_slots|length }})</summary>
+  <p class="muted small">
+    Slots computed from <code>folder_id % {{ assignment_slots|length }}</code> so every refresh keeps the same owner.
+    Provide your own labels using <code>?assignees=Alex,Bianca,...</code>.
+  </p>
+  <div class="assignment-grid">
+    {% for slot in assignment_slots %}
+    <details class="assignment-slot">
+      <summary>
+        <span class="slot-name">{{ slot.assignee }}</span>
+        <span class="slot-count">{{ slot.count }} folders</span>
+      </summary>
+      {% if slot.folders %}
+      <ul class="folder-list compact">
+        {% for folder in slot.folders %}
+        <li>
+          <div class="folder-meta">
+            {% set display_name = folder.name or folder.id %}
+            <span class="folder-name">{{ display_name }}</span>
+            {% if folder.id and folder.id != display_name %}
+            <span class="folder-id"><code>{{ folder.id }}</code></span>
+            {% endif %}
+            {% if folder.path %}
+            <span class="folder-path muted small">{{ folder.path }}</span>
+            {% endif %}
+          </div>
+          <div class="folder-actions">
+            {% if folder.url %}
+            <a href="{{ folder.url }}" target="_blank" rel="noopener">Open in Box</a>
+            {% else %}
+            <span class="muted small">No URL captured</span>
+            {% endif %}
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="muted small">No folders currently allocated to this slot.</p>
+      {% endif %}
+    </details>
+    {% endfor %}
+  </div>
+</details>
+{% endif %}
+
+<details class="card collapsible" {% if counts.untagged and counts.untagged <= 40 %}open{% endif %}>
+  <summary>Untagged folders ({{ counts.untagged }})</summary>
+  {% if not snapshot_exists %}
+  <p class="muted">No metadata snapshot has been captured yet. Refresh to load the latest folder status.</p>
+  {% elif untagged_entries %}
+  <p class="muted">These folders still need the metadata template applied.</p>
+  <ul class="folder-list">
+    {% for folder in untagged_entries %}
+    <li>
+      <div class="folder-meta">
+        {% set display_name = folder.name or folder.id %}
+        <span class="folder-name">{{ display_name }}</span>
+        {% if folder.id and folder.id != display_name %}
+        <span class="folder-id"><code>{{ folder.id }}</code></span>
+        {% endif %}
+        {% if folder.path %}
+        <span class="folder-path muted small">{{ folder.path }}</span>
+        {% endif %}
+      </div>
+      <div class="folder-actions">
+        {% if folder.url %}
+        <a href="{{ folder.url }}" target="_blank" rel="noopener">Open in Box</a>
+        {% else %}
+        <span class="muted small">No URL captured</span>
+        {% endif %}
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">All tracked folders currently have metadata applied.</p>
+  {% endif %}
+</details>
+
+<details class="card collapsible" {% if counts.tagged and counts.tagged <= 40 %}open{% endif %}>
+  <summary>Tagged folders ({{ counts.tagged }})</summary>
+  {% if not snapshot_exists %}
+  <p class="muted">No folders captured yet. Refresh the snapshot to record the current state.</p>
+  {% elif tagged_entries %}
+  <ul class="folder-list compact">
+    {% for folder in tagged_entries %}
+    <li>
+      <div class="folder-meta">
+        {% set display_name = folder.name or folder.id %}
+        <span class="folder-name">{{ display_name }}</span>
+        {% if folder.id and folder.id != display_name %}
+        <span class="folder-id"><code>{{ folder.id }}</code></span>
+        {% endif %}
+        {% if folder.path %}
+        <span class="folder-path muted small">{{ folder.path }}</span>
+        {% endif %}
+        {% if folder.tagged_at %}
+        <span class="folder-tagged muted small">Tagged at {{ folder.tagged_at }}</span>
+        {% endif %}
+      </div>
+      <div class="folder-actions">
+        {% if folder.url %}
+        <a href="{{ folder.url }}" target="_blank" rel="noopener">Open in Box</a>
+        {% else %}
+        <span class="muted small">No URL captured</span>
+        {% endif %}
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">No tagged folders recorded in the snapshot yet.</p>
+  {% endif %}
+</details>
+
+{% if issues %}
+<div class="card warning-card">
+  <h3>Scan issues</h3>
+  <p class="muted small">The following folders could not be inspected during the last scan:</p>
+  <ul class="issue-list">
+    {% for issue in issues %}
+    <li>{{ issue }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+{% endif %}
+{% endblock %}
+
+{% block head %}
+<style>
+  .summary-card {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+  }
+
+  .summary-tile {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    background: rgba(15, 23, 42, 0.03);
+  }
+
+  .summary-tile .label {
+    display: block;
+    font-size: 0.85em;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+
+  .summary-tile .metric {
+    font-size: 1.8em;
+    font-weight: 600;
+  }
+
+  .summary-tile.tagged {
+    border-color: rgba(34, 197, 94, 0.35);
+    background: rgba(34, 197, 94, 0.08);
+  }
+
+  .summary-tile.untagged {
+    border-color: rgba(239, 68, 68, 0.25);
+    background: rgba(239, 68, 68, 0.08);
+  }
+
+  .summary-tile.issues {
+    border-color: rgba(249, 115, 22, 0.3);
+    background: rgba(249, 115, 22, 0.1);
+  }
+
+  .summary-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .folder-list {
+    list-style: none;
+    padding: 0;
+    margin: 12px 0 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .folder-list li {
+    display: flex;
+    align-items: center;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 12px;
+    background: #fff;
+    gap: 12px;
+    justify-content: space-between;
+  }
+
+  .folder-list.compact {
+    flex-direction: column;
+  }
+
+  .folder-list.compact li {
+    justify-content: space-between;
+  }
+
+  .folder-list code {
+    font-size: 0.9em;
+  }
+
+  .folder-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-width: 75%;
+  }
+
+  .folder-name {
+    font-weight: 600;
+  }
+
+  .folder-path {
+    word-break: break-word;
+  }
+
+  .folder-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+  }
+
+  .folder-list a {
+    font-size: 0.85em;
+    color: var(--brand);
+  }
+
+  .assignment-card {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .assignment-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .assignment-slot {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: rgba(15, 23, 42, 0.03);
+    padding: 12px;
+  }
+
+  .assignment-slot[open] {
+    background: rgba(15, 23, 42, 0.05);
+  }
+
+  .assignment-slot summary {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+
+  .assignment-slot summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .slot-count {
+    font-size: 0.85em;
+    color: var(--muted);
+  }
+
+  .assignment-slot .folder-list {
+    margin-top: 8px;
+  }
+
+  .warning-card {
+    border: 1px solid rgba(249, 115, 22, 0.4);
+    background: rgba(249, 115, 22, 0.12);
+  }
+
+  .issue-list {
+    margin: 8px 0 0;
+    padding-left: 1.2rem;
+  }
+
+  details.collapsible summary {
+    cursor: pointer;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+
+  details.collapsible[open] summary {
+    margin-bottom: 12px;
+  }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const refreshBtn = document.getElementById("refresh-btn");
+  if (refreshBtn) {
+    const status = document.getElementById("refresh-status");
+    refreshBtn.addEventListener("click", async () => {
+      status.textContent = "";
+      status.classList.remove("err");
+      const defaultLabel = refreshBtn.dataset.default || "Refresh snapshot";
+      refreshBtn.disabled = true;
+      refreshBtn.textContent = "Refreshing…";
+      try {
+        const response = await fetch("/box/folder/metadata/cache", { method: "POST" });
+        if (!response.ok) {
+          let detail = "";
+          try {
+            const payload = await response.json();
+            detail = payload.message || payload.error || "";
+          } catch (_) {
+            detail = "";
+          }
+          throw new Error(detail || response.statusText);
+        }
+        refreshBtn.textContent = "Reloading…";
+        status.textContent = "Snapshot refreshed. Reloading…";
+        window.setTimeout(() => window.location.reload(), 600);
+      } catch (error) {
+        refreshBtn.disabled = false;
+        refreshBtn.textContent = defaultLabel;
+        status.textContent = `Failed to refresh: ${error.message}`;
+        status.classList.add("err");
+      }
+    });
+  }
+</script>
+{% endblock %}

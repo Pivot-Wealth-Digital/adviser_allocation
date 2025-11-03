@@ -24,9 +24,14 @@
       <input type="text" id="folder-id" autocomplete="off" required />
     </label>
     <div class="actions root-actions">
-      <button type="button" class="secondary" id="load-subfolders">Display Subfolders</button>
+      <button type="button" class="secondary" id="suggest-folder">Find Untagged Folder</button>
       <button type="button" class="primary" id="root-show" data-default="Show Collaborators">Show Collaborators</button>
       <button type="button" class="secondary" id="reset-btn">Cancel</button>
+    </div>
+    <div class="muted small suggestion-note" id="folder-suggestion-note"></div>
+    <div class="suggestion-actions" id="folder-suggestion-actions">
+      <button type="button" class="secondary" id="load-subfolders" data-default="Display Subfolders">Display Subfolders</button>
+      <button type="button" class="secondary hidden" id="load-more-suggestions" data-default="Show Next 5">Show Next 5</button>
     </div>
     <div id="subfolder-wrapper" class="subfolder-wrapper hidden">
       <h3>Subfolders</h3>
@@ -69,24 +74,25 @@
   </div>
 </div>
 
-<div id="deal-card" class="card hidden">
-  <div class="deal-header">
-    <h3>Associated Deals</h3>
-    <select id="deal-select" class="deal-select"></select>
-  </div>
-  <p class="muted small" id="deal-message">Select a deal to load metadata values.</p>
-</div>
-
 <div id="contact-card" class="card hidden">
   <h3>HubSpot Contact Details</h3>
   <div id="contact-details" class="contact-details muted small">
     Select a collaborator to load HubSpot details.
   </div>
+  <div id="deal-card" class="contact-deals hidden">
+    <h4>Associated Deals</h4>
+    <p class="muted small" id="deal-message">Tick the checkbox next to a deal to load metadata values.</p>
+    <div id="deal-list" class="deal-list"></div>
+  </div>
   <div id="metadata-actions" class="contact-actions hidden">
+    <button type="button" class="secondary" id="metadata-preview-btn" data-default="Preview Metadata">
+      Preview Metadata
+    </button>
     <button type="button" class="primary" id="metadata-create-btn" data-default="Create Box Metadata">
       Create Box Metadata
     </button>
     <p id="metadata-status" class="muted small"></p>
+    <div id="metadata-warning-list" class="warning-list hidden"></div>
     <div id="metadata-preview" class="metadata-preview hidden">
       <h4 class="muted small">Metadata preview</h4>
       <pre id="metadata-preview-content"></pre>
@@ -163,6 +169,59 @@
     color: #52606d;
   }
 
+  .suggestion-note {
+    min-height: 1.2em;
+  }
+
+  .suggestion-list {
+    display: grid;
+    gap: 6px;
+    margin-top: 8px;
+  }
+
+  .suggestion-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 8px 10px;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 10px;
+    background: rgba(15, 23, 42, 0.015);
+  }
+
+  .suggestion-item input[type="checkbox"] {
+    margin-top: 3px;
+  }
+
+  .suggestion-item.highlight {
+    border-color: rgba(16, 185, 129, 0.65);
+    background: rgba(16, 185, 129, 0.08);
+  }
+
+  .suggestion-issues {
+    margin: 6px 0 0 0;
+    padding-left: 18px;
+    font-size: 0.8em;
+    line-height: 1.3;
+  }
+
+  .suggestion-issues-wrapper {
+    margin-top: 8px;
+    font-size: 0.8em;
+  }
+
+  .suggestion-issues-wrapper.hidden {
+    display: none;
+  }
+
+  .suggestion-actions {
+    margin-top: 8px;
+  }
+
+  .suggestion-actions button {
+    margin-top: 4px;
+  }
+
   .table-wrapper {
     overflow-x: auto;
   }
@@ -193,16 +252,46 @@
     gap: 6px;
   }
 
-  .deal-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
+  .deal-list {
+    display: grid;
+    gap: 6px;
+    margin-top: 10px;
   }
 
-  .deal-select {
-    min-width: 220px;
-    padding: 6px 8px;
+  .deal-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 10px;
+    padding: 10px 12px;
+    background: rgba(15, 23, 42, 0.015);
+  }
+
+  .deal-item input[type="checkbox"] {
+    margin-top: 4px;
+    flex-shrink: 0;
+  }
+
+  .deal-item label {
+    flex: 1;
+    cursor: pointer;
+  }
+
+  .deal-item.highlight {
+    border-color: rgba(79, 70, 229, 0.55);
+    background: rgba(79, 70, 229, 0.08);
+  }
+
+  .deal-item .deal-badge {
+    display: inline-block;
+    margin-top: 6px;
+    padding: 2px 6px;
+    border-radius: 6px;
+    font-size: 0.72em;
+    font-weight: 600;
+    background: rgba(249, 115, 22, 0.18);
+    color: #9a3412;
   }
 
   .pivot-toggle {
@@ -217,6 +306,12 @@
   .contact-details {
     display: grid;
     gap: 10px;
+  }
+
+  .contact-deals {
+    display: grid;
+    gap: 6px;
+    margin-top: 10px;
   }
 
   .contact-details table {
@@ -239,6 +334,30 @@
 
   .contact-actions button {
     width: fit-content;
+  }
+
+  .warning-list {
+    margin-top: 4px;
+    padding: 8px 10px;
+    border-left: 3px solid #f97316;
+    background: rgba(249, 115, 22, 0.12);
+    color: #92400e;
+    font-size: 0.8em;
+    display: grid;
+    gap: 6px;
+  }
+
+  .warning-list.hidden {
+    display: none;
+  }
+
+  .warning-list ul {
+    margin: 0;
+    padding-left: 18px;
+  }
+
+  .warning-list li {
+    margin: 0;
   }
 
   .metadata-preview {
@@ -310,6 +429,9 @@
   const subfolderEmpty = document.getElementById('subfolder-empty');
   const subfolderActions = document.getElementById('subfolder-actions');
   const subfolderShowButton = document.getElementById('subfolder-show');
+  const folderSuggestionNote = document.getElementById('folder-suggestion-note');
+  const suggestionActions = document.getElementById('folder-suggestion-actions');
+  const loadMoreSuggestionsButton = document.getElementById('load-more-suggestions');
 
   const statusText = document.getElementById('status-text');
   const resultsWrapper = document.getElementById('results-wrapper');
@@ -320,15 +442,18 @@
   const externalCard = document.getElementById('external-card');
   const externalList = document.getElementById('external-list');
   const externalEmpty = document.getElementById('external-empty');
+  const suggestFolderButton = document.getElementById('suggest-folder');
   const dealCard = document.getElementById('deal-card');
-  const dealSelect = document.getElementById('deal-select');
+  const dealList = document.getElementById('deal-list');
   const dealMessage = document.getElementById('deal-message');
   const errorCard = document.getElementById('error-card');
   const contactCard = document.getElementById('contact-card');
   const contactDetails = document.getElementById('contact-details');
   const metadataActions = document.getElementById('metadata-actions');
+  const metadataPreviewButton = document.getElementById('metadata-preview-btn');
   const metadataButton = document.getElementById('metadata-create-btn');
   const metadataStatus = document.getElementById('metadata-status');
+  const metadataWarningList = document.getElementById('metadata-warning-list');
   const metadataPreview = document.getElementById('metadata-preview');
   const metadataPreviewContent = document.getElementById('metadata-preview-content');
 
@@ -340,6 +465,9 @@
   let rootFolderId = '';
   let currentDealList = [];
   let currentSelectedDeal = null;
+  let currentFolderSuggestions = [];
+  let currentSuggestionCursor = null;
+  let currentContactWarnings = new Map();
 
   function setBusy(button, busy, label) {
     if (!button) return;
@@ -361,19 +489,42 @@
     if (metadataActions) {
       metadataActions.classList.add('hidden');
     }
+    if (metadataPreviewButton) {
+      metadataPreviewButton.disabled = true;
+    }
+    if (metadataButton) {
+      metadataButton.disabled = true;
+    }
     if (metadataPreview) {
       metadataPreview.classList.add('hidden');
     }
     if (metadataPreviewContent) {
       metadataPreviewContent.textContent = '';
     }
+    if (metadataWarningList) {
+      metadataWarningList.classList.add('hidden');
+      metadataWarningList.innerHTML = '';
+    }
+    currentContactWarnings = new Map();
     contactDetails.textContent = 'Select a collaborator to load HubSpot details.';
     collabTableBody.innerHTML = '<tr><td colspan="5" class="muted">No results yet.</td></tr>';
     externalList.innerHTML = '';
     externalList.classList.add('hidden');
     externalEmpty.classList.remove('hidden');
-    if (dealSelect) dealSelect.innerHTML = '';
-    if (dealMessage) dealMessage.textContent = 'Select a deal to load metadata values.';
+    if (folderSuggestionNote) folderSuggestionNote.innerHTML = '';
+    if (suggestionActions) suggestionActions.classList.remove('hidden');
+    if (loadSubfoldersButton) {
+      loadSubfoldersButton.disabled = false;
+      const defaultLabel = loadSubfoldersButton.dataset.default || 'Display Subfolders';
+      loadSubfoldersButton.textContent = defaultLabel;
+    }
+    if (loadMoreSuggestionsButton) {
+      loadMoreSuggestionsButton.classList.add('hidden');
+      loadMoreSuggestionsButton.disabled = false;
+      loadMoreSuggestionsButton.textContent = loadMoreSuggestionsButton.dataset.default || 'Show Next 5';
+    }
+    if (dealList) dealList.innerHTML = '';
+    if (dealMessage) dealMessage.textContent = 'Tick the checkbox next to a deal to load metadata values.';
     if (dealCard) dealCard.classList.add('hidden');
     collabTotal.textContent = '0';
     externalTotal.textContent = '0';
@@ -392,9 +543,12 @@
     currentDealList = [];
     currentSelectedDeal = null;
     rootFolderId = '';
+    currentFolderSuggestions = [];
+    currentSuggestionCursor = null;
     if (metadataStatus) {
       metadataStatus.textContent = '';
     }
+    updateSuggestionNavigation(null);
   }
 
   async function fetchJSON(url, options) {
@@ -460,30 +614,314 @@
     }
   }
 
-  function normalizeFolderId(raw) {
-    const value = (raw || '').trim();
-    if (!value) return '';
-    const urlMatch = value.match(/(?:folder=|folders\/|folder\/)(\d{5,})/i);
-    if (urlMatch) {
-      return urlMatch[1];
+function normalizeFolderId(raw) {
+  const value = (raw || '').trim();
+  if (!value) return '';
+  const urlMatch = value.match(/(?:folder=|folders\/|folder\/)(\d{5,})/i);
+  if (urlMatch) {
+    return urlMatch[1];
+  }
+  const idMatch = value.match(/(\d{5,})/);
+  return idMatch ? idMatch[1] : value;
+}
+
+async function suggestFolder() {
+  if (!suggestFolderButton) return;
+  setBusy(suggestFolderButton, true, 'Searching…');
+  statusText.textContent = 'Searching for a client folder without metadata…';
+  if (folderSuggestionNote) folderSuggestionNote.innerHTML = '';
+  errorCard.classList.add('hidden');
+  try {
+    const data = await fetchJSON('/_public/box/folder/missing-metadata');
+    const issues = Array.isArray(data.issues) ? data.issues : [];
+    const folders = Array.isArray(data.folders)
+      ? data.folders
+      : (data.folder ? [data.folder] : []);
+    resetUI();
+    renderFolderSuggestions(folders, issues, data.message, { nextCursor: data.next_cursor });
+  } catch (error) {
+    showError(error);
+  } finally {
+    setBusy(suggestFolderButton, false);
+  }
+}
+
+function renderFolderSuggestions(folders, issues, message, options = {}) {
+  if (!folderSuggestionNote) return;
+
+  const { append = false, nextCursor = null } = options;
+
+  const cleaned = Array.isArray(folders)
+    ? folders.filter((folder) => folder && (folder.id || folder.name))
+    : [];
+
+  const existingKeys = new Set(
+    currentFolderSuggestions.map((folder) => (folder.id || folder.name || '').toString().trim())
+  );
+
+  const newEntries = [];
+  cleaned.forEach((folder) => {
+    const key = (folder.id || folder.name || '').toString().trim();
+    if (!key || existingKeys.has(key)) {
+      return;
     }
-    const idMatch = value.match(/(\d{5,})/);
-    return idMatch ? idMatch[1] : value;
+    existingKeys.add(key);
+    newEntries.push(folder);
+  });
+
+  if (!append) {
+    folderSuggestionNote.innerHTML = '';
+    currentFolderSuggestions = [];
   }
 
-  async function loadSubfolders() {
-    const rawFolderValue = folderInput.value.trim();
-    const folderId = normalizeFolderId(rawFolderValue);
-    if (!folderId) {
-      statusText.textContent = 'Validation error · folder id required';
+  let intro = folderSuggestionNote.querySelector('.suggestion-intro');
+  if (!intro) {
+    intro = document.createElement('div');
+    intro.className = 'suggestion-intro muted small';
+    folderSuggestionNote.appendChild(intro);
+  }
+  intro.textContent = message || 'Select a folder below to load collaborators.';
+
+  let list = folderSuggestionNote.querySelector('.suggestion-list');
+  if (!list) {
+    list = document.createElement('div');
+    list.className = 'suggestion-list';
+    folderSuggestionNote.appendChild(list);
+  }
+
+  const startIndex = append ? currentFolderSuggestions.length : 0;
+
+  newEntries.forEach((folder, offset) => {
+    const globalIndex = startIndex + offset;
+    const checkboxId = `folder-suggestion-${globalIndex}`;
+    const item = document.createElement('label');
+    item.className = 'suggestion-item';
+    item.setAttribute('for', checkboxId);
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.id = checkboxId;
+    checkbox.dataset.suggestionIndex = String(globalIndex);
+
+    const info = document.createElement('div');
+    const folderId = normalizeFolderId(folder.id || '');
+    const displayName = folder.name || folderId || `Folder ${globalIndex + 1}`;
+    const linkUrl = (folder.url || '').trim();
+    const path = (folder.path || '').trim();
+
+    const titleLine = document.createElement('div');
+    const title = document.createElement('strong');
+    title.textContent = displayName;
+    titleLine.appendChild(title);
+    if (linkUrl) {
+      titleLine.appendChild(document.createTextNode(' · '));
+      const anchor = document.createElement('a');
+      anchor.href = linkUrl;
+      anchor.target = '_blank';
+      anchor.rel = 'noopener';
+      anchor.textContent = 'Open';
+      titleLine.appendChild(anchor);
+    }
+    info.appendChild(titleLine);
+
+    if (path || folderId) {
+      const detailLine = document.createElement('div');
+      detailLine.className = 'muted small';
+      detailLine.textContent = path || `ID: ${folderId}`;
+      info.appendChild(detailLine);
+    }
+
+    item.appendChild(checkbox);
+    item.appendChild(info);
+    list.appendChild(item);
+
+    checkbox.addEventListener('change', async (event) => {
+      if (!event.target.checked) {
+        item.classList.remove('highlight');
+        return;
+      }
+      list.querySelectorAll('input[data-suggestion-index]').forEach((input) => {
+        if (input !== event.target) {
+          input.checked = false;
+          if (input.parentElement) {
+            input.parentElement.classList.remove('highlight');
+          }
+        }
+      });
+      item.classList.add('highlight');
+      const indexValue = Number(event.target.dataset.suggestionIndex);
+      if (!Number.isNaN(indexValue)) {
+        await handleFolderSuggestionSelection(indexValue);
+      }
+    });
+  });
+
+  if (newEntries.length) {
+    currentFolderSuggestions = append
+      ? currentFolderSuggestions.concat(newEntries)
+      : newEntries;
+  } else if (!append) {
+    currentFolderSuggestions = [];
+  }
+
+  let issuesWrapper = folderSuggestionNote.querySelector('.suggestion-issues-wrapper');
+  if (!issuesWrapper) {
+    issuesWrapper = document.createElement('div');
+    issuesWrapper.className = 'suggestion-issues-wrapper hidden';
+    folderSuggestionNote.appendChild(issuesWrapper);
+  }
+  if (!append) {
+    issuesWrapper.innerHTML = '';
+  }
+  if (Array.isArray(issues) && issues.length) {
+    const issueList = document.createElement('ul');
+    issueList.className = 'suggestion-issues';
+    issues.forEach((msg) => {
+      const li = document.createElement('li');
+      li.textContent = msg;
+      issueList.appendChild(li);
+    });
+    issuesWrapper.appendChild(issueList);
+  }
+  if (issuesWrapper.innerHTML.trim()) {
+    issuesWrapper.classList.remove('hidden');
+  } else {
+    issuesWrapper.classList.add('hidden');
+  }
+
+  if (!currentFolderSuggestions.length) {
+    intro.textContent = message || 'No untagged folders found.';
+    if (list) {
+      list.innerHTML = '';
+    }
+  }
+
+  updateSuggestionNavigation(nextCursor);
+
+  if (statusText) {
+    if (append) {
+      if (newEntries.length) {
+        statusText.textContent = 'Additional untagged folders loaded.';
+      } else {
+        statusText.textContent = message || 'No more untagged folders found.';
+      }
+    } else {
+      statusText.textContent = currentFolderSuggestions.length
+        ? 'Select a folder to continue.'
+        : (message || 'No untagged folders found.');
+    }
+  }
+}
+
+  function updateSuggestionNavigation(nextCursor) {
+    if (typeof nextCursor === 'number' && nextCursor >= 0) {
+      currentSuggestionCursor = nextCursor;
+    } else if (typeof nextCursor === 'string' && nextCursor.trim() !== '') {
+      const parsed = Number(nextCursor);
+      currentSuggestionCursor = Number.isNaN(parsed) ? nextCursor : parsed;
+    } else {
+      currentSuggestionCursor = null;
+    }
+
+    if (!loadMoreSuggestionsButton) {
       return;
     }
 
-    if (folderId !== rawFolderValue) {
+    if (currentSuggestionCursor !== null && currentSuggestionCursor !== '') {
+      loadMoreSuggestionsButton.classList.remove('hidden');
+      loadMoreSuggestionsButton.disabled = false;
+      loadMoreSuggestionsButton.textContent = loadMoreSuggestionsButton.dataset.default || 'Show Next 5';
+    } else {
+      loadMoreSuggestionsButton.classList.add('hidden');
+    }
+  }
+
+  async function loadNextSuggestions() {
+    if (currentSuggestionCursor === null || currentSuggestionCursor === undefined || currentSuggestionCursor === '') {
+      statusText.textContent = 'No additional untagged folders available.';
+      return;
+    }
+    if (!loadMoreSuggestionsButton) {
+      return;
+    }
+    setBusy(loadMoreSuggestionsButton, true, 'Loading…');
+    try {
+      const params = new URLSearchParams();
+      params.set('cursor', String(currentSuggestionCursor));
+      const data = await fetchJSON(`/_public/box/folder/missing-metadata?${params.toString()}`);
+      const folders = Array.isArray(data.folders)
+        ? data.folders
+        : (data.folder ? [data.folder] : []);
+      const issues = Array.isArray(data.issues) ? data.issues : [];
+      renderFolderSuggestions(folders, issues, data.message, { append: true, nextCursor: data.next_cursor });
+    } catch (error) {
+      showError(error);
+    } finally {
+      setBusy(loadMoreSuggestionsButton, false);
+    }
+  }
+
+  async function handleFolderSuggestionSelection(index) {
+    const suggestion = currentFolderSuggestions[index];
+    if (!suggestion) {
+      return;
+    }
+    const folderId = normalizeFolderId(suggestion.id || '');
+    if (!folderId) {
+      statusText.textContent = 'Selected folder does not have a valid id.';
+      return;
+    }
+
+    const name = suggestion.name || folderId;
+    folderInput.value = folderId;
+    rootFolderId = folderId;
+    currentFolderId = folderId;
+    selectedSubfolderId = null;
+    selectedSubfolderName = null;
+    statusText.textContent = `Loading collaborators for ${name}…`;
+
+    const inputs = folderSuggestionNote
+      ? Array.from(folderSuggestionNote.querySelectorAll('input[data-suggestion-index]'))
+      : [];
+    inputs.forEach((input) => {
+      input.disabled = true;
+    });
+    try {
+      await showCollaborators(null, folderId, null, null);
+      if (!errorCard || errorCard.classList.contains('hidden')) {
+        await loadSubfolders({ folderId, auto: true });
+      }
+    } finally {
+      inputs.forEach((input) => {
+        input.disabled = false;
+      });
+    }
+  }
+
+  async function loadSubfolders(options = {}) {
+    if (options instanceof Event) {
+      options = {};
+    }
+    const opts = typeof options === 'object' && options !== null ? options : {};
+    const auto = Boolean(opts.auto);
+    const providedId = typeof opts.folderId === 'string' ? opts.folderId : '';
+    const rawFolderValue = providedId || folderInput.value.trim();
+    const folderId = normalizeFolderId(rawFolderValue);
+    if (!folderId) {
+      if (!auto) {
+        statusText.textContent = 'Validation error · folder id required';
+      }
+      return;
+    }
+
+    if (!providedId && folderId !== rawFolderValue) {
       folderInput.value = folderId;
     }
 
-    setBusy(loadSubfoldersButton, true, 'Loading…');
+    const busyTarget = auto ? null : loadSubfoldersButton;
+    if (busyTarget) {
+      setBusy(busyTarget, true, 'Loading…');
+    }
     errorCard.classList.add('hidden');
 
     try {
@@ -493,13 +931,23 @@
       currentFolderId = folderId;
       rootFolderId = folderId;
       renderSubfolders(data.subfolders || [], folderId);
-      statusText.textContent = (data.subfolders || []).length
-        ? 'Select a subfolder then choose Show Collaborators.'
-        : 'No subfolders found for this folder.';
+      if (!auto) {
+        statusText.textContent = (data.subfolders || []).length
+          ? 'Select a subfolder then choose Show Collaborators.'
+          : 'No subfolders found for this folder.';
+      }
     } catch (error) {
-      showError(error);
+      if (auto) {
+        const detail = error && error.message ? error.message : 'Unknown error';
+        statusText.textContent = `Subfolder load failed · ${detail}`;
+        console.error('Automatic subfolder load failed:', error);
+      } else {
+        showError(error);
+      }
     } finally {
-      setBusy(loadSubfoldersButton, false);
+      if (busyTarget) {
+        setBusy(busyTarget, false);
+      }
     }
   }
 
@@ -615,8 +1063,8 @@
     if (metadataPreviewContent) {
       metadataPreviewContent.textContent = '';
     }
-    if (dealSelect) dealSelect.innerHTML = '';
-    if (dealMessage) dealMessage.textContent = 'Select a deal to load metadata values.';
+    if (dealList) dealList.innerHTML = '';
+    if (dealMessage) dealMessage.textContent = 'Tick the checkbox next to a deal to load metadata values.';
     if (dealCard) dealCard.classList.add('hidden');
     currentDealList = [];
     currentSelectedDeal = null;
@@ -693,12 +1141,20 @@
         metadataActions.classList.add('hidden');
         metadataStatus.textContent = 'Metadata creation requires contact and deal context.';
       }
+      if (metadataPreviewButton) {
+        metadataPreviewButton.disabled = true;
+      }
       if (metadataPreview) {
         metadataPreview.classList.add('hidden');
       }
       if (metadataPreviewContent) {
         metadataPreviewContent.textContent = '';
       }
+      if (metadataWarningList) {
+        metadataWarningList.classList.add('hidden');
+        metadataWarningList.innerHTML = '';
+      }
+      currentContactWarnings = new Map();
       return;
     }
 
@@ -706,6 +1162,7 @@
     const contact = data.contact;
     const props = contact.properties || {};
     const deals = data.deals || [];
+    const warnings = Array.isArray(data.warnings) ? data.warnings : [];
 
     let html = '<table><tbody>';
     html += `<tr><th>ID</th><td>${contact.id || '—'}</td></tr>`;
@@ -717,38 +1174,29 @@
     }
     html += '</tbody></table>';
 
-    if (deals.length) {
-      html += '<div class="deals"><h4>Associated Deals</h4><ul>';
-      deals.forEach((deal) => {
-        const dealProps = deal.properties || {};
-        const name = dealProps.dealname || `Deal ${deal.id}`;
-        const stage = dealProps.dealstage || 'Unknown stage';
-        const amount = dealProps.amount ? `$${dealProps.amount}` : '—';
-        const link = deal.url ? `<a href="${deal.url}" target="_blank" rel="noopener">Open</a>` : '';
-        html += `<li><strong>${name}</strong> · Stage: ${stage} · Amount: ${amount} ${link}</li>`;
-      });
-      html += '</ul></div>';
-    } else {
-      html += '<p class="muted small">No associated deals found.</p>';
-    }
-
     contactDetails.innerHTML = html;
-  contactCard.classList.remove('hidden');
+    contactCard.classList.remove('hidden');
     if (metadataActions) {
       metadataActions.classList.remove('hidden');
       metadataStatus.textContent = deals.length
-        ? 'Select a deal from the dropdown below before applying metadata.'
+        ? 'Tick a checkbox next to a deal before applying metadata.'
         : 'No associated deals found. You will be prompted for details before applying.';
-      metadataButton.disabled = false;
     }
-  if (metadataPreview) {
-    metadataPreview.classList.add('hidden');
+    if (metadataButton) {
+      metadataButton.disabled = true;
+    }
+    if (metadataPreviewButton) {
+      metadataPreviewButton.disabled = true;
+    }
+    if (metadataPreview) {
+      metadataPreview.classList.add('hidden');
+    }
+    if (metadataPreviewContent) {
+      metadataPreviewContent.textContent = '';
+    }
+    renderWarnings(warnings);
+    renderDealList(deals);
   }
-  if (metadataPreviewContent) {
-    metadataPreviewContent.textContent = '';
-  }
-  populateDealDropdown(deals);
-}
 
   async function createMetadata() {
     if (!metadataButton) {
@@ -877,20 +1325,47 @@
     externalCard.classList.add('hidden');
     contactCard.classList.add('hidden');
     if (dealCard) dealCard.classList.add('hidden');
-    if (dealSelect) dealSelect.innerHTML = '';
-    if (dealMessage) dealMessage.textContent = 'Select a deal to load metadata values.';
+    if (dealList) dealList.innerHTML = '';
+    if (dealMessage) dealMessage.textContent = 'Tick the checkbox next to a deal to load metadata values.';
     if (metadataPreview) {
       metadataPreview.classList.add('hidden');
     }
     if (metadataPreviewContent) {
       metadataPreviewContent.textContent = '';
     }
+    if (metadataPreviewButton) {
+      metadataPreviewButton.disabled = true;
+    }
+    if (metadataButton) {
+      metadataButton.disabled = true;
+    }
+    if (metadataWarningList) {
+      metadataWarningList.classList.add('hidden');
+      metadataWarningList.innerHTML = '';
+    }
+    currentContactWarnings = new Map();
+    currentSuggestionCursor = null;
+    updateSuggestionNavigation(null);
     console.error(error);
   }
 
-  loadSubfoldersButton.addEventListener('click', () => {
-    loadSubfolders();
-  });
+  if (loadSubfoldersButton) {
+    loadSubfoldersButton.addEventListener('click', () => {
+      loadSubfolders();
+    });
+  }
+
+  if (loadMoreSuggestionsButton) {
+    loadMoreSuggestionsButton.addEventListener('click', () => {
+      loadNextSuggestions();
+    });
+  }
+
+  if (suggestFolderButton) {
+    suggestFolderButton.addEventListener('click', () => {
+      suggestFolder();
+    });
+  }
 
   rootShowButton.addEventListener('click', () => {
     const folderId = folderInput.value.trim();
@@ -961,6 +1436,50 @@
     });
   }
 
+  if (metadataPreviewButton) {
+    metadataPreviewButton.addEventListener('click', () => {
+      if (!currentSelectedDeal) {
+        metadataStatus.textContent = 'Select a deal before generating the metadata preview.';
+        return;
+      }
+      generateMetadataPreview();
+    });
+  }
+
+  function renderWarnings(warnings, options = {}) {
+    if (!metadataWarningList) {
+      return;
+    }
+    const { append = false } = options;
+    if (!append) {
+      currentContactWarnings = new Map();
+    }
+    (Array.isArray(warnings) ? warnings : []).forEach((warning) => {
+      if (!warning || !warning.message) {
+        return;
+      }
+      const scope = warning.scope ? String(warning.scope) : '';
+      const message = String(warning.message);
+      const key = `${scope}|${message}`;
+      if (!currentContactWarnings.has(key)) {
+        currentContactWarnings.set(key, { scope, message });
+      }
+    });
+
+    if (!currentContactWarnings.size) {
+      metadataWarningList.classList.add('hidden');
+      metadataWarningList.innerHTML = '';
+      return;
+    }
+
+    metadataWarningList.classList.remove('hidden');
+    const items = Array.from(currentContactWarnings.values()).map(({ scope, message }) => {
+      const scopeLabel = scope ? `<strong>${scope.replace(/_/g, ' ')}:</strong> ` : '';
+      return `<li>${scopeLabel}${message}</li>`;
+    }).join('');
+    metadataWarningList.innerHTML = `<p><strong>Warnings</strong></p><ul>${items}</ul>`;
+  }
+
   function buildMetadataPreview(payload, deal, contact) {
     const primaryName = [payload.hs_contact_firstname, payload.hs_contact_lastname]
       .filter(Boolean)
@@ -971,48 +1490,85 @@
       .join(' ')
       .trim();
 
-    const contacts = {
-      primary: {
-        id: payload.hs_contact_id || '',
-        name: primaryName || '',
-        email: payload.hs_contact_email || '',
-      },
-      spouse: {
-        id: payload.hs_spouse_id || '',
-        name: spouseName || '',
-        email: payload.hs_spouse_email || '',
-      },
-    };
-
     const portalId = extractPortalIdFromUrl(contact?.url);
     const primaryLink = contact?.url || buildContactLink(portalId, payload.hs_contact_id);
     const spouseLink = buildContactLink(portalId, payload.hs_spouse_id);
 
-    const associatedIds = [];
+    const associatedIdSet = new Set();
     const associatedContacts = [];
-    if (payload.hs_contact_id) associatedIds.push(payload.hs_contact_id);
-    if (payload.hs_spouse_id) associatedIds.push(payload.hs_spouse_id);
+    const seenContactKeys = new Set();
 
-    if (primary.id || primary.name || primary.email) {
+    const pushAssociatedContact = ({ name, email, id, link }) => {
+      const trimmedId = (id || '').trim();
+      const key = `${trimmedId}|${(email || name || '').toLowerCase()}`;
+      if (key && seenContactKeys.has(key)) {
+        return;
+      }
+      if (key) {
+        seenContactKeys.add(key);
+      }
+      if (trimmedId) {
+        associatedIdSet.add(trimmedId);
+      }
       associatedContacts.push(
         formatAssociatedContact({
-          name: primary.name || 'Primary Contact',
-          email: primary.email,
-          id: primary.id,
-          link: primaryLink,
+          name: name || 'Contact',
+          email: email || '',
+          id: trimmedId,
+          link: link,
         })
       );
+    };
+
+    if (primaryName || payload.hs_contact_id || payload.hs_contact_email) {
+      pushAssociatedContact({
+        name: primaryName || 'Primary Contact',
+        email: payload.hs_contact_email || '',
+        id: payload.hs_contact_id || '',
+        link: primaryLink,
+      });
     }
-    if (spouse.id || spouse.name || spouse.email) {
-      associatedContacts.push(
-        formatAssociatedContact({
-          name: spouse.name || 'Spouse',
-          email: spouse.email,
-          id: spouse.id,
-          link: spouseLink,
-        })
-      );
+    if (spouseName || payload.hs_spouse_id || payload.hs_spouse_email) {
+      pushAssociatedContact({
+        name: spouseName || 'Spouse',
+        email: payload.hs_spouse_email || '',
+        id: payload.hs_spouse_id || '',
+        link: spouseLink,
+      });
     }
+
+    const additionalContactsRaw = Array.isArray(deal?.associated_contacts)
+      ? deal.associated_contacts.filter(Boolean)
+      : [];
+
+    const additionalContactSummaries = [];
+
+    additionalContactsRaw.forEach((assoc, index) => {
+      const assocProps = assoc || {};
+      const assocId = (assocProps.id || '').trim();
+      const assocEmail = (assocProps.email || '').trim();
+      const nameParts = [];
+      if (assocProps.firstname) nameParts.push(String(assocProps.firstname));
+      if (assocProps.lastname) nameParts.push(String(assocProps.lastname));
+      const assocName = assocProps.display_name
+        || nameParts.join(' ').trim()
+        || assocEmail
+        || `Associated Contact ${index + 1}`;
+      pushAssociatedContact({
+        name: assocName,
+        email: assocEmail,
+        id: assocId,
+        link: assocProps.url,
+      });
+      additionalContactSummaries.push({
+        id: assocId,
+        name: assocName,
+        email: assocEmail,
+        link: assocProps.url || buildContactLink(portalId, assocId),
+      });
+    });
+
+    const associatedIds = Array.from(associatedIdSet);
 
     const metadataFields = {
       deal_salutation: payload.deal_salutation || '',
@@ -1041,7 +1597,23 @@
       deal_id: payload.deal_id,
       deal: dealDetails,
       metadata_fields: metadataFields,
-      contacts,
+      contacts: {
+        primary: {
+          id: payload.hs_contact_id || '',
+          name: primaryName || '',
+          email: payload.hs_contact_email || '',
+          link: primaryLink || '',
+        },
+        spouse: {
+          id: payload.hs_spouse_id || '',
+          name: spouseName || '',
+          email: payload.hs_spouse_email || '',
+          link: spouseLink || '',
+          firstname: payload.hs_spouse_firstname || '',
+          lastname: payload.hs_spouse_lastname || '',
+        },
+        additional: additionalContactSummaries,
+      },
     };
   }
 
@@ -1101,90 +1673,241 @@
     return d.toISOString().slice(0, 10);
   }
 
-  function populateDealDropdown(deals) {
-    if (!dealSelect || !dealCard) return;
-    if (!Array.isArray(deals) || !deals.length) {
-      dealSelect.innerHTML = '';
-      dealSelect.disabled = true;
-      dealCard.classList.add('hidden');
-      if (dealMessage) {
-        dealMessage.textContent = 'No associated deals found.';
+  function similarityScore(a, b) {
+    const src = (a || '').toLowerCase();
+    const tgt = (b || '').toLowerCase();
+    if (!src || !tgt) return 0;
+    if (src === tgt) return 1;
+
+    const bigrams = (text) => {
+      const map = new Map();
+      const normalized = text.replace(/[^a-z0-9]+/g, '');
+      for (let i = 0; i < normalized.length - 1; i += 1) {
+        const bg = normalized.slice(i, i + 2);
+        map.set(bg, (map.get(bg) || 0) + 1);
       }
-      currentDealList = [];
-      currentSelectedDeal = null;
-      return;
-    }
+      return map;
+    };
 
-    const sorted = [...deals].sort((a, b) => extractDealTimestamp(b) - extractDealTimestamp(a));
-    currentDealList = sorted;
-    dealSelect.innerHTML = '';
+    const source = bigrams(src);
+    const target = bigrams(tgt);
+    if (!source.size || !target.size) return 0;
 
-    sorted.forEach((deal, index) => {
-      const props = deal.properties || {};
-      const displayId = props.hs_deal_record_id || deal.id || `deal-${index}`;
-      const name = props.dealname || `Deal ${displayId}`;
-      const stage = props.dealstage || 'Unknown stage';
-      const closeDate = formatDate(extractDealTimestamp(deal));
-      const option = document.createElement('option');
-      option.value = String(index);
-      option.textContent = `${name} · ${stage} · ${closeDate}`;
-      dealSelect.appendChild(option);
+    let intersection = 0;
+    let totalA = 0;
+    let totalB = 0;
+    source.forEach((count, key) => {
+      totalA += count;
+      if (target.has(key)) {
+        intersection += Math.min(count, target.get(key));
+      }
+    });
+    target.forEach((count) => {
+      totalB += count;
     });
 
-    dealCard.classList.remove('hidden');
-    dealSelect.disabled = false;
-    if (dealMessage) {
-      dealMessage.textContent = 'Select a deal to load metadata values.';
-    }
-    setSelectedDeal(0, { renderPreview: true });
+    const total = totalA + totalB;
+    return total ? (2 * intersection) / total : 0;
   }
 
-  function setSelectedDeal(index, options = {}) {
-    const renderPreview = options.renderPreview !== false;
+function renderDealList(deals) {
+  if (!dealList || !dealCard) return;
 
-    if (!Array.isArray(currentDealList) || !currentDealList[index]) {
-      currentSelectedDeal = null;
-      if (dealSelect) {
-        dealSelect.value = '';
-        dealSelect.disabled = true;
-      }
-      if (dealMessage) dealMessage.textContent = 'Select a deal to load metadata values.';
-      if (metadataPreview) metadataPreview.classList.add('hidden');
-      if (metadataPreviewContent) metadataPreviewContent.textContent = '';
-      return;
-    }
+  const sorted = Array.isArray(deals)
+    ? [...deals].sort((a, b) => extractDealTimestamp(b) - extractDealTimestamp(a))
+    : [];
+  currentDealList = sorted;
+  currentSelectedDeal = null;
+  dealList.innerHTML = '';
 
-    currentSelectedDeal = currentDealList[index];
-    if (dealSelect) {
-      dealSelect.value = String(index);
-      dealSelect.disabled = false;
+  if (!sorted.length) {
+    dealCard.classList.add('hidden');
+    if (dealMessage) {
+      dealMessage.textContent = 'No associated deals found.';
     }
-    const props = currentSelectedDeal.properties || {};
-    const displayId = props.hs_deal_record_id || currentSelectedDeal.id || '';
-    const name = props.dealname || `Deal ${displayId || currentSelectedDeal.id}`;
+    if (metadataPreviewButton) {
+      metadataPreviewButton.disabled = true;
+    }
+    if (metadataButton) {
+      metadataButton.disabled = true;
+    }
+    currentSelectedDeal = null;
+    return;
+  }
+
+  sorted.forEach((deal, index) => {
+    const props = deal.properties || {};
+    const displayId = props.hs_deal_record_id || deal.id || `deal-${index}`;
+    const name = props.dealname || `Deal ${displayId}`;
     const stage = props.dealstage || 'Unknown stage';
-    const closeDate = formatDate(extractDealTimestamp(currentSelectedDeal));
-    if (dealMessage) {
-      dealMessage.textContent = `Using ${name} · Stage: ${stage} · Close: ${closeDate}`;
+    const closeDate = formatDate(extractDealTimestamp(deal));
+    const amount = props.amount ? `$${props.amount}` : '—';
+    const contactsStatus = deal.associated_contacts_status || 'unknown';
+
+    const checkboxId = `deal-choice-${index}`;
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.name = 'deal-choice';
+    checkbox.value = String(index);
+    checkbox.dataset.dealIndex = String(index);
+    checkbox.id = checkboxId;
+    checkbox.addEventListener('change', (event) => {
+      handleDealCheckboxChange(event, index);
+    });
+
+    const item = document.createElement('div');
+    item.className = 'deal-item';
+    item.appendChild(checkbox);
+
+    const label = document.createElement('label');
+    label.setAttribute('for', checkboxId);
+    const details = [`Stage: ${stage}`, `Close: ${closeDate}`, `Amount: ${amount}`];
+    let infoHtml = `<strong>${name}</strong><br/><span class="muted small">${details.join(' · ')}`;
+    if (deal.url) {
+      infoHtml += ` · <a href="${deal.url}" target="_blank" rel="noopener">Open</a>`;
     }
-    if (metadataStatus) {
-      metadataStatus.textContent = `Deal selected: ${name}. Review the metadata preview before applying.`;
+    infoHtml += '</span>';
+    label.innerHTML = infoHtml;
+
+    if (contactsStatus !== 'complete' && contactsStatus !== 'unknown') {
+      const badge = document.createElement('span');
+      badge.className = 'deal-badge';
+      badge.textContent = 'Contacts incomplete';
+      label.appendChild(badge);
     }
-    if (renderPreview) {
-      generateMetadataPreview();
+
+    item.appendChild(label);
+    dealList.appendChild(item);
+  });
+
+  dealCard.classList.remove('hidden');
+  if (dealMessage) {
+    dealMessage.textContent = 'Tick the checkbox next to a deal to populate the metadata preview.';
+  }
+  if (metadataPreviewButton) {
+    metadataPreviewButton.disabled = true;
+  }
+  if (metadataButton) {
+    metadataButton.disabled = true;
+  }
+}
+
+function handleDealCheckboxChange(event, index) {
+  const checkbox = event.target;
+  if (!checkbox) return;
+
+  const inputs = dealList
+    ? Array.from(dealList.querySelectorAll('input[data-deal-index]'))
+    : [];
+
+  if (checkbox.checked) {
+    inputs.forEach((input) => {
+      const match = Number(input.dataset.dealIndex) === index;
+      input.checked = match;
+      if (input.parentElement) {
+        input.parentElement.classList.toggle('highlight', match);
+      }
+    });
+    setSelectedDeal(index, { updateInputs: false });
+    if (metadataPreviewButton) {
+      metadataPreviewButton.disabled = false;
     }
+    if (metadataButton) {
+      metadataButton.disabled = true;
+    }
+    return;
   }
 
-  if (dealSelect) {
-    dealSelect.addEventListener('change', (event) => {
-      const nextIndex = Number(event.target.value);
-      setSelectedDeal(Number.isNaN(nextIndex) ? 0 : nextIndex);
+  const anyChecked = inputs.some((input) => input.checked);
+  if (!anyChecked) {
+    setSelectedDeal(null);
+    if (metadataPreviewButton) {
+      metadataPreviewButton.disabled = true;
+    }
+    if (metadataButton) {
+      metadataButton.disabled = true;
+    }
+  }
+}
+
+function setSelectedDeal(index, options = {}) {
+  const renderPreview = options.renderPreview === true;
+  const updateInputs = options.updateInputs !== false;
+
+  const inputs = dealList
+    ? Array.from(dealList.querySelectorAll('input[data-deal-index]'))
+    : [];
+
+  if (
+    index === null
+    || index === undefined
+    || !Array.isArray(currentDealList)
+    || !currentDealList[index]
+  ) {
+    currentSelectedDeal = null;
+    if (updateInputs) {
+      inputs.forEach((input) => {
+        input.checked = false;
+        if (input.parentElement) {
+          input.parentElement.classList.remove('highlight');
+        }
+      });
+    }
+    if (dealMessage) {
+      dealMessage.textContent = inputs.length
+        ? 'Tick the checkbox next to a deal to load metadata values.'
+        : 'No associated deals found.';
+    }
+    if (metadataPreviewButton) {
+      metadataPreviewButton.disabled = true;
+    }
+    if (metadataButton) {
+      metadataButton.disabled = true;
+    }
+    if (metadataPreview) metadataPreview.classList.add('hidden');
+    if (metadataPreviewContent) metadataPreviewContent.textContent = '';
+    return;
+  }
+
+  currentSelectedDeal = currentDealList[index];
+
+  if (metadataPreview) metadataPreview.classList.add('hidden');
+  if (metadataPreviewContent) metadataPreviewContent.textContent = '';
+
+  if (updateInputs) {
+    inputs.forEach((input) => {
+      const isMatch = Number(input.dataset.dealIndex) === index;
+      input.checked = isMatch;
+      if (input.parentElement) {
+        input.parentElement.classList.toggle('highlight', isMatch);
+      }
     });
   }
+
+  const props = currentSelectedDeal.properties || {};
+  const displayId = props.hs_deal_record_id || currentSelectedDeal.id || '';
+  const name = props.dealname || `Deal ${displayId || currentSelectedDeal.id}`;
+  const stage = props.dealstage || 'Unknown stage';
+  const closeDate = formatDate(extractDealTimestamp(currentSelectedDeal));
+  if (dealMessage) {
+    dealMessage.textContent = `Using ${name} · Stage: ${stage} · Close: ${closeDate}`;
+  }
+  if (metadataStatus) {
+    metadataStatus.textContent = `Deal selected: ${name}. Click Preview Metadata to review before applying.`;
+  }
+  if (renderPreview) {
+    generateMetadataPreview();
+  }
+}
 
   function generateMetadataPreview(existingPayload, selectedDealOverride) {
     const payload = existingPayload || buildPayloadFromSelectedDeal(selectedDealOverride);
-    if (!payload) return;
+    if (!payload) {
+      if (metadataStatus) {
+        metadataStatus.textContent = 'Metadata preview unavailable. Select a deal and ensure a folder id is set.';
+      }
+      return;
+    }
     const previewData = buildMetadataPreview(payload, selectedDealOverride || currentSelectedDeal, lastContactData?.contact);
     if (metadataPreviewContent) {
       metadataPreviewContent.textContent = JSON.stringify(previewData, null, 2);
@@ -1192,12 +1915,15 @@
     if (metadataPreview) {
       metadataPreview.classList.remove('hidden');
     }
-    if (metadataStatus) {
-      metadataStatus.textContent = 'Metadata preview generated automatically. Review before applying.';
-    }
-    if (statusText) {
-      statusText.textContent = 'Metadata preview generated.';
-    }
+  if (metadataStatus) {
+    metadataStatus.textContent = 'Metadata preview generated. Review before applying.';
+  }
+  if (statusText) {
+    statusText.textContent = 'Metadata preview generated.';
+  }
+  if (metadataButton) {
+    metadataButton.disabled = false;
+  }
   }
 
   function buildPayloadFromSelectedDeal(selectedDealOverride) {

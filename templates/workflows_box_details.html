@@ -69,7 +69,7 @@
   <h3>HubSpot Custom Code Actions</h3>
   <p class="muted">Set up three custom-code actions in your workflow—one for each Box endpoint. Reuse the field lists shown below and pass the <code>folder_id</code> output from Action 1 into Actions 2 and 3.</p>
 
-  <h4>Action 1 – POST /box/folder/create</h4>
+  <h4 id="action-create">Action 1 – POST /box/folder/create</h4>
   <div class="field-chips">
     <span class="chip-required">hs_deal_record_id</span>
     <span class="chip-required">hs_contact_firstname</span>
@@ -119,7 +119,7 @@ def main(event):
         }
     }</code></pre>
 
-  <h4>Action 2 – POST /box/folder/tag</h4>
+  <h4 id="action-tag">Action 2 – POST /box/folder/tag</h4>
   <div class="field-chips">
     <span class="chip-required">hs_deal_record_id</span>
     <span class="chip-required">folder_id</span>
@@ -183,7 +183,7 @@ def main(event):
         }
     }</code></pre>
 
-  <h4>Action 3 – POST /box/folder/share</h4>
+  <h4 id="action-share">Action 3 – POST /box/folder/share</h4>
   <div class="field-chips">
     <span class="chip-required">folder_id</span>
     <span class="chip-required">hs_contact_email</span>
@@ -228,6 +228,9 @@ def main(event):
             &quot;shared_emails&quot;: emails,
         }
     }</code></pre>
+  <h4 id="action-auto">Optional Auto Tag – POST /box/folder/tag/auto</h4>
+  <p class="field-note">Use the auto-tag endpoint when the workflow payload might miss a metadata field. Provide the deal and folder identifiers plus whatever contact fields you have—any missing metadata is fetched directly from HubSpot before applying the template.</p>
+  <p class="muted small">Because this endpoint handles the fallback logic internally, you can reuse the Action&nbsp;2 payload as-is and swap the URL to <code>/box/folder/tag/auto</code> when operating in a workflow that cannot guarantee every HubSpot property.</p>
 </div>
 
 <div class="card">
@@ -241,6 +244,25 @@ def main(event):
   <div class="actions">
     <a class="secondary" href="{{ url_for('serve_docs', filename='box-folder-workflow.md') }}" target="_blank">
       Open full workflow reference →
+    </a>
+  </div>
+</div>
+
+<div class="card" id="diagnostics-overview">
+  <h3>Diagnostics &amp; Support Tools</h3>
+  <p class="muted">Use the helper endpoints below to verify access, inspect collaborator lists, or identify folders still missing metadata.</p>
+
+  <h4 id="diagnostics-subfolders">Subfolder Inventory</h4>
+  <p class="muted small">Call <code>GET /box/folder/subfolders</code> with a <code>folder_id</code> to list every immediate child. Handy when validating the Client Sharing subfolder exists after creation.</p>
+
+  <h4 id="diagnostics-collaborators">Collaborator Lookup</h4>
+  <p class="muted small">Use <code>GET /box/folder/collaborators</code> in the UI or via API to flag non-Pivot collaborators. Pair it with <code>GET /box/collaborators/contact</code> to pull HubSpot context for any email.</p>
+
+  <h4 id="diagnostics-metadata">Missing Metadata Scan</h4>
+  <p class="muted small"><code>GET /_public/box/folder/missing-metadata</code> returns up to five active client folders still waiting on metadata. Review the issues array in the response to spot folders the automation could not inspect.</p>
+  <div class="actions" style="margin-top:12px;">
+    <a class="secondary" href="/box/folder/metadata/status">
+      Open metadata snapshot →
     </a>
   </div>
 </div>

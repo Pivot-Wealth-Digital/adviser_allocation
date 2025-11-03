@@ -5,6 +5,8 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from zoneinfo import ZoneInfo
+from functools import lru_cache
+from typing import Optional, Dict, List
 
 from utils.common import sydney_now, sydney_today, sydney_datetime_from_date, SYDNEY_TZ
 from utils.secrets import get_secret
@@ -12,6 +14,7 @@ from utils.firestore_helpers import (
     get_employee_leaves as get_employee_leaves_from_firestore,
     get_employee_id as get_employee_id_from_firestore,
     get_global_closures as get_global_closures_from_firestore,
+    get_capacity_overrides as get_capacity_overrides_from_firestore,
 )
 
 logger = logging.getLogger(__name__)
@@ -29,6 +32,135 @@ _MATRIX_CACHE = {
     "households": [],
     "matrix": {},
 }
+
+_CAPACITY_OVERRIDE_DATE_FMT = "%Y-%m-%d"
+
+
+def _parse_iso_date(value: str) -> Optional[date]:
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, _CAPACITY_OVERRIDE_DATE_FMT).date()
+    except Exception:
+        try:
+            parsed = datetime.fromisoformat(value)
+            if isinstance(parsed, datetime):
+                return parsed.date()
+            if isinstance(parsed, date):
+                return parsed
+        except Exception:
+            return None
+    return None
+
+
+@lru_cache(maxsize=1)
+def _capacity_override_cache() -> Dict[str, List[Dict]]:
+    """Cache adviser capacity overrides grouped by email."""
+    overrides_map: dict[str, list[dict]] = {}
+    raw_items = get_capacity_overrides_from_firestore()
+    for raw in raw_items:
+        email = (raw.get("adviser_email") or "").strip().lower()
+        if not email:
+            continue
+        limit_val = raw.get("client_limit_monthly")
+        try:
+            limit_int = int(limit_val)
+        except (TypeError, ValueError):
+            continue
+        if limit_int <= 0:
+            continue
+        eff_date = _parse_iso_date(raw.get("effective_date"))
+        if eff_date is None:
+            continue
+        # Overrides take effect from the first Monday on/after the supplied date
+        days_until_monday = (7 - eff_date.weekday()) % 7
+        effective_start = eff_date if days_until_monday == 0 else eff_date + timedelta(days=days_until_monday)
+        effective_week = week_monday_ordinal(effective_start)
+        overrides_map.setdefault(email, []).append(
+            {
+                "effective_date": eff_date.isoformat(),
+                "effective_start": effective_start.isoformat(),
+                "effective_week": effective_week,
+                "client_limit_monthly": limit_int,
+                "pod_type": (raw.get("pod_type") or "").strip(),
+                "notes": raw.get("notes", ""),
+            }
+        )
+    for value in overrides_map.values():
+        value.sort(key=lambda item: item["effective_week"])
+    return overrides_map
+
+
+def refresh_capacity_override_cache() -> None:
+    """Clear the cached overrides; used after admin updates."""
+    _capacity_override_cache.cache_clear()
+
+
+def _capacity_schedule_for_email(email: str) -> List[Dict]:
+    if not email:
+        return []
+    return list(_capacity_override_cache().get(email.strip().lower(), []))
+
+
+def _apply_capacity_overrides(user: dict) -> dict:
+    """Attach capacity override schedule to the adviser record and adjust current limit."""
+    props = user.setdefault("properties", {})
+    email = (props.get("hs_email") or "").strip().lower()
+    base_limit = int(props.get("client_limit_monthly") or 0)
+    user["_base_client_limit_monthly"] = base_limit
+
+    schedule = _capacity_schedule_for_email(email)
+    if not schedule:
+        user["capacity_override_schedule"] = []
+        user["capacity_override_active"] = None
+        user["capacity_override_upcoming"] = []
+        return user
+
+    today_week = week_monday_ordinal(sydney_today())
+    current_limit = base_limit
+    active_entry = None
+    upcoming_entries: list[dict] = []
+
+    for entry in schedule:
+        if entry["effective_week"] <= today_week:
+            current_limit = entry["client_limit_monthly"]
+            active_entry = entry
+        else:
+            upcoming_entries.append(entry)
+
+    props["client_limit_monthly"] = current_limit
+    if active_entry and active_entry.get("pod_type"):
+        props["pod_type_effective"] = active_entry["pod_type"]
+
+    user["capacity_override_schedule"] = schedule
+    user["capacity_override_active"] = active_entry
+    user["capacity_override_upcoming"] = upcoming_entries
+    return user
+
+
+def monthly_limit_for_week(user: dict, week_ordinal: int) -> int:
+    """Return the monthly client limit that applies for the supplied week."""
+    base_limit = int(
+        user.get("_base_client_limit_monthly")
+        or (user.get("properties", {}).get("client_limit_monthly") or 0)
+    )
+    schedule = user.get("capacity_override_schedule") or []
+    limit = base_limit
+    for entry in schedule:
+        if entry["effective_week"] <= week_ordinal:
+            limit = entry["client_limit_monthly"]
+        else:
+            break
+    return int(limit)
+
+
+def weekly_capacity_target(user: dict, week_ordinal: int) -> int:
+    """Return the weekly (fortnight) capacity target for the supplied week."""
+    monthly_limit = monthly_limit_for_week(user, week_ordinal)
+    if monthly_limit <= 0:
+        return 0
+    return int(monthly_limit / 2)
+
 
 def create_requests_session():
     """Create a requests session with retry logic for network issues."""
@@ -340,18 +472,19 @@ def get_meeting_count(user_meetings, display_table=False):
 
 
 def get_user_client_limits(user, tenure_limit=90):
+    props = user.setdefault("properties", {})
     date_today = sydney_today()
-    user["properties"]["client_limit_monthly"] = 6  # monthly
+    props["client_limit_monthly"] = 6  # monthly
 
-    start_date_str = (user.get("properties") or {}).get("adviser_start_date")
-    pod_type = (user.get("properties") or {}).get("pod_type")
+    start_date_str = props.get("adviser_start_date")
+    pod_type = props.get("pod_type")
 
     try:
         if start_date_str:
             start_date = datetime.fromisoformat(start_date_str).date()
             # Adjust capacity for tenure/pod type
             if ((date_today - start_date).days < tenure_limit) or (pod_type == "Solo Adviser"):
-                user["properties"]["client_limit_monthly"] = 4
+                props["client_limit_monthly"] = 4
 
             # Compute earliest allocation week for future starters
             if start_date > date_today:
@@ -363,7 +496,7 @@ def get_user_client_limits(user, tenure_limit=90):
         logging.warning(f"Failed to parse adviser_start_date '{start_date_str}': {e}")
         user["availability_start_week"] = None
 
-    return user
+    return _apply_capacity_overrides(user)
 
 
 def classify_leave_weeks(leave_requests):
@@ -420,19 +553,18 @@ def get_merged_schedule(user):
     data_dict = user["meeting_count_list"]
 
     # Create maps for fast lookup of classified weeks
-    classified_weeks_map = {week_num: classification for week_num, classification in classified_weeks}
-    global_weeks_map = {week_num: classification for week_num, classification in global_weeks}
-
     def classification_days(c: str) -> int:
         if c == "Full":
             return 5
         if not c or c == "No":
             return 0
         try:
-            # Expect format 'Partial: N'
-            return int(str(c).split(":")[1].strip())
+            match = re.search(r"(\d+)", str(c))
+            if match:
+                return int(match.group(1))
         except Exception:
             return 0
+        return 0
 
     def combine_classification(a: str, b: str) -> str:
         days = max(classification_days(a), classification_days(b))
@@ -441,6 +573,16 @@ def get_merged_schedule(user):
         if days > 0:
             return f"Partial: {days}"
         return "No"
+
+    classified_weeks_map: Dict[int, str] = {}
+    for week_num, classification in classified_weeks:
+        existing = classified_weeks_map.get(week_num, "No")
+        classified_weeks_map[week_num] = combine_classification(existing, classification)
+
+    global_weeks_map: Dict[int, str] = {}
+    for week_num, classification in global_weeks:
+        existing = global_weeks_map.get(week_num, "No")
+        global_weeks_map[week_num] = combine_classification(existing, classification)
 
     # Step 1: Merge classified leave weeks into data_dict
     for week_num, values in data_dict.items():
@@ -610,8 +752,6 @@ def compute_capacity(user, min_week):
 
     data_dict = user["merged_schedule"]
 
-    limit = int(user["properties"]["client_limit_monthly"] / 2)
-
     # --- Step 1: Fill in missing week keys and create a complete dictionary ---
     # Keys are Monday ordinals; step by 7 days
     max_week = max(data_dict.keys())
@@ -632,41 +772,38 @@ def compute_capacity(user, min_week):
     # --- Step 2: Add one more column for target capacity ---
     HIGH = {"3", "4"}
     LOW = {"1", "2"}
-    first_week = sorted_weeks[0]
-    complete_data_dict[first_week].append(int(limit))
+    for week in sorted_weeks:
+        raw_status = complete_data_dict[week][2]
+        if isinstance(raw_status, str):
+            status_value = raw_status.strip()
+        else:
+            status_value = "No"
+        if not status_value:
+            status_value = "No"
 
-    for week in sorted_weeks[1:]:
-        prev_week = week - 7
+        target_capacity = weekly_capacity_target(user, week)
+        half_capacity = ceil_div(target_capacity, 2)
 
-        # Pull statuses once
-        curr_status = complete_data_dict[week][2]
-        prev_status = complete_data_dict[prev_week][2]
+        curr_has_high = any(ch in status_value for ch in HIGH)
+        curr_has_low = any(ch in status_value for ch in LOW)
 
-        # Precompute common quantities once
-        half = ceil_div(limit, 2)  # 2 for limit=3
-
-        curr_has_high = any(ch in curr_status for ch in HIGH)
-        curr_has_low = any(ch in curr_status for ch in LOW)
-
-        # Parse Partial:N days if present
+        status_lower = status_value.lower()
         partial_days = None
-        if isinstance(curr_status, str) and curr_status.lower().startswith("partial"):
+
+        if status_lower.startswith("partial"):
             try:
-                partial_days = int(str(curr_status).split(":")[1].strip())
+                partial_days = int(str(status_value).split(":")[1].strip())
             except Exception:
                 partial_days = None
 
-        if curr_status == "No":
-            # Full capacity when no OOO
-            current_value_capacity = limit
-        elif curr_status == "Full":
+        if status_lower == "no":
+            current_value_capacity = target_capacity
+        elif status_lower == "full":
             current_value_capacity = 0
         elif partial_days is not None:
-            # Generalized rule: if partial is 3 or 4 days, use ceil(limit/2), else keep full limit
-            current_value_capacity = half if partial_days in (3,4) else limit
+            current_value_capacity = half_capacity if partial_days in (3, 4) else target_capacity
         else:
-            # Fallback for other statuses: keep previous behavior
-            current_value_capacity = half if (curr_has_high or curr_has_low) else limit
+            current_value_capacity = half_capacity if (curr_has_high or curr_has_low) else target_capacity
 
         complete_data_dict[week].append(int(current_value_capacity))
 
@@ -788,7 +925,7 @@ def find_earliest_week(user, min_week, agreement_start_date=None):
     )
     # Walk forward in non-overlapping fortnights: accumulate new deals for two weeks,
     # then consume using fortnight spare (target - clarifies(prev+curr)).
-    fortnight_target = int((user.get("properties", {}).get("client_limit_monthly") or 0) // 2)
+    fortnight_target = weekly_capacity_target(user, baseline_week)
     if fortnight_target <= 0:
         fortnight_target = 1
 
@@ -827,7 +964,7 @@ def find_earliest_week(user, min_week, agreement_start_date=None):
 
 
         # Use the current week's target as the fortnight target reference (matches how 'difference' is computed)
-        block_target = _get_col(data, wk, TARGET_CAPACITY_COL, fortnight_target)
+        block_target = _get_col(data, wk, TARGET_CAPACITY_COL, weekly_capacity_target(user, wk))
         capacity_this_week = block_target - clarify_prev - clarify_curr - backlog_assigned_prev
         
         # Find the next non-Full OOO week for capacity calculation

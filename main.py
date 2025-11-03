@@ -16,6 +16,7 @@ from core.allocation import (
     week_label_from_ordinal,
     get_user_ids_adviser,
     build_service_household_matrix,
+    refresh_capacity_override_cache,
 )
 from utils.firestore_helpers import (
     get_employee_leaves as get_employee_leaves_from_firestore,
@@ -653,6 +654,225 @@ def closures_item(closure_id):
     except Exception as e:
         logging.error(f"Failed to update closure {closure_id}: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/capacity_overrides", methods=["GET", "POST"])
+def capacity_overrides():
+    """Manage adviser capacity overrides stored in Firestore."""
+    if not db:
+        return jsonify({"error": "Firestore is not configured"}), 400
+
+    collection = db.collection("adviser_capacity_overrides")
+
+    if request.method == "GET":
+        try:
+            items = []
+            for doc in collection.stream():
+                data = doc.to_dict() or {}
+                data["id"] = doc.id
+                items.append(data)
+            items.sort(key=lambda item: (item.get("adviser_email") or "", item.get("effective_date") or ""))
+            return jsonify({"count": len(items), "overrides": items}), 200
+        except Exception as exc:
+            logging.error("Failed to load capacity overrides: %s", exc)
+            return jsonify({"error": str(exc)}), 500
+
+    if not is_authenticated():
+        return jsonify({"error": "Unauthorized"}), 401
+
+    if not request.is_json:
+        return jsonify({"error": "Expected application/json"}), 415
+
+    payload = request.get_json() or {}
+    adviser_email = (payload.get("adviser_email") or "").strip().lower()
+    effective_date = (payload.get("effective_date") or "").strip()
+    pod_type = (payload.get("pod_type") or "").strip()
+    notes = (payload.get("notes") or "").strip()
+
+    if not adviser_email:
+        return jsonify({"error": "adviser_email is required"}), 400
+    if not effective_date:
+        return jsonify({"error": "effective_date is required (YYYY-MM-DD)"}), 400
+    try:
+        datetime.strptime(effective_date, "%Y-%m-%d")
+    except Exception:
+        return jsonify({"error": "Invalid effective_date; use YYYY-MM-DD"}), 400
+
+    limit_value = payload.get("client_limit_monthly")
+    try:
+        client_limit_monthly = int(limit_value)
+    except (TypeError, ValueError):
+        return jsonify({"error": "client_limit_monthly must be an integer"}), 400
+    if client_limit_monthly <= 0:
+        return jsonify({"error": "client_limit_monthly must be positive"}), 400
+
+    doc = {
+        "adviser_email": adviser_email,
+        "effective_date": effective_date,
+        "client_limit_monthly": client_limit_monthly,
+        "pod_type": pod_type,
+        "notes": notes,
+        "created_at": sydney_now().isoformat(),
+    }
+
+    try:
+        doc_ref = collection.document()
+        doc_ref.set(doc)
+        refresh_capacity_override_cache()
+        doc["id"] = doc_ref.id
+        return jsonify(doc), 201
+    except Exception as exc:
+        logging.error("Failed to create capacity override: %s", exc)
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/capacity_overrides/<override_id>", methods=["PUT", "DELETE"])
+def capacity_overrides_item(override_id: str):
+    """Update or delete a specific adviser capacity override document."""
+    if not db:
+        return jsonify({"error": "Firestore is not configured"}), 400
+    if not is_authenticated():
+        return jsonify({"error": "Unauthorized"}), 401
+
+    collection = db.collection("adviser_capacity_overrides")
+
+    if request.method == "DELETE":
+        try:
+            collection.document(override_id).delete()
+            refresh_capacity_override_cache()
+            return jsonify({"ok": True}), 200
+        except Exception as exc:
+            logging.error("Failed to delete capacity override %s: %s", override_id, exc)
+            return jsonify({"error": str(exc)}), 500
+
+    if not request.is_json:
+        return jsonify({"error": "Expected application/json"}), 415
+
+    payload = request.get_json() or {}
+    update_doc = {}
+
+    if "adviser_email" in payload:
+        email = (payload.get("adviser_email") or "").strip().lower()
+        if not email:
+            return jsonify({"error": "adviser_email cannot be blank"}), 400
+        update_doc["adviser_email"] = email
+
+    if "effective_date" in payload:
+        effective_date = (payload.get("effective_date") or "").strip()
+        if not effective_date:
+            return jsonify({"error": "effective_date cannot be blank"}), 400
+        try:
+            datetime.strptime(effective_date, "%Y-%m-%d")
+        except Exception:
+            return jsonify({"error": "Invalid effective_date; use YYYY-MM-DD"}), 400
+        update_doc["effective_date"] = effective_date
+
+    if "client_limit_monthly" in payload:
+        try:
+            limit_value = int(payload.get("client_limit_monthly"))
+        except (TypeError, ValueError):
+            return jsonify({"error": "client_limit_monthly must be an integer"}), 400
+        if limit_value <= 0:
+            return jsonify({"error": "client_limit_monthly must be positive"}), 400
+        update_doc["client_limit_monthly"] = limit_value
+
+    if "pod_type" in payload:
+        update_doc["pod_type"] = (payload.get("pod_type") or "").strip()
+
+    if "notes" in payload:
+        update_doc["notes"] = (payload.get("notes") or "").strip()
+
+    if not update_doc:
+        return jsonify({"error": "No valid fields to update"}), 400
+
+    update_doc["updated_at"] = sydney_now().isoformat()
+
+    try:
+        collection.document(override_id).set(update_doc, merge=True)
+        refresh_capacity_override_cache()
+        response = {"id": override_id}
+        response.update(update_doc)
+        return jsonify(response), 200
+    except Exception as exc:
+        logging.error("Failed to update capacity override %s: %s", override_id, exc)
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/capacity_overrides/ui")
+def capacity_overrides_ui():
+    """UI for managing adviser capacity overrides."""
+    if not db:
+        return (
+            "<html><body><p>Firestore is not configured; cannot manage capacity overrides.</p></body></html>",
+            400,
+            {"Content-Type": "text/html; charset=utf-8"},
+        )
+
+    overrides = []
+    try:
+        for doc in db.collection("adviser_capacity_overrides").order_by("adviser_email").stream():
+            data = doc.to_dict() or {}
+            data["id"] = doc.id
+            overrides.append(data)
+    except Exception as exc:
+        logging.warning("Failed to load capacity overrides for UI: %s", exc)
+
+    # Enrich overrides for display (sort by effective date within adviser)
+    normalized = []
+    for idx, item in enumerate(sorted(overrides, key=lambda o: (o.get("adviser_email") or "", o.get("effective_date") or "")), start=1):
+        normalized.append(
+            {
+                "idx": idx,
+                "id": item.get("id"),
+                "adviser_email": item.get("adviser_email", ""),
+                "effective_date": item.get("effective_date", ""),
+                "client_limit_monthly": item.get("client_limit_monthly"),
+                "pod_type": item.get("pod_type", ""),
+                "notes": item.get("notes", ""),
+            }
+    )
+
+    pod_type_options = [
+        "Standard Pod",
+        "Solo Adviser",
+        "Team Pod",
+    ]
+
+    adviser_options = []
+    try:
+        adviser_users = get_user_ids_adviser()
+        adviser_map = {}
+        for user in adviser_users:
+            props = user.get("properties") or {}
+            email = (props.get("hs_email") or "").strip()
+            if not email:
+                continue
+            taking_raw = props.get("taking_on_clients")
+            if taking_raw is None:
+                continue
+            taking_normalized = str(taking_raw).strip().lower()
+            if taking_normalized not in {"true", "false"}:
+                continue
+            first = (props.get("firstname") or props.get("first_name") or "").strip()
+            last = (props.get("lastname") or props.get("last_name") or "").strip()
+            name_parts = [part.title() for part in [first, last] if part]
+            display_name = " ".join(name_parts)
+            label = f"{display_name} ({email})" if display_name else email
+            adviser_map[email] = label
+        adviser_options = [
+            {"email": email, "label": label}
+            for email, label in sorted(adviser_map.items(), key=lambda item: item[1].lower())
+        ]
+    except Exception as exc:  # pragma: no cover - optional data
+        logging.warning("Failed to load adviser list for overrides UI: %s", exc)
+
+    return render_template(
+        "capacity_overrides.html",
+        overrides=normalized,
+        today=sydney_today().isoformat(),
+        pod_type_options=pod_type_options,
+        adviser_options=adviser_options,
+    )
 
 
 @app.route("/closures/ui")
