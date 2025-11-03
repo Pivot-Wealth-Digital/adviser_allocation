@@ -1557,18 +1557,74 @@ def get_users_earliest_availability(agreement_start_date=None, include_no=True):
             user = find_earliest_week(user, effective_min_week, agreement_start_date)
 
             earliest_wk = user.get("earliest_open_week")
-            logging.info("Finished adviser %s: earliest week %s", user_email, week_label_from_ordinal(earliest_wk) if isinstance(earliest_wk, int) else "n/a")
+            props = user["properties"]
+
+            schedule = user.get("capacity_override_schedule") or []
+            today_week = week_monday_ordinal(sydney_today())
+            active_override = None
+            upcoming_override = None
+            for entry in schedule:
+                effective_week = entry.get("effective_week")
+                if effective_week is None:
+                    continue
+                if effective_week <= today_week:
+                    active_override = entry
+                elif upcoming_override is None:
+                    upcoming_override = entry
+            chosen_override = active_override or upcoming_override
+            override_status = None
+            if chosen_override:
+                override_status = "active" if chosen_override is active_override else "upcoming"
+
+            override_limit = chosen_override.get("client_limit_monthly") if chosen_override else None
+            override_effective_week = chosen_override.get("effective_week") if chosen_override else None
+            override_effective_date = None
+            override_effective_label = None
+            if chosen_override:
+                override_effective_date = (
+                    chosen_override.get("effective_start")
+                    or chosen_override.get("effective_date")
+                )
+                if isinstance(override_effective_week, int):
+                    override_effective_label = week_label_from_ordinal(override_effective_week)
+
+            display_limit = override_limit
+            if display_limit is None:
+                display_limit = props.get("client_limit_monthly")
+            if display_limit is None:
+                display_limit = user.get("_base_client_limit_monthly")
+            if display_limit is not None:
+                try:
+                    display_limit = int(display_limit)
+                except Exception:
+                    pass
+
+            limit_source = override_status or ("base" if display_limit is not None else None)
+
+            logging.info(
+                "Finished adviser %s: earliest week %s",
+                user_email,
+                week_label_from_ordinal(earliest_wk) if isinstance(earliest_wk, int) else "n/a",
+            )
             results.append({
-                "email": user["properties"].get("hs_email"),
-                "pod_type": user["properties"].get("pod_type"),
-                "service_packages": (user["properties"].get("client_types") or ""),
-                "hubspot_owner_id": user["properties"].get("hubspot_owner_id"),
-                "client_limit_monthly": user["properties"].get("client_limit_monthly"),
-                "taking_on_clients": user["properties"].get("taking_on_clients"),
-                "household_type": user["properties"].get("household_type"),
+                "email": props.get("hs_email"),
+                "pod_type": props.get("pod_type"),
+                "pod_type_source": "base",
+                "service_packages": (props.get("client_types") or ""),
+                "hubspot_owner_id": props.get("hubspot_owner_id"),
+                "client_limit_monthly": display_limit,
+                "client_limit_source": limit_source,
+                "taking_on_clients": props.get("taking_on_clients"),
+                "household_type": props.get("household_type"),
                 "availability_start_week": user.get("availability_start_week"),
                 "earliest_open_week": earliest_wk,
                 "earliest_open_week_label": week_label_from_ordinal(earliest_wk) if isinstance(earliest_wk, int) else None,
+                "capacity_override_status": override_status,
+                "capacity_override_effective_week": override_effective_week,
+                "capacity_override_effective_label": override_effective_label,
+                "capacity_override_effective_date": override_effective_date,
+                "capacity_override_limit": override_limit,
+                "capacity_override_schedule": schedule,
             })
         except Exception as e:
             # Collect error per user but continue with others

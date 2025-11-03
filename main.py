@@ -1475,13 +1475,28 @@ def availability_earliest():
                 # Normalize taking_on_clients to a boolean-like value and label
                 toc_bool = True if str(toc_raw).lower() == "true" else False
                 toc_label = "Yes" if toc_bool else "No"
+                limit_value = item.get("client_limit_monthly")
+                limit_label = str(limit_value) if limit_value not in (None, "") else ""
+                override_status = item.get("capacity_override_status")
+                override_effective = item.get("capacity_override_effective_label") or item.get("capacity_override_effective_date")
+                status_text = None
+                if override_status == "active":
+                    status_text = "Active override"
+                elif override_status == "upcoming":
+                    status_text = "Scheduled override"
+                limit_hint = None
+                if status_text:
+                    limit_hint = status_text
+                    if override_effective:
+                        limit_hint = f"{status_text} ({override_effective})"
                 rows.append({
                     "email": item.get("email") or "",
                     "name": _format_display_name(item.get("email") or ""),
                     "tags": tags,
                     "pod": item.get("pod_type") or "",
                     "household_type": item.get("household_type") or "",
-                    "limit": item.get("client_limit_monthly") or "",
+                    "limit": limit_label,
+                    "limit_hint": limit_hint,
                     "wk_label": item.get("earliest_open_week_label") or (item.get("error") or ""),
                     "monday": monday_str,
                     "taking_on_clients": toc_label,
