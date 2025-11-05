@@ -7,9 +7,14 @@
     <a href="/box/collaborators" style="color:#d0d7e2;text-decoration:none;font-size:0.9em;">← Box Tools</a>
     <h2>Box Metadata Snapshot</h2>
   </div>
-  <div class="datebox">
-    <span>Today: {{ today }}</span>
-    <span>Updated: {{ updated_at_display or "Not cached yet" }}</span>
+  <div class="topbar-right">
+    <a class="guide-link" href="/box/folder/metadata/guide" target="_blank" rel="noopener">
+      Tagging Guide
+    </a>
+    <div class="datebox">
+      <span>Today: {{ today }}</span>
+      <span>Updated: {{ updated_at_display or "Not cached yet" }}</span>
+    </div>
   </div>
 </div>
 
@@ -188,6 +193,37 @@
     display: flex;
     flex-direction: column;
     gap: 16px;
+  }
+
+  .topbar-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .guide-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.9em;
+    font-weight: 600;
+    padding: 8px 14px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #6366f1, #4338ca);
+    color: #ffffff;
+    text-decoration: none;
+    box-shadow: 0 6px 18px rgba(99, 102, 241, 0.35);
+    transition: transform 0.1s ease, box-shadow 0.1s ease;
+  }
+
+  .guide-link::before {
+    content: "📘";
+    font-size: 1.05em;
+  }
+
+  .guide-link:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 24px rgba(67, 56, 202, 0.45);
   }
 
   .summary-grid {

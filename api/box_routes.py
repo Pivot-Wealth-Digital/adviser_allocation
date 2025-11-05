@@ -1442,6 +1442,14 @@ def box_folder_metadata_status_page():
     )
 
 
+@box_bp.route("/box/folder/metadata/guide", methods=["GET"])
+def box_folder_metadata_guide():
+    guard = _ensure_logged_in()
+    if guard is not None:
+        return guard
+    return render_template("box_metadata_tagging.html", title="Box Metadata Tagging Guide")
+
+
 @box_bp.route("/box/collaborators/contact", methods=["GET"])
 def box_collaborator_contact_details():
     """Return HubSpot contact and associated deal details for a given email."""
