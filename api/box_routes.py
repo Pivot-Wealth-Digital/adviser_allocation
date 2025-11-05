@@ -77,11 +77,96 @@ def _parse_assignee_names(raw: Optional[str], default_slots: int = 8) -> List[st
     return [f"Slot {idx + 1}" for idx in range(default_slots)]
 
 
+def _normalize_snapshot_entries(raw: Optional[List[object]]) -> List[Dict[str, object]]:
+    normalized: List[Dict[str, object]] = []
+    if not raw:
+        return normalized
+    for item in raw:
+        entry: Dict[str, object]
+        if isinstance(item, str):
+            entry = {"id": item.strip()}
+        elif isinstance(item, dict):
+            entry = {key: value for key, value in item.items() if value not in (None, "")}
+        else:
+            continue
+        folder_id = str(entry.get("id") or "").strip()
+        if not folder_id:
+            continue
+        entry["id"] = folder_id
+        normalized.append(entry)
+    return normalized
+
+
+def _record_metadata_snapshot_tag(folder_id: str) -> None:
+    folder_id = (folder_id or "").strip()
+    if not folder_id:
+        return
+    if not USE_FIRESTORE:
+        return
+
+    db = get_firestore_client()
+    if not db:
+        return
+
+    doc_ref = db.collection("box_folder_metadata").document("tagging_status")
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    try:
+        snapshot = doc_ref.get()
+        payload = snapshot.to_dict() if snapshot.exists else {}
+        tagged_entries = _normalize_snapshot_entries(payload.get("tagged"))
+        untagged_entries = _normalize_snapshot_entries(payload.get("untagged"))
+
+        tagged_by_id = {entry["id"]: entry for entry in tagged_entries}
+        untagged_by_id = {entry["id"]: entry for entry in untagged_entries}
+        untagged_by_id.pop(folder_id, None)
+
+        entry = tagged_by_id.get(folder_id) or {"id": folder_id}
+        entry["tagged_at"] = now_iso
+        tagged_by_id[folder_id] = entry
+
+        new_tagged = sorted(tagged_by_id.values(), key=lambda item: item.get("id"))
+        new_untagged = sorted(untagged_by_id.values(), key=lambda item: item.get("id"))
+
+        update_doc: Dict[str, object] = {
+            "tagged": new_tagged,
+            "untagged": new_untagged,
+            "total_tagged": len(new_tagged),
+            "total_untagged": len(new_untagged),
+            "total_scanned": len(new_tagged) + len(new_untagged),
+            "updated_at": now_iso,
+        }
+        if "issues" in payload:
+            update_doc["issues"] = payload.get("issues") or []
+            update_doc["issue_count"] = len(update_doc["issues"])
+
+        doc_ref.set(update_doc, merge=True)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Unable to update metadata snapshot for folder %s after tagging: %s",
+            folder_id,
+            exc,
+        )
+
+
 def _hubspot_headers() -> dict:
     token = get_secret("HUBSPOT_TOKEN") or os.environ.get("HUBSPOT_TOKEN")
     if not token:
         raise RuntimeError("HUBSPOT_TOKEN is not configured")
     return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+
+HUBSPOT_BOX_FOLDER_DEAL_PROPERTY = (
+    get_secret("HUBSPOT_BOX_FOLDER_DEAL_PROPERTY")
+    or os.environ.get("HUBSPOT_BOX_FOLDER_DEAL_PROPERTY")
+    or ""
+).strip()
+
+HUBSPOT_BOX_FOLDER_CONTACT_PROPERTY = (
+    get_secret("HUBSPOT_BOX_FOLDER_CONTACT_PROPERTY")
+    or os.environ.get("HUBSPOT_BOX_FOLDER_CONTACT_PROPERTY")
+    or "box_folder"
+).strip()
 
 
 def _ensure_logged_in():
@@ -435,7 +520,6 @@ def _search_hubspot_contact_by_email(email: str) -> Optional[dict]:
     email = (email or "").strip()
     if not email:
         return None
-
     payload = {
         "filterGroups": [
             {
@@ -452,15 +536,30 @@ def _search_hubspot_contact_by_email(email: str) -> Optional[dict]:
         "limit": 1,
     }
 
-    resp = requests.post(
-        "https://api.hubapi.com/crm/v3/objects/contacts/search",
-        headers=_hubspot_headers(),
-        json=payload,
-        timeout=10,
-    )
-    resp.raise_for_status()
-    results = resp.json().get("results", [])
-    return results[0] if results else None
+    timeouts = (10, 25)
+    last_exc: Optional[requests.RequestException] = None
+    for timeout in timeouts:
+        try:
+            resp = requests.post(
+                "https://api.hubapi.com/crm/v3/objects/contacts/search",
+                headers=_hubspot_headers(),
+                json=payload,
+                timeout=timeout,
+            )
+            resp.raise_for_status()
+            results = resp.json().get("results", [])
+            return results[0] if results else None
+        except requests.Timeout as exc:
+            logger.warning(
+                "HubSpot contact search timed out for %s after %ss; retrying...",
+                email,
+                timeout,
+            )
+            last_exc = exc
+            continue
+    if last_exc:
+        raise last_exc
+    return None
 
 
 def _fetch_contact_associated_deal_ids(contact_id: str) -> List[str]:
@@ -484,6 +583,7 @@ def _fetch_hubspot_deal(deal_id: str) -> Optional[dict]:
                 "pipeline",
                 "amount",
                 "closedate",
+                "agreement_start_date",
                 "hs_deal_record_id",
             ]
         }
@@ -497,6 +597,61 @@ def _fetch_hubspot_deal(deal_id: str) -> Optional[dict]:
     except requests.RequestException as exc:
         logger.error("Failed to fetch HubSpot deal %s: %s", deal_id, exc)
         return None
+
+
+def _update_hubspot_deal_properties(deal_id: str, properties: Dict[str, object]) -> bool:
+    deal_id = (deal_id or "").strip()
+    if not deal_id or not properties:
+        return False
+    payload = {"properties": properties}
+    try:
+        resp = requests.patch(
+            f"https://api.hubapi.com/crm/v3/objects/deals/{deal_id}",
+            headers=_hubspot_headers(),
+            json=payload,
+            timeout=10,
+        )
+        if resp.status_code == 404:
+            logger.warning("HubSpot deal %s not found while updating properties %s", deal_id, list(properties.keys()))
+            return False
+        resp.raise_for_status()
+        return True
+    except requests.RequestException as exc:
+        logger.debug(
+            "Failed to update HubSpot deal %s properties %s: %s",
+            deal_id,
+            list(properties.keys()),
+            exc,
+        )
+        return False
+
+
+def _update_hubspot_contact_property(contact_id: str, property_name: str, value: str) -> bool:
+    contact_id = (contact_id or "").strip()
+    property_name = (property_name or "").strip()
+    if not contact_id or not property_name:
+        return False
+    payload = {"properties": {property_name: value}}
+    try:
+        resp = requests.patch(
+            f"https://api.hubapi.com/crm/v3/objects/contacts/{contact_id}",
+            headers=_hubspot_headers(),
+            json=payload,
+            timeout=10,
+        )
+        if resp.status_code == 404:
+            logger.warning("HubSpot contact %s not found when updating %s", contact_id, property_name)
+            return False
+        resp.raise_for_status()
+        return True
+    except requests.RequestException as exc:
+        logger.debug(
+            "Failed to update HubSpot contact %s property %s: %s",
+            contact_id,
+            property_name,
+            exc,
+        )
+        return False
 
 
 def _extract_folder_id(payload: dict) -> Optional[str]:
@@ -663,12 +818,39 @@ def box_folder_apply_metadata():
         logger.error("Metadata apply failed for folder %s deal %s: %s", folder_id, deal_id, exc)
         return jsonify({"message": "Box metadata apply failed", "error": str(exc)}), 500
 
+    folder_url = f"https://app.box.com/folder/{folder_id}"
     response = {
         "deal_id": deal_id,
         "folder_id": folder_id,
         "metadata_fields": sorted(metadata.keys()),
         "status": "tagged",
+        "box_folder_url": folder_url,
     }
+    try:
+        _record_metadata_snapshot_tag(folder_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Unable to update metadata snapshot after tagging %s: %s", folder_id, exc)
+    if HUBSPOT_BOX_FOLDER_DEAL_PROPERTY:
+        if not _update_hubspot_deal_properties(deal_id, {HUBSPOT_BOX_FOLDER_DEAL_PROPERTY: folder_url}):
+            logger.warning(
+                "Unable to update HubSpot deal %s with box folder url %s",
+                deal_id,
+                folder_url,
+            )
+    contact_ids = set()
+    primary_contact_id = str(metadata.get("primary_contact_id") or metadata_payload.get("hs_contact_id") or "").strip()
+    spouse_contact_id = str(metadata.get("hs_spouse_id") or metadata_payload.get("hs_spouse_id") or "").strip()
+    if primary_contact_id:
+        contact_ids.add(primary_contact_id)
+    if spouse_contact_id:
+        contact_ids.add(spouse_contact_id)
+    for contact_id in contact_ids:
+        if not _update_hubspot_contact_property(contact_id, HUBSPOT_BOX_FOLDER_CONTACT_PROPERTY, folder_url):
+            logger.warning(
+                "Unable to update HubSpot contact %s with box folder url %s",
+                contact_id,
+                folder_url,
+            )
     return jsonify(response), 200
 
 
@@ -721,14 +903,82 @@ def box_folder_apply_metadata_auto():
         logger.error("Auto metadata apply failed for folder %s deal %s: %s", folder_id, deal_id, exc)
         return jsonify({"message": "Box metadata apply failed", "error": str(exc)}), 500
 
+    folder_url = f"https://app.box.com/folder/{folder_id}"
     response = {
         "deal_id": str(deal_id),
         "folder_id": folder_id,
         "metadata_fields": sorted(metadata.keys()),
         "status": "tagged",
         "metadata_source": metadata_source or "hubspot",
+        "box_folder_url": folder_url,
     }
+    try:
+        _record_metadata_snapshot_tag(folder_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Unable to update metadata snapshot after auto-tagging %s: %s", folder_id, exc)
+    if HUBSPOT_BOX_FOLDER_DEAL_PROPERTY:
+        if not _update_hubspot_deal_properties(str(deal_id), {HUBSPOT_BOX_FOLDER_DEAL_PROPERTY: folder_url}):
+            logger.warning(
+                "Unable to update HubSpot deal %s with box folder url %s",
+                deal_id,
+                folder_url,
+            )
+    contact_ids = set()
+    primary_contact_id = str(metadata.get("primary_contact_id") or metadata_payload.get("hs_contact_id") or "").strip()
+    spouse_contact_id = str(metadata.get("hs_spouse_id") or metadata_payload.get("hs_spouse_id") or "").strip()
+    if primary_contact_id:
+        contact_ids.add(primary_contact_id)
+    if spouse_contact_id:
+        contact_ids.add(spouse_contact_id)
+    for contact_id in contact_ids:
+        if not _update_hubspot_contact_property(contact_id, HUBSPOT_BOX_FOLDER_CONTACT_PROPERTY, folder_url):
+            logger.warning(
+                "Unable to update HubSpot contact %s with box folder url %s",
+                contact_id,
+                folder_url,
+            )
     return jsonify(response), 200
+
+
+@box_bp.route("/box/folder/deal-box-url", methods=["POST"])
+def box_folder_update_deal_box_url():
+    if not request.is_json:
+        return jsonify({"message": "Invalid Content-Type"}), 415
+
+    if not HUBSPOT_BOX_FOLDER_DEAL_PROPERTY:
+        return jsonify({"message": "HUBSPOT_BOX_FOLDER_DEAL_PROPERTY is not configured"}), 400
+
+    payload = request.get_json() or {}
+    folder_id = _extract_folder_id(payload)
+    deal_id = _resolve_deal_id(payload)
+    if not folder_id:
+        return jsonify({"message": "folder_id is required"}), 400
+    if not deal_id:
+        return jsonify({"message": "deal_id is required"}), 400
+
+    folder_id = str(folder_id).strip()
+    folder_url = f"https://app.box.com/folder/{folder_id}"
+
+    if not _update_hubspot_deal_properties(str(deal_id), {HUBSPOT_BOX_FOLDER_DEAL_PROPERTY: folder_url}):
+        return (
+            jsonify(
+                {
+                    "message": "Failed to update HubSpot deal property",
+                    "deal_id": str(deal_id),
+                    "folder_id": folder_id,
+                }
+            ),
+            502,
+        )
+
+    return jsonify(
+        {
+            "status": "updated",
+            "deal_id": str(deal_id),
+            "folder_id": folder_id,
+            "box_folder_url": folder_url,
+        }
+    ), 200
 
 
 @box_bp.route("/box/folder/share", methods=["POST"])
@@ -860,6 +1110,20 @@ def box_folder_list_collaborators():
         if collab.get("email") and not collab["email"].endswith(pivot_domain)
     ]
 
+    root_folder_info = None
+    try:
+        details = service._get_folder_details(folder_id)  # noqa: SLF001
+        root_folder_info = {
+            "id": folder_id,
+            "name": details.get("name"),
+            "url": f"https://app.box.com/folder/{folder_id}",
+            "path": service._folder_display_path(details),  # noqa: SLF001
+        }
+    except BoxAutomationError as exc:  # pragma: no cover - best effort only
+        logger.warning("Unable to fetch root folder details for %s: %s", folder_id, exc)
+
+    inspected_name = inspected_name or (root_folder_info or {}).get("name")
+
     return jsonify(
         {
             "folder_id": folder_id,
@@ -872,6 +1136,7 @@ def box_folder_list_collaborators():
             "collaborators": collaborators,
             "external": external,
             "subfolders": subfolders if include_subfolders else None,
+            "root_folder": root_folder_info,
         }
     ), 200
 
@@ -1301,7 +1566,12 @@ def box_folder_collaborators_page():
     guard = _ensure_logged_in()
     if guard is not None:
         return guard
-    return render_template("box_collaborators.html", title="Box Collaborators")
+    return render_template(
+        "box_collaborators.html",
+        title="Box Collaborators",
+        hubspot_deal_property=HUBSPOT_BOX_FOLDER_DEAL_PROPERTY,
+        hubspot_contact_property=HUBSPOT_BOX_FOLDER_CONTACT_PROPERTY,
+    )
 
 
 @box_bp.route("/post/create_box_folder/preview", methods=["POST"])

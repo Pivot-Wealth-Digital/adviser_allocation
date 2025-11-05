@@ -80,13 +80,27 @@
     Select a collaborator to load HubSpot details.
   </div>
   <div id="deal-card" class="contact-deals hidden">
-    <h4>Associated Deals</h4>
-    <p class="muted small" id="deal-message">Tick the checkbox next to a deal to load metadata values.</p>
+    <div class="deal-header">
+      <div>
+        <h4>Associated Deals</h4>
+        <p class="muted small" id="deal-message">Tick the checkbox next to a deal to load metadata values.</p>
+      </div>
+      <div class="muted small" id="folder-summary"></div>
+    </div>
     <div id="deal-list" class="deal-list"></div>
   </div>
   <div id="metadata-actions" class="contact-actions hidden">
     <button type="button" class="secondary" id="metadata-preview-btn" data-default="Preview Metadata">
       Preview Metadata
+    </button>
+    <button
+      type="button"
+      class="secondary"
+      id="deal-box-url-btn"
+      data-default="Update Deal Box URL"
+      data-deal-property="{{ hubspot_deal_property or '' }}"
+    >
+      Update Deal Box URL
     </button>
     <button type="button" class="primary" id="metadata-create-btn" data-default="Create Box Metadata">
       Create Box Metadata
@@ -102,10 +116,6 @@
 
 <div id="error-card" class="card error-card hidden"></div>
 
-<div class="floating-note">
-  <strong>Quick tip</strong>
-  <span>Need API payloads? Visit the workflow documentation for request examples.</span>
-</div>
 {% endblock %}
 
 {% block head %}
@@ -258,6 +268,12 @@
     margin-top: 10px;
   }
 
+  .deal-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
   .deal-item {
     display: flex;
     align-items: flex-start;
@@ -387,34 +403,6 @@
     margin-top: 16px;
   }
 
-  .floating-note {
-    position: fixed;
-    right: 24px;
-    bottom: 24px;
-    background: rgba(17, 24, 39, 0.9);
-    color: #f8fafc;
-    padding: 12px 18px;
-    border-radius: 12px;
-    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.3);
-    max-width: 260px;
-    font-size: 0.88em;
-    line-height: 1.4;
-    z-index: 40;
-  }
-
-  .floating-note strong {
-    display: block;
-    margin-bottom: 4px;
-    font-size: 0.95em;
-  }
-
-  @media (max-width: 720px) {
-    .floating-note {
-      left: 16px;
-      right: 16px;
-      bottom: 16px;
-    }
-  }
 </style>
 {% endblock %}
 
@@ -446,16 +434,26 @@
   const dealCard = document.getElementById('deal-card');
   const dealList = document.getElementById('deal-list');
   const dealMessage = document.getElementById('deal-message');
+  const folderSummary = document.getElementById('folder-summary');
   const errorCard = document.getElementById('error-card');
   const contactCard = document.getElementById('contact-card');
   const contactDetails = document.getElementById('contact-details');
   const metadataActions = document.getElementById('metadata-actions');
   const metadataPreviewButton = document.getElementById('metadata-preview-btn');
+  const metadataDealButton = document.getElementById('deal-box-url-btn');
+  const dealPropertyName = metadataDealButton ? (metadataDealButton.dataset.dealProperty || '').trim() : '';
   const metadataButton = document.getElementById('metadata-create-btn');
   const metadataStatus = document.getElementById('metadata-status');
   const metadataWarningList = document.getElementById('metadata-warning-list');
   const metadataPreview = document.getElementById('metadata-preview');
   const metadataPreviewContent = document.getElementById('metadata-preview-content');
+  const searchParams = new URLSearchParams(window.location.search);
+  const presetFolderId = (searchParams.get('folder_id') || '').trim();
+  const shouldAutoLoadSubfolders = Boolean(presetFolderId);
+  if (presetFolderId && folderInput) {
+    folderInput.value = presetFolderId;
+    folderInput.focus();
+  }
 
   let selectedSubfolderId = null;
   let selectedSubfolderName = null;
@@ -468,6 +466,7 @@
   let currentFolderSuggestions = [];
   let currentSuggestionCursor = null;
   let currentContactWarnings = new Map();
+  let currentFolderInfo = {};
 
   function setBusy(button, busy, label) {
     if (!button) return;
@@ -491,6 +490,9 @@
     }
     if (metadataPreviewButton) {
       metadataPreviewButton.disabled = true;
+    }
+    if (metadataDealButton) {
+      metadataDealButton.disabled = true;
     }
     if (metadataButton) {
       metadataButton.disabled = true;
@@ -549,6 +551,7 @@
       metadataStatus.textContent = '';
     }
     updateSuggestionNavigation(null);
+    updateDealButtonState();
   }
 
   async function fetchJSON(url, options) {
@@ -672,6 +675,8 @@ function renderFolderSuggestions(folders, issues, message, options = {}) {
   if (!append) {
     folderSuggestionNote.innerHTML = '';
     currentFolderSuggestions = [];
+    currentFolderInfo = {};
+    updateFolderSummary();
   }
 
   let intro = folderSuggestionNote.querySelector('.suggestion-intro');
@@ -1088,6 +1093,21 @@ function renderFolderSuggestions(folders, issues, message, options = {}) {
       summaryText = `Inspecting folder ${data.target_folder_id}`;
     }
     summaryTarget.textContent = `${summaryText} · ${externalCount} external collaborators highlighted`;
+    if (data.root_folder) {
+      currentFolderInfo = {
+        id: data.root_folder.id || data.folder_id || '',
+        name: data.root_folder.name || '',
+        url: data.root_folder.url || '',
+        path: data.root_folder.path || '',
+      };
+    } else {
+      currentFolderInfo = {
+        id: data.folder_id || '',
+        name: data.folder?.name || data.inspected?.name || '',
+        url: data.folder?.url || '',
+      };
+    }
+    updateFolderSummary();
 
     collabTableBody.innerHTML = '';
     if (!external.length) {
@@ -1130,6 +1150,8 @@ function renderFolderSuggestions(folders, issues, message, options = {}) {
     contactCard.classList.add('hidden');
     contactDetails.textContent = 'Select a collaborator to load HubSpot details.';
     resultsWrapper.classList.remove('hidden');
+    updateFolderSummary();
+    updateDealButtonState();
   }
 
   function renderContactDetails(data) {
@@ -1150,13 +1172,14 @@ function renderFolderSuggestions(folders, issues, message, options = {}) {
       if (metadataPreviewContent) {
         metadataPreviewContent.textContent = '';
       }
-      if (metadataWarningList) {
-        metadataWarningList.classList.add('hidden');
-        metadataWarningList.innerHTML = '';
-      }
-      currentContactWarnings = new Map();
-      return;
+    if (metadataWarningList) {
+      metadataWarningList.classList.add('hidden');
+      metadataWarningList.innerHTML = '';
     }
+    currentContactWarnings = new Map();
+    updateDealButtonState();
+    return;
+  }
 
     lastContactData = data;
     const contact = data.contact;
@@ -1188,6 +1211,9 @@ function renderFolderSuggestions(folders, issues, message, options = {}) {
     if (metadataPreviewButton) {
       metadataPreviewButton.disabled = true;
     }
+    if (metadataDealButton) {
+      metadataDealButton.disabled = true;
+    }
     if (metadataPreview) {
       metadataPreview.classList.add('hidden');
     }
@@ -1196,6 +1222,7 @@ function renderFolderSuggestions(folders, issues, message, options = {}) {
     }
     renderWarnings(warnings);
     renderDealList(deals);
+    updateDealButtonState();
   }
 
   async function createMetadata() {
@@ -1327,6 +1354,8 @@ function renderFolderSuggestions(folders, issues, message, options = {}) {
     if (dealCard) dealCard.classList.add('hidden');
     if (dealList) dealList.innerHTML = '';
     if (dealMessage) dealMessage.textContent = 'Tick the checkbox next to a deal to load metadata values.';
+    currentFolderInfo = {};
+    updateFolderSummary();
     if (metadataPreview) {
       metadataPreview.classList.add('hidden');
     }
@@ -1346,6 +1375,7 @@ function renderFolderSuggestions(folders, issues, message, options = {}) {
     currentContactWarnings = new Map();
     currentSuggestionCursor = null;
     updateSuggestionNavigation(null);
+    updateDealButtonState();
     console.error(error);
   }
 
@@ -1443,6 +1473,12 @@ function renderFolderSuggestions(folders, issues, message, options = {}) {
         return;
       }
       generateMetadataPreview();
+    });
+  }
+
+  if (metadataDealButton) {
+    metadataDealButton.addEventListener('click', () => {
+      updateDealBoxFolder();
     });
   }
 
@@ -1654,6 +1690,7 @@ function renderFolderSuggestions(folders, issues, message, options = {}) {
   function extractDealTimestamp(deal) {
     const props = (deal && deal.properties) || {};
     const candidates = [
+      props.agreement_start_date,
       props.closedate,
       props.hs_closed_won_date,
       deal?.updatedAt,
@@ -1728,10 +1765,14 @@ function renderDealList(deals) {
     if (metadataPreviewButton) {
       metadataPreviewButton.disabled = true;
     }
+    if (metadataDealButton) {
+      metadataDealButton.disabled = true;
+    }
     if (metadataButton) {
       metadataButton.disabled = true;
     }
     currentSelectedDeal = null;
+    updateDealButtonState();
     return;
   }
 
@@ -1740,7 +1781,9 @@ function renderDealList(deals) {
     const displayId = props.hs_deal_record_id || deal.id || `deal-${index}`;
     const name = props.dealname || `Deal ${displayId}`;
     const stage = props.dealstage || 'Unknown stage';
-    const closeDate = formatDate(extractDealTimestamp(deal));
+    const agreementDate = formatDate(
+      parseTimestamp(props.agreement_start_date) || extractDealTimestamp(deal)
+    );
     const amount = props.amount ? `$${props.amount}` : '—';
     const contactsStatus = deal.associated_contacts_status || 'unknown';
 
@@ -1761,7 +1804,11 @@ function renderDealList(deals) {
 
     const label = document.createElement('label');
     label.setAttribute('for', checkboxId);
-    const details = [`Stage: ${stage}`, `Close: ${closeDate}`, `Amount: ${amount}`];
+    const details = [
+      `Stage: ${stage}`,
+      `Agreement: ${agreementDate}`,
+      `Amount: ${amount}`,
+    ];
     let infoHtml = `<strong>${name}</strong><br/><span class="muted small">${details.join(' · ')}`;
     if (deal.url) {
       infoHtml += ` · <a href="${deal.url}" target="_blank" rel="noopener">Open</a>`;
@@ -1790,6 +1837,7 @@ function renderDealList(deals) {
   if (metadataButton) {
     metadataButton.disabled = true;
   }
+  updateDealButtonState();
 }
 
 function handleDealCheckboxChange(event, index) {
@@ -1815,6 +1863,7 @@ function handleDealCheckboxChange(event, index) {
     if (metadataButton) {
       metadataButton.disabled = true;
     }
+    updateDealButtonState();
     return;
   }
 
@@ -1828,6 +1877,7 @@ function handleDealCheckboxChange(event, index) {
       metadataButton.disabled = true;
     }
   }
+  updateDealButtonState();
 }
 
 function setSelectedDeal(index, options = {}) {
@@ -1866,6 +1916,7 @@ function setSelectedDeal(index, options = {}) {
     }
     if (metadataPreview) metadataPreview.classList.add('hidden');
     if (metadataPreviewContent) metadataPreviewContent.textContent = '';
+    updateDealButtonState();
     return;
   }
 
@@ -1884,13 +1935,19 @@ function setSelectedDeal(index, options = {}) {
     });
   }
 
+  if (shouldAutoLoadSubfolders) {
+    loadSubfolders({ folderId: presetFolderId, auto: true });
+  }
+
   const props = currentSelectedDeal.properties || {};
   const displayId = props.hs_deal_record_id || currentSelectedDeal.id || '';
   const name = props.dealname || `Deal ${displayId || currentSelectedDeal.id}`;
   const stage = props.dealstage || 'Unknown stage';
-  const closeDate = formatDate(extractDealTimestamp(currentSelectedDeal));
+  const agreementTs =
+    parseTimestamp(props.agreement_start_date) || extractDealTimestamp(currentSelectedDeal);
+  const agreementDisplay = formatDate(agreementTs);
   if (dealMessage) {
-    dealMessage.textContent = `Using ${name} · Stage: ${stage} · Close: ${closeDate}`;
+    dealMessage.textContent = `Using ${name} · Stage: ${stage} · Agreement: ${agreementDisplay}`;
   }
   if (metadataStatus) {
     metadataStatus.textContent = `Deal selected: ${name}. Click Preview Metadata to review before applying.`;
@@ -1898,7 +1955,28 @@ function setSelectedDeal(index, options = {}) {
   if (renderPreview) {
     generateMetadataPreview();
   }
+  updateDealButtonState();
 }
+
+  function updateFolderSummary() {
+    if (!folderSummary) {
+      return;
+    }
+    const name = currentFolderInfo?.name || '';
+    const url = currentFolderInfo?.url || '';
+    if (!name) {
+      folderSummary.textContent = '';
+      folderSummary.innerHTML = '';
+      folderSummary.title = '';
+      return;
+    }
+    folderSummary.title = name;
+    if (url) {
+      folderSummary.innerHTML = `Folder: <a href="${url}" target="_blank" rel="noopener">${name}</a>`;
+    } else {
+      folderSummary.textContent = `Folder: ${name}`;
+    }
+  }
 
   function generateMetadataPreview(existingPayload, selectedDealOverride) {
     const payload = existingPayload || buildPayloadFromSelectedDeal(selectedDealOverride);
@@ -1969,6 +2047,112 @@ function setSelectedDeal(index, options = {}) {
     }
 
     return payload;
+  }
+
+  function resolveDealUpdateInputs(selectedDealOverride) {
+    if (!metadataDealButton || !dealPropertyName) {
+      return null;
+    }
+    const payload = buildPayloadFromSelectedDeal(selectedDealOverride);
+    if (!payload) {
+      return null;
+    }
+    const folderId = normalizeFolderId(payload.folder_id);
+    const dealId = String(payload.deal_id || payload.hs_deal_record_id || '').trim();
+    if (!folderId || !dealId) {
+      return null;
+    }
+    return {
+      folderId,
+      dealId,
+      payload,
+      deal: selectedDealOverride || currentSelectedDeal,
+    };
+  }
+
+  function canUpdateDealBoxUrl() {
+    return Boolean(resolveDealUpdateInputs());
+  }
+
+  function updateDealButtonState() {
+    if (!metadataDealButton) {
+      return;
+    }
+    if (!dealPropertyName) {
+      metadataDealButton.disabled = true;
+      metadataDealButton.title = 'Configure HUBSPOT_BOX_FOLDER_DEAL_PROPERTY to enable deal updates.';
+      return;
+    }
+    metadataDealButton.disabled = !canUpdateDealBoxUrl();
+    if (!metadataDealButton.disabled) {
+      metadataDealButton.title = '';
+    }
+  }
+
+  async function updateDealBoxFolder() {
+    if (!metadataDealButton) {
+      return;
+    }
+    if (!dealPropertyName) {
+      if (metadataStatus) {
+        metadataStatus.textContent = 'Configure HUBSPOT_BOX_FOLDER_DEAL_PROPERTY to enable deal updates.';
+      }
+      return;
+    }
+
+    const resolved = resolveDealUpdateInputs();
+    if (!resolved) {
+      if (metadataStatus) {
+        metadataStatus.textContent = 'Select a deal and ensure the folder id is loaded before updating the deal property.';
+      }
+      updateDealButtonState();
+      return;
+    }
+
+    const { folderId, dealId, deal } = resolved;
+    const properties = (deal && deal.properties) || {};
+    const dealName = properties.dealname || `Deal ${dealId}`;
+
+    if (metadataStatus) {
+      metadataStatus.textContent = `Updating HubSpot deal ${dealName} with Box folder URL…`;
+    }
+    if (statusText) {
+      statusText.textContent = 'Updating HubSpot deal with Box folder URL…';
+    }
+    setBusy(metadataDealButton, true, 'Updating…');
+
+    try {
+      const payload = {
+        folder_id: folderId,
+        deal_id: dealId,
+        hs_deal_record_id: dealId,
+      };
+      const data = await fetchJSON('/box/folder/deal-box-url', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+      if (metadataStatus) {
+        const propertyLabel = dealPropertyName || 'box folder URL';
+        metadataStatus.textContent = `HubSpot deal ${data.deal_id} updated (${propertyLabel}).`;
+      }
+      if (statusText) {
+        statusText.textContent = `Success · Deal ${data.deal_id} updated with ${data.box_folder_url}`;
+      }
+    } catch (error) {
+      if (metadataStatus) {
+        metadataStatus.textContent = `Deal property update failed: ${error.message}`;
+      }
+      if (statusText) {
+        statusText.textContent = `Deal update failed · ${error.message}`;
+      }
+      console.error('Deal box URL update failed:', error);
+    } finally {
+      setBusy(metadataDealButton, false);
+      updateDealButtonState();
+    }
   }
 
   resetUI();

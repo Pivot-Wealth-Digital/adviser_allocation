@@ -35,12 +35,6 @@
       <span class="metric">{{ counts.issues }}</span>
     </div>
   </div>
-  {% if allow_refresh %}
-  <div class="summary-actions">
-    <button id="refresh-btn" class="primary" data-default="Refresh snapshot">Refresh snapshot</button>
-    <span id="refresh-status" class="muted small"></span>
-  </div>
-  {% endif %}
   <p class="muted small">
     Snapshot stored in Firestore at <code>box_folder_metadata/tagging_status</code>.
   </p>
@@ -73,17 +67,18 @@
             {% if folder.path %}
             <span class="folder-path muted small">{{ folder.path }}</span>
             {% endif %}
-          </div>
-          <div class="folder-actions">
-            {% if folder.url %}
-            <a href="{{ folder.url }}" target="_blank" rel="noopener">Open in Box</a>
-            {% else %}
-            <span class="muted small">No URL captured</span>
-            {% endif %}
-          </div>
-        </li>
-        {% endfor %}
-      </ul>
+      </div>
+      <div class="folder-actions">
+        {% if folder.url %}
+        <a href="{{ folder.url }}" target="_blank" rel="noopener">Open in Box</a>
+        {% else %}
+        <span class="muted small">No URL captured</span>
+        {% endif %}
+        <button type="button" class="secondary collab-link" data-folder-id="{{ folder.id }}">Collaborators</button>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
       {% else %}
       <p class="muted small">No folders currently allocated to this slot.</p>
       {% endif %}
@@ -118,6 +113,7 @@
         {% else %}
         <span class="muted small">No URL captured</span>
         {% endif %}
+        <button type="button" class="secondary collab-link" data-folder-id="{{ folder.id }}">Collaborators</button>
       </div>
     </li>
     {% endfor %}
@@ -154,6 +150,7 @@
         {% else %}
         <span class="muted small">No URL captured</span>
         {% endif %}
+        <button type="button" class="secondary collab-link" data-folder-id="{{ folder.id }}">Collaborators</button>
       </div>
     </li>
     {% endfor %}
@@ -174,6 +171,14 @@
   </ul>
 </div>
 {% endif %}
+{% endif %}
+{% if allow_refresh %}
+<div class="refresh-footer">
+  <button id="refresh-btn" class="secondary refresh-btn" data-default="Refresh snapshot">
+    Refresh snapshot
+  </button>
+  <span id="refresh-status" class="muted small"></span>
+</div>
 {% endif %}
 {% endblock %}
 
@@ -223,12 +228,6 @@
   .summary-tile.issues {
     border-color: rgba(249, 115, 22, 0.3);
     background: rgba(249, 115, 22, 0.1);
-  }
-
-  .summary-actions {
-    display: flex;
-    align-items: center;
-    gap: 12px;
   }
 
   .folder-list {
@@ -335,6 +334,26 @@
     margin-top: 8px;
   }
 
+  .refresh-footer {
+    margin-top: 24px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .refresh-btn {
+    padding: 6px 10px;
+    font-size: 0.85em;
+    color: #4b5563;
+    border-color: #d1d5db;
+    background: #f3f4f6;
+  }
+
+  .refresh-btn:hover {
+    background: #e5e7eb;
+    border-color: #cbd5f5;
+  }
+
   .warning-card {
     border: 1px solid rgba(249, 115, 22, 0.4);
     background: rgba(249, 115, 22, 0.12);
@@ -391,5 +410,19 @@
       }
     });
   }
+
+  document.querySelectorAll(".collab-link").forEach((button) => {
+    button.addEventListener("click", () => {
+      const folderId = button.dataset.folderId;
+      if (!folderId) {
+        return;
+      }
+      const url = `/box/collaborators?folder_id=${encodeURIComponent(folderId)}`;
+      const win = window.open(url, "_blank");
+      if (win) {
+        win.opener = null;
+      }
+    });
+  });
 </script>
 {% endblock %}

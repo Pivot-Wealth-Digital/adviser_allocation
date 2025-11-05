@@ -580,6 +580,7 @@ class BoxFolderService:
 
         url = f"{self._api_base_url}/folders/{folder_id}/metadata/{self._metadata_scope}/{self._metadata_template_key}"
         headers = self._headers("application/json")
+        patch_headers = self._headers("application/json-patch+json")
 
         additions = sorted(prepared.keys())
         removals = sorted(removal_candidates)
@@ -627,7 +628,12 @@ class BoxFolderService:
                     )
                     return
 
-                resp = requests.put(url, headers=headers, json=operations, timeout=self._timeout)
+                resp = requests.put(
+                    url,
+                    headers=patch_headers,
+                    data=json.dumps(operations),
+                    timeout=self._timeout,
+                )
             resp.raise_for_status()
             logger.info(
                 "Applied metadata template %s/%s to folder %s",
