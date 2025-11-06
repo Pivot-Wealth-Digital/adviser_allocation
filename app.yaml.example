@@ -15,6 +15,7 @@ env_variables:
   ADMIN_USERNAME: projects/pivot-digital-466902/secrets/ADMIN_USERNAME/versions/latest
   ADMIN_PASSWORD: projects/pivot-digital-466902/secrets/ADMIN_PASSWORD/versions/latest
   BOX_IMPERSONATION_USER: projects/pivot-digital-466902/secrets/BOX_IMPERSONATION_USER/versions/latest
+  BOX_JWT_CONFIG_JSON: projects/pivot-digital-466902/secrets/BOX_JWT_CONFIG_JSON/versions/latest
   # Non-secret environment variables
   USE_FIRESTORE: "true"
   EH_SCOPES: "urn:mainapp:leave_requests:read"

@@ -9,10 +9,30 @@
   crossorigin="anonymous"
   referrerpolicy="no-referrer"
 />
-<script type="module">
-  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
-  mermaid.initialize({ startOnLoad: true, theme: "neutral" });
-</script>
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({
+        startOnLoad: true,
+        theme: "base",
+        themeVariables: {
+          background: "#f5f7fa",
+          primaryColor: "#e0e7ff",
+          primaryTextColor: "#1f2933",
+          primaryBorderColor: "#6366f1",
+          lineColor: "#4c51bf",
+          secondaryColor: "#f1f5f9",
+          tertiaryColor: "#ffffff",
+          fontFamily: "'Inter','Segoe UI',sans-serif",
+          edgeLabelBackground: "#ffffff",
+          sequenceNumberColor: "#1f2933",
+          actorBorder: "#cbd5f5",
+          actorBkg: "#eef2ff",
+          actorTextColor: "#1f2933",
+          noteBkgColor: "#ffffff",
+          noteTextColor: "#1f2933",
+        },
+      });
+    </script>
 <style>
   .guide-wrapper {
     background: #f5f7fa;

@@ -865,8 +865,12 @@ def _load_box_jwt_config_json() -> Optional[str]:
 
 BOX_JWT_CONFIG_JSON = _load_box_jwt_config_json()
 
-# Box user to impersonate for folder operations (hardcoded)
-BOX_IMPERSONATION_USER = "noel.pinton@pivotwealth.com.au"
+# Box user to impersonate for folder operations
+BOX_IMPERSONATION_USER = (
+    get_secret("BOX_IMPERSONATION_USER")
+    or os.environ.get("BOX_IMPERSONATION_USER")
+    or "noel.pinton@pivotwealth.com.au"
+)
 HUBSPOT_TOKEN = get_secret("HUBSPOT_TOKEN") or os.environ.get("HUBSPOT_TOKEN")
 HUBSPOT_HEADERS = {
     "Authorization": f"Bearer {HUBSPOT_TOKEN}" if HUBSPOT_TOKEN else None,
