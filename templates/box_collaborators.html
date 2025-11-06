@@ -8,15 +8,19 @@
     <h2>Box Collaborator Lookup</h2>
   </div>
   <div class="datebox">
-    <span>Status:</span>
-    <span id="status-text" class="muted">Awaiting folder id</span>
+    <span class="muted small">Monitor live request progress below.</span>
   </div>
+</div>
+
+<div class="status-banner" id="status-banner">
+  <span class="status-label">Status</span>
+  <span id="status-text">Awaiting folder id</span>
 </div>
 
 <div class="card lookup-card">
   <p class="muted small">
     Enter a Box <code>folder_id</code>, optionally inspect subfolders, and review collaborator access.
-    External emails (outside <code>@pivotwealth.com.au</code>) are highlighted.
+    Collaborators load automatically with external addresses highlighted for quick review.
   </p>
   <form id="collab-form" class="collab-form">
     <label class="field">
@@ -42,12 +46,6 @@
       </div>
     </div>
   </form>
-</div>
-
-<div id="external-card" class="card hidden">
-  <h3>External Emails</h3>
-  <p class="muted small" id="external-empty">No external collaborators detected.</p>
-  <ul id="external-list" class="external-list hidden"></ul>
 </div>
 
 <div id="results-wrapper" class="card hidden">
@@ -116,12 +114,137 @@
 
 <div id="error-card" class="card error-card hidden"></div>
 
+<div id="metadata-summary-card" class="card summary-card hidden">
+  <h3>Metadata Summary</h3>
+  <div class="summary-overview">
+    <p><strong>Box folder:</strong> <span id="summary-folder">—</span></p>
+    <p><strong>Primary contact:</strong> <span id="summary-primary">—</span></p>
+    <p><strong>Spouse:</strong> <span id="summary-spouse">—</span></p>
+  </div>
+  <div class="summary-metadata">
+    <table class="summary-metadata-table">
+      <thead>
+        <tr>
+          <th>Field</th>
+          <th>Value</th>
+        </tr>
+      </thead>
+      <tbody id="summary-metadata-body">
+        <tr><td colspan="2">No metadata fields populated.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
 {% endblock %}
 
 {% block head %}
 <style>
   .lookup-card {
     margin-bottom: 20px;
+  }
+
+  .status-banner {
+    position: sticky;
+    top: 0;
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 20px;
+    margin-bottom: 20px;
+    border-radius: 14px;
+    border: 1px solid rgba(248, 250, 252, 0.08);
+    background: linear-gradient(90deg, rgba(79, 70, 229, 0.95), rgba(16, 185, 129, 0.9));
+    box-shadow: 0 18px 36px rgba(15, 23, 42, 0.28);
+    color: #f8fafc;
+  }
+
+  .status-label {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.2);
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 700;
+  }
+
+  #status-text {
+    font-size: 1.05rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    color: #f8fafc;
+  }
+
+  .summary-card {
+    margin-top: 20px;
+    display: grid;
+    gap: 16px;
+  }
+
+  .summary-card h3 {
+    margin: 0;
+    font-size: 1.2rem;
+    color: #1f2937;
+  }
+
+  .summary-overview p {
+    margin: 0;
+    font-size: 0.95rem;
+    color: #1f2937;
+  }
+
+  .summary-overview p + p {
+    margin-top: 8px;
+  }
+
+  .summary-overview > p > span {
+    display: inline-block;
+    margin-left: 8px;
+  }
+
+  .summary-overview a {
+    color: #2563eb;
+  }
+
+  .summary-metadata-table {
+    width: 100%;
+    border-collapse: collapse;
+    box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .summary-metadata-table th,
+  .summary-metadata-table td {
+    padding: 12px 14px;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.35);
+    vertical-align: top;
+    font-size: 0.9rem;
+  }
+
+  .summary-metadata-table th {
+    background: rgba(241, 245, 249, 0.8);
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    color: #475569;
+    width: 32%;
+  }
+
+  .summary-metadata-table td {
+    color: #1f2937;
+  }
+
+  .summary-metadata-table td pre {
+    margin: 0;
+    font-size: 0.82rem;
+    white-space: pre-wrap;
+    word-break: break-word;
   }
 
   .collab-form {
@@ -255,12 +378,11 @@
     font-weight: 600;
   }
 
-  .external-list {
-    list-style: disc;
-    padding-left: 20px;
-    display: grid;
-    gap: 6px;
+  tr.external.selected td {
+    background: rgba(239, 68, 68, 0.2);
+    box-shadow: inset 0 0 0 2px rgba(59, 130, 246, 0.4);
   }
+
 
   .deal-list {
     display: grid;
@@ -427,9 +549,6 @@
   const externalTotal = document.getElementById('external-total');
   const summaryTarget = document.getElementById('summary-target');
   const collabTableBody = document.getElementById('collab-table-body');
-  const externalCard = document.getElementById('external-card');
-  const externalList = document.getElementById('external-list');
-  const externalEmpty = document.getElementById('external-empty');
   const suggestFolderButton = document.getElementById('suggest-folder');
   const dealCard = document.getElementById('deal-card');
   const dealList = document.getElementById('deal-list');
@@ -447,6 +566,11 @@
   const metadataWarningList = document.getElementById('metadata-warning-list');
   const metadataPreview = document.getElementById('metadata-preview');
   const metadataPreviewContent = document.getElementById('metadata-preview-content');
+  const summaryCard = document.getElementById('metadata-summary-card');
+  const summaryFolder = document.getElementById('summary-folder');
+  const summaryPrimary = document.getElementById('summary-primary');
+  const summarySpouse = document.getElementById('summary-spouse');
+  const summaryMetadataBody = document.getElementById('summary-metadata-body');
   const searchParams = new URLSearchParams(window.location.search);
   const presetFolderId = (searchParams.get('folder_id') || '').trim();
   const shouldAutoLoadSubfolders = Boolean(presetFolderId);
@@ -467,6 +591,10 @@
   let currentSuggestionCursor = null;
   let currentContactWarnings = new Map();
   let currentFolderInfo = {};
+  let collaboratorRegistry = new Map();
+  let currentCollaboratorScanToken = 0;
+  const pivotDomain = '@pivotwealth.com.au';
+  let currentHighlightedEmail = null;
 
   function setBusy(button, busy, label) {
     if (!button) return;
@@ -482,7 +610,6 @@
 
   function resetUI() {
     resultsWrapper.classList.add('hidden');
-    externalCard.classList.add('hidden');
     errorCard.classList.add('hidden');
     contactCard.classList.add('hidden');
     if (metadataActions) {
@@ -503,6 +630,7 @@
     if (metadataPreviewContent) {
       metadataPreviewContent.textContent = '';
     }
+    clearSummaryCard();
     if (metadataWarningList) {
       metadataWarningList.classList.add('hidden');
       metadataWarningList.innerHTML = '';
@@ -510,9 +638,8 @@
     currentContactWarnings = new Map();
     contactDetails.textContent = 'Select a collaborator to load HubSpot details.';
     collabTableBody.innerHTML = '<tr><td colspan="5" class="muted">No results yet.</td></tr>';
-    externalList.innerHTML = '';
-    externalList.classList.add('hidden');
-    externalEmpty.classList.remove('hidden');
+    collaboratorRegistry = new Map();
+    currentCollaboratorScanToken += 1;
     if (folderSuggestionNote) folderSuggestionNote.innerHTML = '';
     if (suggestionActions) suggestionActions.classList.remove('hidden');
     if (loadSubfoldersButton) {
@@ -547,6 +674,7 @@
     rootFolderId = '';
     currentFolderSuggestions = [];
     currentSuggestionCursor = null;
+    currentHighlightedEmail = null;
     if (metadataStatus) {
       metadataStatus.textContent = '';
     }
@@ -617,37 +745,481 @@
     }
   }
 
-function normalizeFolderId(raw) {
-  const value = (raw || '').trim();
-  if (!value) return '';
-  const urlMatch = value.match(/(?:folder=|folders\/|folder\/)(\d{5,})/i);
-  if (urlMatch) {
-    return urlMatch[1];
+  function normalizeFolderId(raw) {
+    const value = (raw || '').trim();
+    if (!value) return '';
+    const urlMatch = value.match(/(?:folder=|folders\/|folder\/)(\d{5,})/i);
+    if (urlMatch) {
+      return urlMatch[1];
+    }
+    const idMatch = value.match(/(\d{5,})/);
+    return idMatch ? idMatch[1] : value;
   }
-  const idMatch = value.match(/(\d{5,})/);
-  return idMatch ? idMatch[1] : value;
-}
 
-async function suggestFolder() {
-  if (!suggestFolderButton) return;
-  setBusy(suggestFolderButton, true, 'Searching…');
-  statusText.textContent = 'Searching for a client folder without metadata…';
-  if (folderSuggestionNote) folderSuggestionNote.innerHTML = '';
-  errorCard.classList.add('hidden');
-  try {
-    const data = await fetchJSON('/_public/box/folder/missing-metadata');
-    const issues = Array.isArray(data.issues) ? data.issues : [];
-    const folders = Array.isArray(data.folders)
-      ? data.folders
-      : (data.folder ? [data.folder] : []);
-    resetUI();
-    renderFolderSuggestions(folders, issues, data.message, { nextCursor: data.next_cursor });
-  } catch (error) {
-    showError(error);
-  } finally {
-    setBusy(suggestFolderButton, false);
+  async function suggestFolder() {
+    if (!suggestFolderButton) return;
+    setBusy(suggestFolderButton, true, 'Searching…');
+    statusText.textContent = 'Searching for a client folder without metadata…';
+    if (folderSuggestionNote) folderSuggestionNote.innerHTML = '';
+    errorCard.classList.add('hidden');
+    try {
+      const data = await fetchJSON('/_public/box/folder/missing-metadata');
+      const issues = Array.isArray(data.issues) ? data.issues : [];
+      const folders = Array.isArray(data.folders)
+        ? data.folders
+        : (data.folder ? [data.folder] : []);
+      resetUI();
+      renderFolderSuggestions(folders, issues, data.message, { nextCursor: data.next_cursor });
+    } catch (error) {
+      showError(error);
+    } finally {
+      setBusy(suggestFolderButton, false);
+    }
   }
-}
+
+  async function fetchCollaboratorsData(folderId, options = {}) {
+    const opts = typeof options === 'object' && options !== null ? options : {};
+    const subfolderId = typeof opts.subfolderId === 'string' ? opts.subfolderId : '';
+    const subfolderName = typeof opts.subfolderName === 'string' ? opts.subfolderName : '';
+    const url = new URL('/box/folder/collaborators', window.location.origin);
+    url.searchParams.set('folder_id', folderId);
+    if (subfolderId) {
+      url.searchParams.set('subfolder_id', subfolderId);
+      if (subfolderName) {
+        url.searchParams.set('subfolder', subfolderName);
+      }
+    }
+    return fetchJSON(url);
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function resetCollaboratorAggregation() {
+    collaboratorRegistry = new Map();
+    renderAggregatedCollaborators();
+  }
+
+  function registerCollaborator(collab, context) {
+    const emailRaw = (collab.email || '').trim();
+    if (!emailRaw) {
+      return;
+    }
+    const key = emailRaw.toLowerCase();
+    const isExternal = !key.endsWith(pivotDomain);
+    let entry = collaboratorRegistry.get(key);
+    if (!entry) {
+      entry = {
+        key,
+        email: emailRaw,
+        names: new Set(),
+        roles: new Set(),
+        statuses: new Set(),
+        labels: new Set(),
+        sources: [],
+        isExternal,
+        hubspotStatus: isExternal ? 'pending' : 'idle',
+        hubspotData: null,
+        error: null,
+        warnings: [],
+      };
+      collaboratorRegistry.set(key, entry);
+    }
+    entry.email = entry.email || emailRaw;
+    if (isExternal) {
+      entry.isExternal = true;
+      if (entry.hubspotStatus === 'idle') {
+        entry.hubspotStatus = 'pending';
+      }
+    }
+    if (collab.name) {
+      entry.names.add(collab.name);
+    }
+    if (collab.role) {
+      entry.roles.add(collab.role);
+      entry.labels.add(collab.role);
+    }
+    if (collab.status) {
+      entry.statuses.add(collab.status);
+    }
+    const labels = Array.isArray(collab.association_labels) ? collab.association_labels : [];
+    labels.forEach((label) => {
+      if (label) {
+        entry.labels.add(label);
+      }
+    });
+    const sourceLabel = context.subfolderName || context.folderName || context.folderId || 'Folder';
+    const sourceKey = `${context.folderId || ''}|${context.subfolderId || ''}|${sourceLabel}`;
+    if (!entry.sources.some((src) => src.key === sourceKey)) {
+      entry.sources.push({
+        key: sourceKey,
+        folderId: context.folderId || '',
+        folderName: context.folderName || '',
+        subfolderId: context.subfolderId || '',
+        subfolderName: context.subfolderName || '',
+        label: sourceLabel,
+      });
+    }
+  }
+
+  function highlightCollaboratorRow(email, options = {}) {
+    const normalized = (email || '').trim().toLowerCase();
+    currentHighlightedEmail = normalized || null;
+    if (!collabTableBody) {
+      return;
+    }
+    const rows = Array.from(collabTableBody.querySelectorAll('tr[data-email]'));
+    rows.forEach((row) => {
+      const match = row.dataset.email === normalized && normalized;
+      row.classList.toggle('selected', Boolean(match));
+    });
+    if (!options.silent && normalized && statusText) {
+      const message = options.message || `HubSpot details loaded for ${normalized}`;
+      statusText.textContent = message;
+    }
+  }
+
+  function clearSummaryCard() {
+    if (summaryFolder) summaryFolder.innerHTML = '—';
+    if (summaryPrimary) summaryPrimary.innerHTML = '—';
+    if (summarySpouse) summarySpouse.innerHTML = '—';
+    if (summaryMetadataBody) {
+      summaryMetadataBody.innerHTML = '<tr><td colspan="2">No metadata fields populated.</td></tr>';
+    }
+    if (summaryCard) summaryCard.classList.add('hidden');
+  }
+
+  function buildContactSummary(contact) {
+    if (!contact) {
+      return '—';
+    }
+    const name =
+      contact.name ||
+      [contact.firstname, contact.lastname].filter(Boolean).join(' ').trim();
+    const parts = [];
+    if (name) {
+      parts.push(`<strong>${escapeHtml(name)}</strong>`);
+    }
+    if (contact.email) {
+      parts.push(`<span class="muted small">${escapeHtml(contact.email)}</span>`);
+    }
+    if (contact.id) {
+      parts.push(`<span class="muted small">ID: ${escapeHtml(contact.id)}</span>`);
+    }
+    if (contact.link) {
+      parts.push(
+        `<a href="${escapeHtml(contact.link)}" target="_blank" rel="noopener">HubSpot</a>`,
+      );
+    }
+    return parts.length ? parts.join('<br/>') : '—';
+  }
+
+  function isMetadataValueEmpty(value) {
+    if (value === null || value === undefined) {
+      return true;
+    }
+    if (typeof value === 'string') {
+      return value.trim() === '';
+    }
+    if (Array.isArray(value)) {
+      return value.length === 0;
+    }
+    if (typeof value === 'object') {
+      return Object.keys(value).length === 0;
+    }
+    return false;
+  }
+
+  function formatMetadataValue(value) {
+    if (value === null || value === undefined || (typeof value === 'string' && value.trim() === '')) {
+      return '<span class="muted small">—</span>';
+    }
+    if (typeof value === 'object') {
+      try {
+        const serialized = JSON.stringify(value, null, 2);
+        return `<pre>${escapeHtml(serialized)}</pre>`;
+      } catch (error) {
+        return `<pre>${escapeHtml(String(value))}</pre>`;
+      }
+    }
+    return escapeHtml(String(value));
+  }
+
+  function buildMetadataTableRows(fields) {
+    const entries = Object.entries(fields || {}).filter(([, value]) => !isMetadataValueEmpty(value));
+    if (!entries.length) {
+      return '<tr><td colspan="2">No metadata fields populated.</td></tr>';
+    }
+    return entries
+      .map(
+      ([key, value]) =>
+          `<tr><td>${escapeHtml(key)}</td><td>${formatMetadataValue(value)}</td></tr>`,
+      )
+      .join('');
+  }
+
+  function updateSummaryCard(previewData) {
+    if (
+      !summaryCard ||
+      !summaryFolder ||
+      !summaryPrimary ||
+      !summarySpouse ||
+      !summaryMetadataBody
+    ) {
+      return false;
+    }
+    if (!previewData) {
+      clearSummaryCard();
+      return false;
+    }
+
+    const folderName =
+      currentFolderInfo?.name ||
+      currentFolderInfo?.path ||
+      currentFolderInfo?.id ||
+      previewData.folder_id ||
+      '—';
+    const folderUrl = currentFolderInfo?.url || '';
+    summaryFolder.innerHTML = folderUrl
+      ? `<a href="${escapeHtml(folderUrl)}" target="_blank" rel="noopener">${escapeHtml(folderName)}</a>`
+      : escapeHtml(folderName);
+
+    const primary = previewData.contacts?.primary || {};
+    summaryPrimary.innerHTML = buildContactSummary(primary);
+
+    const spouse = previewData.contacts?.spouse || {};
+    summarySpouse.innerHTML = buildContactSummary(spouse);
+
+    const metadataRows = buildMetadataTableRows(previewData.metadata_fields);
+    const hasMetadataContent = Object.entries(previewData.metadata_fields || {}).some(
+      ([, value]) => !isMetadataValueEmpty(value),
+    );
+    summaryMetadataBody.innerHTML = metadataRows;
+    summaryCard.classList.remove('hidden');
+    return hasMetadataContent;
+  }
+
+
+  function revealFirstLoadedCollaborator(auto = false) {
+    const entry = Array.from(collaboratorRegistry.values()).find(
+      (item) => item.isExternal && item.hubspotStatus === 'loaded' && item.hubspotData,
+    );
+    if (!entry) {
+      return;
+    }
+    renderContactDetails(entry.hubspotData);
+    highlightCollaboratorRow(entry.email, {
+      silent: !auto,
+      message: `Auto-loaded HubSpot details for ${entry.email}`,
+    });
+    if (statusText && auto) {
+      statusText.textContent = `Auto-loaded HubSpot details for ${entry.email}`;
+    }
+  }
+
+  function renderAggregatedCollaborators() {
+    if (!collabTableBody || !resultsWrapper) {
+      return;
+    }
+    const entries = Array.from(collaboratorRegistry.values());
+    const externalEntries = entries.filter((entry) => entry.isExternal);
+    const totalCount = entries.length;
+    const externalCount = externalEntries.length;
+    collabTotal.textContent = String(totalCount);
+    externalTotal.textContent = String(externalCount);
+
+    const folderLabel =
+      currentFolderInfo && (currentFolderInfo.name || currentFolderInfo.path || currentFolderInfo.id)
+        ? `Inspecting ${currentFolderInfo.name || currentFolderInfo.path || `folder ${currentFolderInfo.id}`}`
+        : 'Aggregated collaborators';
+
+    if (!externalCount) {
+      collabTableBody.innerHTML = '<tr><td colspan="5" class="muted">No external collaborators detected.</td></tr>';
+      summaryTarget.textContent = `${folderLabel} · No external collaborators detected (internal collaborators hidden)`;
+      resultsWrapper.classList.remove('hidden');
+      return;
+    }
+
+    const sorted = externalEntries.sort((a, b) => a.email.localeCompare(b.email));
+
+    const rows = sorted
+      .map((entry) => {
+        const names = Array.from(entry.names).join(' / ') || '—';
+        const roles =
+          Array.from(entry.labels).join(', ') ||
+          Array.from(entry.roles).join(', ') ||
+          '—';
+        const statuses = Array.from(entry.statuses).join(', ') || '—';
+        const sourceLabels = entry.sources.length
+          ? entry.sources
+              .map(
+                (src) =>
+                  src.subfolderName ||
+                  src.folderName ||
+                  src.label ||
+                  src.folderId ||
+                  src.subfolderId,
+              )
+              .join(', ')
+          : 'Folder';
+        let hubspotStatus = 'HubSpot lookup pending';
+        if (entry.hubspotStatus === 'loaded') {
+          hubspotStatus = 'HubSpot loaded';
+        } else if (entry.hubspotStatus === 'error') {
+          hubspotStatus = `HubSpot error${entry.error ? `: ${escapeHtml(entry.error)}` : ''}`;
+        } else if (entry.hubspotStatus === 'not_found') {
+          hubspotStatus = 'No HubSpot contact';
+        }
+        const detailParts = [];
+        if (sourceLabels) {
+          detailParts.push(`Folders: ${sourceLabels}`);
+        }
+        if (hubspotStatus) {
+          detailParts.push(hubspotStatus);
+        }
+        const statusDetail = `${escapeHtml(statuses)}<br/><span class="muted small">${escapeHtml(
+          detailParts.join(' · '),
+        )}</span>`;
+        return `
+          <tr class="external" data-email="${escapeHtml(entry.email.toLowerCase())}">
+            <td>${escapeHtml(entry.email)}</td>
+            <td>${escapeHtml(names)}</td>
+            <td>${escapeHtml(roles)}</td>
+            <td>${statusDetail}</td>
+            <td><button type="button" class="secondary hubspot-btn" data-email="${escapeHtml(
+              entry.email,
+            )}">HubSpot Details</button></td>
+          </tr>
+        `;
+      })
+      .join('');
+
+    collabTableBody.innerHTML = rows;
+    const externalLabel = externalCount === 1 ? 'external collaborator' : 'external collaborators';
+    const hiddenNote = totalCount > externalCount ? ' (internal collaborators hidden)' : '';
+    summaryTarget.textContent = `${folderLabel} · ${externalCount} ${externalLabel}${hiddenNote}`;
+    resultsWrapper.classList.remove('hidden');
+    if (currentHighlightedEmail) {
+      highlightCollaboratorRow(currentHighlightedEmail, { silent: true });
+    }
+  }
+
+  function collectCollaboratorsFromResponse(data, context) {
+    if (!data) {
+      return;
+    }
+    const collaborators = Array.isArray(data.collaborators) ? data.collaborators : [];
+    collaborators.forEach((collab) => registerCollaborator(collab, context));
+    renderAggregatedCollaborators();
+  }
+
+  async function scanSubfoldersForCollaborators(folderId, subfolders, scanToken, folderName) {
+    if (!Array.isArray(subfolders) || !subfolders.length) {
+      return;
+    }
+    for (const sub of subfolders) {
+      if (scanToken !== currentCollaboratorScanToken) {
+        return;
+      }
+      if (statusText) {
+        statusText.textContent = `Scanning ${sub.name || sub.id} for collaborators…`;
+      }
+      try {
+        const data = await fetchCollaboratorsData(folderId, { subfolderId: sub.id, subfolderName: sub.name });
+        collectCollaboratorsFromResponse(data, {
+          folderId,
+          folderName,
+          subfolderId: sub.id,
+          subfolderName: sub.name,
+        });
+      } catch (error) {
+        console.warn('Failed to scan subfolder', sub.id, error);
+      }
+      if (scanToken !== currentCollaboratorScanToken) {
+        return;
+      }
+    }
+  }
+
+  async function loadHubspotDetailsForExternalCollaborators(scanToken) {
+    if (scanToken !== currentCollaboratorScanToken) {
+      return;
+    }
+    const entries = Array.from(collaboratorRegistry.values()).filter((entry) => entry.isExternal);
+    if (!entries.length) {
+      return;
+    }
+    if (statusText) {
+      statusText.textContent = 'Loading HubSpot details for external collaborators…';
+    }
+    for (const entry of entries) {
+      if (scanToken !== currentCollaboratorScanToken) {
+        return;
+      }
+      if (entry.hubspotStatus !== 'pending') {
+        continue;
+      }
+      entry.hubspotStatus = 'loading';
+      renderAggregatedCollaborators();
+      try {
+        const data = await fetchContactDetails(entry.email);
+        if (scanToken !== currentCollaboratorScanToken) {
+          return;
+        }
+        if (data) {
+          entry.hubspotStatus = 'loaded';
+          entry.hubspotData = data;
+          entry.warnings = Array.isArray(data.warnings) ? data.warnings : [];
+        } else {
+          entry.hubspotStatus = 'not_found';
+        }
+      } catch (error) {
+        entry.hubspotStatus = 'error';
+        entry.error = error.message || String(error);
+      }
+      if (scanToken !== currentCollaboratorScanToken) {
+        return;
+      }
+      renderAggregatedCollaborators();
+    }
+    revealFirstLoadedCollaborator(true);
+  }
+
+  async function autoProcessFolder(folderId, rootData) {
+    const scanToken = ++currentCollaboratorScanToken;
+    const folderName =
+      (rootData?.root_folder && rootData.root_folder.name) ||
+      (rootData?.folder && rootData.folder.name) ||
+      (rootData?.inspected && rootData.inspected.name) ||
+      '';
+    collectCollaboratorsFromResponse(rootData, { folderId, folderName });
+    const subfolders = await loadSubfolders({ folderId, auto: true, suppressStatus: true });
+    await scanSubfoldersForCollaborators(folderId, subfolders, scanToken, folderName);
+    await loadHubspotDetailsForExternalCollaborators(scanToken);
+    if (scanToken === currentCollaboratorScanToken && statusText) {
+      statusText.textContent = 'Collaborator scan complete.';
+    }
+  }
+
+  async function autoStartForPresetFolder() {
+    if (!presetFolderId) {
+      return;
+    }
+    try {
+      if (statusText) {
+        statusText.textContent = 'Loading preset folder…';
+      }
+      await showCollaborators(null, presetFolderId, null, null, { auto: true, suppressStatus: true });
+    } catch (error) {
+      showError(error);
+    }
+  }
 
 function renderFolderSuggestions(folders, issues, message, options = {}) {
   if (!folderSuggestionNote) return;
@@ -892,10 +1464,7 @@ function renderFolderSuggestions(folders, issues, message, options = {}) {
       input.disabled = true;
     });
     try {
-      await showCollaborators(null, folderId, null, null);
-      if (!errorCard || errorCard.classList.contains('hidden')) {
-        await loadSubfolders({ folderId, auto: true });
-      }
+      await showCollaborators(null, folderId, null, null, { auto: true });
     } finally {
       inputs.forEach((input) => {
         input.disabled = false;
@@ -909,6 +1478,7 @@ function renderFolderSuggestions(folders, issues, message, options = {}) {
     }
     const opts = typeof options === 'object' && options !== null ? options : {};
     const auto = Boolean(opts.auto);
+    const suppressStatus = Boolean(opts.suppressStatus);
     const providedId = typeof opts.folderId === 'string' ? opts.folderId : '';
     const rawFolderValue = providedId || folderInput.value.trim();
     const folderId = normalizeFolderId(rawFolderValue);
@@ -916,7 +1486,7 @@ function renderFolderSuggestions(folders, issues, message, options = {}) {
       if (!auto) {
         statusText.textContent = 'Validation error · folder id required';
       }
-      return;
+      return [];
     }
 
     if (!providedId && folderId !== rawFolderValue) {
@@ -929,14 +1499,16 @@ function renderFolderSuggestions(folders, issues, message, options = {}) {
     }
     errorCard.classList.add('hidden');
 
+    let fetchedSubfolders = [];
     try {
       const url = new URL('/box/folder/subfolders', window.location.origin);
       url.searchParams.set('folder_id', folderId);
       const data = await fetchJSON(url);
       currentFolderId = folderId;
       rootFolderId = folderId;
-      renderSubfolders(data.subfolders || [], folderId);
-      if (!auto) {
+      fetchedSubfolders = Array.isArray(data.subfolders) ? data.subfolders : [];
+      renderSubfolders(fetchedSubfolders, folderId);
+      if (!auto && !suppressStatus) {
         statusText.textContent = (data.subfolders || []).length
           ? 'Select a subfolder then choose Show Collaborators.'
           : 'No subfolders found for this folder.';
@@ -949,11 +1521,13 @@ function renderFolderSuggestions(folders, issues, message, options = {}) {
       } else {
         showError(error);
       }
+      return [];
     } finally {
       if (busyTarget) {
         setBusy(busyTarget, false);
       }
     }
+    return fetchedSubfolders;
   }
 
   function renderSubfolders(subfolders, folderId, activeSubfolderId) {
@@ -1009,7 +1583,11 @@ function renderFolderSuggestions(folders, issues, message, options = {}) {
     }
   }
 
-  async function showCollaborators(button, folderId, subfolderId, subfolderName) {
+  async function showCollaborators(button, folderId, subfolderId, subfolderName, options = {}) {
+    const opts = typeof options === 'object' && options !== null ? options : {};
+    const auto = Boolean(opts.auto);
+    const suppressStatus = Boolean(opts.suppressStatus);
+    const skipBusy = Boolean(opts.skipBusy) || auto;
     const normalizedFolderId = normalizeFolderId(folderId);
     if (normalizedFolderId !== folderId) {
       folderId = normalizedFolderId;
@@ -1025,30 +1603,32 @@ function renderFolderSuggestions(folders, issues, message, options = {}) {
       rootFolderId = folderId;
     }
 
-    setBusy(button, true, 'Loading…');
+    if (!skipBusy && button) {
+      setBusy(button, true, 'Loading…');
+    }
     errorCard.classList.add('hidden');
 
     try {
-      const url = new URL('/box/folder/collaborators', window.location.origin);
-      url.searchParams.set('folder_id', folderId);
-      if (subfolderId) {
-        url.searchParams.set('subfolder_id', subfolderId);
-        if (subfolderName) {
-          url.searchParams.set('subfolder', subfolderName);
-        }
-      }
-      const data = await fetchJSON(url);
+      const data = await fetchCollaboratorsData(folderId, { subfolderId, subfolderName });
       currentFolderId = folderId;
       if (!rootFolderId) {
         rootFolderId = folderId;
       }
       renderCollaborators(data);
       rootFolderId = data.folder_id || rootFolderId || folderId;
-      statusText.textContent = `Success · ${data.total} collaborators found`;
+      if (!suppressStatus) {
+        statusText.textContent = `Success · ${data.total} collaborators found`;
+      }
+      if (auto && !subfolderId) {
+        await autoProcessFolder(folderId, data);
+      }
+      return data;
     } catch (error) {
       showError(error);
     } finally {
-      setBusy(button, false);
+      if (!skipBusy && button) {
+        setBusy(button, false);
+      }
     }
   }
 
@@ -1070,29 +1650,21 @@ function renderFolderSuggestions(folders, issues, message, options = {}) {
     }
     if (dealList) dealList.innerHTML = '';
     if (dealMessage) dealMessage.textContent = 'Tick the checkbox next to a deal to load metadata values.';
-    if (dealCard) dealCard.classList.add('hidden');
+   if (dealCard) dealCard.classList.add('hidden');
     currentDealList = [];
     currentSelectedDeal = null;
 
-    const pivotDomain = '@pivotwealth.com.au';
-    const collaborators = Array.isArray(data.collaborators) ? data.collaborators : [];
-    const external = (data.external && Array.isArray(data.external))
-      ? data.external
-      : collaborators.filter(
-          (collab) => collab.email && !collab.email.endsWith(pivotDomain)
-        );
-    collabTotal.textContent = collaborators.length;
-    const externalCount = external.length;
-    externalTotal.textContent = externalCount;
+    resetCollaboratorAggregation();
 
-    let summaryText;
-    if (data.inspected && data.inspected.id) {
-      const inspectedName = data.inspected.name || 'Folder';
-      summaryText = `Inspecting ${inspectedName} (id ${data.inspected.id})`;
-    } else {
-      summaryText = `Inspecting folder ${data.target_folder_id}`;
+    if (!data) {
+      summaryTarget.textContent = 'No collaborator data available.';
+      updateFolderSummary();
+      updateDealButtonState();
+      return;
     }
-    summaryTarget.textContent = `${summaryText} · ${externalCount} external collaborators highlighted`;
+
+    const collaborators = Array.isArray(data.collaborators) ? data.collaborators : [];
+
     if (data.root_folder) {
       currentFolderInfo = {
         id: data.root_folder.id || data.folder_id || '',
@@ -1109,43 +1681,21 @@ function renderFolderSuggestions(folders, issues, message, options = {}) {
     }
     updateFolderSummary();
 
-    collabTableBody.innerHTML = '';
-    if (!external.length) {
-      collabTableBody.innerHTML = '<tr><td colspan="5" class="muted">No external collaborators found.</td></tr>';
-    } else {
-      external.forEach((collab) => {
-        const tr = document.createElement('tr');
-        const email = collab.email || '—';
-        tr.classList.add('external');
-        tr.dataset.isExternal = '1';
+    const context = {
+      folderId: data.folder_id || data.target_folder_id || currentFolderId || '',
+      folderName:
+        (data.root_folder && data.root_folder.name) ||
+        (data.folder && data.folder.name) ||
+        (data.inspected && data.inspected.name) ||
+        '',
+      subfolderId:
+        data.inspected && data.inspected.id && data.inspected.id !== (data.folder_id || data.target_folder_id)
+          ? data.inspected.id
+          : '',
+      subfolderName: (data.inspected && data.inspected.name) || '',
+    };
 
-        tr.innerHTML = `
-          <td>${email}</td>
-          <td>${collab.name || '—'}</td>
-          <td>${collab.role || '—'}</td>
-          <td>${collab.status || '—'}</td>
-          <td><button type="button" class="secondary hubspot-btn" data-email="${email}">HubSpot Details</button></td>
-        `;
-        collabTableBody.appendChild(tr);
-      });
-    }
-
-    if (externalCount) {
-      externalList.innerHTML = '';
-      external.forEach((collab) => {
-        const li = document.createElement('li');
-        li.textContent = `${collab.email} (${collab.name || 'no name'})`;
-        externalList.appendChild(li);
-      });
-      externalCard.classList.remove('hidden');
-      externalList.classList.remove('hidden');
-      externalEmpty.classList.add('hidden');
-    } else {
-      externalCard.classList.add('hidden');
-      externalList.classList.add('hidden');
-      externalEmpty.classList.remove('hidden');
-      externalEmpty.textContent = 'No external collaborators detected.';
-    }
+    collectCollaboratorsFromResponse(data, context);
 
     contactCard.classList.add('hidden');
     contactDetails.textContent = 'Select a collaborator to load HubSpot details.';
@@ -1349,7 +1899,6 @@ function renderFolderSuggestions(folders, issues, message, options = {}) {
     errorCard.innerHTML = `<strong>Error:</strong> ${error.message}${prettyDetail ? `<br/><code>${prettyDetail}</code>` : ''}`;
     statusText.textContent = `Error · ${error.message}`;
     resultsWrapper.classList.add('hidden');
-    externalCard.classList.add('hidden');
     contactCard.classList.add('hidden');
     if (dealCard) dealCard.classList.add('hidden');
     if (dealList) dealList.innerHTML = '';
@@ -1373,6 +1922,7 @@ function renderFolderSuggestions(folders, issues, message, options = {}) {
       metadataWarningList.innerHTML = '';
     }
     currentContactWarnings = new Map();
+    clearSummaryCard();
     currentSuggestionCursor = null;
     updateSuggestionNavigation(null);
     updateDealButtonState();
@@ -1399,7 +1949,7 @@ function renderFolderSuggestions(folders, issues, message, options = {}) {
 
   rootShowButton.addEventListener('click', () => {
     const folderId = folderInput.value.trim();
-    showCollaborators(rootShowButton, folderId, selectedSubfolderId, selectedSubfolderName);
+    showCollaborators(rootShowButton, folderId, selectedSubfolderId, selectedSubfolderName, { auto: true });
   });
 
   subfolderShowButton.addEventListener('click', () => {
@@ -1441,6 +1991,9 @@ function renderFolderSuggestions(folders, issues, message, options = {}) {
       renderContactDetails(data);
       if (data && data.contact) {
         statusText.textContent = `Loaded HubSpot details for ${email}`;
+        highlightCollaboratorRow(email, {
+          message: `Loaded HubSpot details for ${email}`,
+        });
       } else {
         statusText.textContent = `No HubSpot match for ${email}`;
       }
@@ -1573,39 +2126,6 @@ function renderFolderSuggestions(folders, issues, message, options = {}) {
       });
     }
 
-    const additionalContactsRaw = Array.isArray(deal?.associated_contacts)
-      ? deal.associated_contacts.filter(Boolean)
-      : [];
-
-    const additionalContactSummaries = [];
-
-    additionalContactsRaw.forEach((assoc, index) => {
-      const assocProps = assoc || {};
-      const assocId = (assocProps.id || '').trim();
-      const assocEmail = (assocProps.email || '').trim();
-      const nameParts = [];
-      if (assocProps.firstname) nameParts.push(String(assocProps.firstname));
-      if (assocProps.lastname) nameParts.push(String(assocProps.lastname));
-      const assocName = assocProps.display_name
-        || nameParts.join(' ').trim()
-        || assocEmail
-        || `Associated Contact ${index + 1}`;
-      pushAssociatedContact({
-        name: assocName,
-        email: assocEmail,
-        id: assocId,
-        link: assocProps.url,
-      });
-      additionalContactSummaries.push({
-        id: assocId,
-        name: assocName,
-        email: assocEmail,
-        link: assocProps.url || buildContactLink(portalId, assocId),
-      });
-    });
-
-    const associatedIds = Array.from(associatedIdSet);
-
     const metadataFields = {
       deal_salutation: payload.deal_salutation || '',
       household_type: payload.household_type || '',
@@ -1613,8 +2133,6 @@ function renderFolderSuggestions(folders, issues, message, options = {}) {
       primary_contact_link: primaryLink || '',
       hs_spouse_id: payload.hs_spouse_id || '',
       spouse_contact_link: spouseLink || '',
-      associated_contact_ids: associatedIds.join(', ') || '',
-      associated_contacts: associatedContacts.join('\n') || '',
     };
 
     const dealDetails = (() => {
@@ -1648,7 +2166,7 @@ function renderFolderSuggestions(folders, issues, message, options = {}) {
           firstname: payload.hs_spouse_firstname || '',
           lastname: payload.hs_spouse_lastname || '',
         },
-        additional: additionalContactSummaries,
+        additional: [],
       },
     };
   }
@@ -1772,6 +2290,7 @@ function renderDealList(deals) {
       metadataButton.disabled = true;
     }
     currentSelectedDeal = null;
+    clearSummaryCard();
     updateDealButtonState();
     return;
   }
@@ -1831,11 +2350,17 @@ function renderDealList(deals) {
   if (dealMessage) {
     dealMessage.textContent = 'Tick the checkbox next to a deal to populate the metadata preview.';
   }
-  if (metadataPreviewButton) {
-    metadataPreviewButton.disabled = true;
-  }
   if (metadataButton) {
     metadataButton.disabled = true;
+  }
+
+  if (sorted.length) {
+    setSelectedDeal(0, { renderPreview: true });
+    if (metadataPreviewButton) {
+      metadataPreviewButton.disabled = false;
+    }
+  } else if (metadataPreviewButton) {
+    metadataPreviewButton.disabled = true;
   }
   updateDealButtonState();
 }
@@ -1916,6 +2441,7 @@ function setSelectedDeal(index, options = {}) {
     }
     if (metadataPreview) metadataPreview.classList.add('hidden');
     if (metadataPreviewContent) metadataPreviewContent.textContent = '';
+    clearSummaryCard();
     updateDealButtonState();
     return;
   }
@@ -1984,6 +2510,7 @@ function setSelectedDeal(index, options = {}) {
       if (metadataStatus) {
         metadataStatus.textContent = 'Metadata preview unavailable. Select a deal and ensure a folder id is set.';
       }
+      clearSummaryCard();
       return;
     }
     const previewData = buildMetadataPreview(payload, selectedDealOverride || currentSelectedDeal, lastContactData?.contact);
@@ -1993,15 +2520,17 @@ function setSelectedDeal(index, options = {}) {
     if (metadataPreview) {
       metadataPreview.classList.remove('hidden');
     }
-  if (metadataStatus) {
-    metadataStatus.textContent = 'Metadata preview generated. Review before applying.';
-  }
-  if (statusText) {
-    statusText.textContent = 'Metadata preview generated.';
-  }
-  if (metadataButton) {
-    metadataButton.disabled = false;
-  }
+    if (metadataStatus) {
+      metadataStatus.textContent = 'Metadata preview generated. Review before applying.';
+    }
+    if (statusText) {
+      statusText.textContent = 'Metadata preview generated.';
+    }
+    if (metadataButton) {
+      metadataButton.disabled = false;
+    }
+    updateSummaryCard(previewData);
+    return previewData;
   }
 
   function buildPayloadFromSelectedDeal(selectedDealOverride) {
@@ -2156,5 +2685,8 @@ function setSelectedDeal(index, options = {}) {
   }
 
   resetUI();
+  if (presetFolderId) {
+    autoStartForPresetFolder();
+  }
 </script>
 {% endblock %}

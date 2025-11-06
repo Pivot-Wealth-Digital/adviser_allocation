@@ -1008,21 +1008,47 @@ def _fetch_hubspot_contact(contact_id: str) -> Optional[dict]:
 
 
 def get_hubspot_deal_contacts(deal_id: str) -> List[dict]:
-    url = f"https://api.hubapi.com/crm/v4/objects/deals/{deal_id}/associations/contacts"
-    resp = requests.get(url, headers=_hubspot_headers(), timeout=10)
-    if resp.status_code == 404:
-        logger.warning("HubSpot deal %s not found when retrieving contacts", deal_id)
-        return []
-    resp.raise_for_status()
-    contact_ids = [
-        str(item.get("toObjectId"))
-        for item in resp.json().get("results", [])
-        if item.get("toObjectId")
-    ]
+    association_map: dict[str, list[dict]] = {}
+    contact_ids: list[str] = []
+
+    try:
+        url = "https://api.hubapi.com/crm/v4/associations/deals/contacts/batch/read"
+        payload = {"inputs": [{"id": str(deal_id)}]}
+        resp = requests.post(url, headers=_hubspot_headers(), json=payload, timeout=10)
+        if resp.status_code == 404:
+            logger.warning("HubSpot deal %s not found when retrieving contact associations", deal_id)
+        else:
+            resp.raise_for_status()
+            results = resp.json().get("results", [])
+            for result in results:
+                for to_entry in result.get("to", []):
+                    contact_id = str(to_entry.get("toObjectId") or "").strip()
+                    if not contact_id:
+                        continue
+                    if contact_id not in association_map:
+                        contact_ids.append(contact_id)
+                    association_map[contact_id] = to_entry.get("associationTypes") or []
+    except requests.RequestException as exc:
+        logger.warning("Failed to load HubSpot association metadata for deal %s: %s", deal_id, exc)
+
+    if not contact_ids:
+        url = f"https://api.hubapi.com/crm/v4/objects/deals/{deal_id}/associations/contacts"
+        resp = requests.get(url, headers=_hubspot_headers(), timeout=10)
+        if resp.status_code == 404:
+            logger.warning("HubSpot deal %s not found when retrieving contacts", deal_id)
+            return []
+        resp.raise_for_status()
+        contact_ids = [
+            str(item.get("toObjectId"))
+            for item in resp.json().get("results", [])
+            if item.get("toObjectId")
+        ]
+
     contacts: List[dict] = []
     for contact_id in contact_ids:
         contact = _fetch_hubspot_contact(contact_id)
         if contact:
+            contact["association_types"] = association_map.get(contact_id, [])
             contacts.append(contact)
     return contacts
 

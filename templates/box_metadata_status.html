@@ -80,6 +80,20 @@
         <span class="muted small">No URL captured</span>
         {% endif %}
         <button type="button" class="secondary collab-link" data-folder-id="{{ folder.id }}">Collaborators</button>
+        <button type="button" class="secondary preview-link" data-folder-id="{{ folder.id }}">Preview metadata</button>
+      </div>
+      <div class="folder-preview hidden" data-preview-container="{{ folder.id }}">
+        <p class="preview-status muted small" data-preview-status="{{ folder.id }}"></p>
+        <div class="preview-summary hidden" data-preview-summary="{{ folder.id }}"></div>
+        <div class="preview-metadata hidden" data-preview-metadata="{{ folder.id }}"></div>
+        <div class="preview-pipeline hidden" data-preview-pipeline="{{ folder.id }}"></div>
+        <button
+          type="button"
+          class="secondary apply-link hidden"
+          data-folder-id="{{ folder.id }}"
+        >
+          Apply metadata and Box folder tagging
+        </button>
       </div>
     </li>
     {% endfor %}
@@ -119,6 +133,20 @@
         <span class="muted small">No URL captured</span>
         {% endif %}
         <button type="button" class="secondary collab-link" data-folder-id="{{ folder.id }}">Collaborators</button>
+        <button type="button" class="secondary preview-link" data-folder-id="{{ folder.id }}">Preview metadata</button>
+      </div>
+      <div class="folder-preview hidden" data-preview-container="{{ folder.id }}">
+        <p class="preview-status muted small" data-preview-status="{{ folder.id }}"></p>
+        <div class="preview-summary hidden" data-preview-summary="{{ folder.id }}"></div>
+        <div class="preview-metadata hidden" data-preview-metadata="{{ folder.id }}"></div>
+        <div class="preview-pipeline hidden" data-preview-pipeline="{{ folder.id }}"></div>
+        <button
+          type="button"
+          class="secondary apply-link hidden"
+          data-folder-id="{{ folder.id }}"
+        >
+          Apply metadata and Box folder tagging
+        </button>
       </div>
     </li>
     {% endfor %}
@@ -156,6 +184,20 @@
         <span class="muted small">No URL captured</span>
         {% endif %}
         <button type="button" class="secondary collab-link" data-folder-id="{{ folder.id }}">Collaborators</button>
+        <button type="button" class="secondary preview-link" data-folder-id="{{ folder.id }}">Preview metadata</button>
+      </div>
+      <div class="folder-preview hidden" data-preview-container="{{ folder.id }}">
+        <p class="preview-status muted small" data-preview-status="{{ folder.id }}"></p>
+        <div class="preview-summary hidden" data-preview-summary="{{ folder.id }}"></div>
+        <div class="preview-metadata hidden" data-preview-metadata="{{ folder.id }}"></div>
+        <div class="preview-pipeline hidden" data-preview-pipeline="{{ folder.id }}"></div>
+        <button
+          type="button"
+          class="secondary apply-link hidden"
+          data-folder-id="{{ folder.id }}"
+        >
+          Apply metadata and Box folder tagging
+        </button>
       </div>
     </li>
     {% endfor %}
@@ -390,6 +432,122 @@
     border-color: #cbd5f5;
   }
 
+  .hidden {
+    display: none !important;
+  }
+
+  .folder-preview {
+    margin-top: 12px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    background: rgba(241, 245, 249, 0.5);
+    display: grid;
+    gap: 10px;
+  }
+
+  .preview-status {
+    margin: 0;
+    color: #475569;
+  }
+
+  .preview-status.error {
+    color: #b91c1c;
+    font-weight: 600;
+  }
+
+  .preview-summary {
+    background: #ffffff;
+    border-radius: 10px;
+    border: 1px solid rgba(148, 163, 184, 0.4);
+    padding: 12px 14px;
+    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
+  }
+
+  .preview-summary h4 {
+    margin: 0 0 6px;
+    font-size: 0.95rem;
+    color: #1f2937;
+  }
+
+  .preview-summary p {
+    margin: 2px 0;
+    font-size: 0.9rem;
+    color: #334155;
+  }
+
+  .preview-summary p span {
+    display: inline-block;
+    margin-left: 6px;
+  }
+
+  .preview-summary a {
+    color: #2563eb;
+  }
+
+  .preview-metadata table {
+    width: 100%;
+    border-collapse: collapse;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.35);
+    background: #fff;
+  }
+
+  .preview-metadata th,
+  .preview-metadata td {
+    padding: 10px 12px;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+    text-align: left;
+    font-size: 0.88rem;
+  }
+
+  .preview-metadata th {
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    color: #475569;
+    background: rgba(241, 245, 249, 0.7);
+  }
+
+  .preview-metadata td pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 0.82rem;
+  }
+
+  .preview-pipeline {
+    border-left: 3px solid rgba(99, 102, 241, 0.55);
+    padding-left: 12px;
+    display: grid;
+    gap: 4px;
+  }
+
+  .preview-pipeline span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .preview-pipeline .status-info::before {
+    content: "•";
+    color: #4338ca;
+  }
+
+  .preview-pipeline .status-success::before {
+    content: "•";
+    color: #0f766e;
+  }
+
+  .preview-pipeline .status-error::before {
+    content: "•";
+    color: #b91c1c;
+  }
+
+  .folder-preview .apply-link {
+    justify-self: start;
+  }
   .warning-card {
     border: 1px solid rgba(249, 115, 22, 0.4);
     background: rgba(249, 115, 22, 0.12);
@@ -409,6 +567,7 @@
   details.collapsible[open] summary {
     margin-bottom: 12px;
   }
+
 </style>
 {% endblock %}
 
@@ -458,6 +617,754 @@
       if (win) {
         win.opener = null;
       }
+    });
+  });
+
+  const previewState = new Map();
+  const previewContainers = new Map();
+  const PIVOT_DOMAIN = "@pivotwealth.com.au";
+
+  function setBusy(button, busy, label) {
+    if (!button) return;
+    if (busy) {
+      button.dataset.default = button.dataset.default || button.textContent;
+      button.textContent = label || "Working…";
+      button.disabled = true;
+    } else {
+      button.textContent = button.dataset.default || button.textContent;
+      button.disabled = false;
+    }
+  }
+
+  async function fetchJSON(url, options) {
+    let response;
+    try {
+      response = await fetch(url, options);
+    } catch (error) {
+      throw new Error(`Network error: ${error.message}`);
+    }
+    const contentType = response.headers.get("content-type") || "";
+    const isJSON = contentType.includes("application/json");
+    let data = null;
+    if (isJSON) {
+      try {
+        data = await response.json();
+      } catch (error) {
+        throw new Error("Invalid JSON response received");
+      }
+    } else {
+      const text = await response.text();
+      data = text ? { raw: text } : null;
+    }
+    if (!response.ok) {
+      const message = (data && (data.message || data.error)) || response.statusText;
+      const error = new Error(message);
+      if (data && data.detail) {
+        error.detail = data.detail;
+      }
+      throw error;
+    }
+    return data;
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function escapeAttr(value) {
+    return String(value ?? "").replace(/"/g, '\\"');
+  }
+
+  function getPreviewElements(folderId, hintElement) {
+    const key = String(folderId ?? "");
+    if (!key) {
+      return null;
+    }
+    const attrValue = escapeAttr(key);
+    let container = null;
+    if (hintElement instanceof Element) {
+      if (hintElement.matches(`[data-preview-container]`)) {
+        container = hintElement;
+      } else {
+        const direct = hintElement.closest(`[data-preview-container]`);
+        if (direct) {
+          container = direct;
+        } else {
+          const host = hintElement.closest("li");
+          if (host) {
+            container = host.querySelector(`[data-preview-container="${attrValue}"]`);
+          }
+        }
+      }
+    }
+    if (!container) {
+      container = previewContainers.get(key) || null;
+    }
+    if (!container) {
+      container = document.querySelector(`[data-preview-container="${attrValue}"]`);
+    }
+    if (!container) return null;
+    previewContainers.set(key, container);
+    return {
+      container,
+      status: container.querySelector(`[data-preview-status="${attrValue}"]`),
+      summary: container.querySelector(`[data-preview-summary="${attrValue}"]`),
+      metadata: container.querySelector(`[data-preview-metadata="${attrValue}"]`),
+      pipeline: container.querySelector(`[data-preview-pipeline="${attrValue}"]`),
+      applyBtn: container.querySelector(`.apply-link[data-folder-id="${attrValue}"]`),
+    };
+  }
+
+  function resetPreviewDisplay(folderId, hintElement) {
+    const elements = getPreviewElements(folderId, hintElement);
+    if (!elements) return;
+    if (elements.status) {
+      elements.status.textContent = "";
+      elements.status.classList.remove("error");
+    }
+    if (elements.summary) {
+      elements.summary.classList.add("hidden");
+      elements.summary.innerHTML = "";
+    }
+    if (elements.metadata) {
+      elements.metadata.classList.add("hidden");
+      elements.metadata.innerHTML = "";
+    }
+    if (elements.pipeline) {
+      elements.pipeline.classList.add("hidden");
+      elements.pipeline.innerHTML = "";
+    }
+    if (elements.applyBtn) {
+      elements.applyBtn.classList.add("hidden");
+      elements.applyBtn.disabled = true;
+      const label =
+        elements.applyBtn.dataset.default || "Apply metadata and Box folder tagging";
+      elements.applyBtn.textContent = label;
+    }
+    elements.container.classList.add("hidden");
+  }
+
+  function clearPreviewState(folderId, options = {}) {
+    previewState.delete(folderId);
+    previewContainers.delete(String(folderId ?? ""));
+    const elements = getPreviewElements(folderId);
+    if (!elements) return;
+    if (elements.status) {
+      elements.status.textContent = "";
+      elements.status.classList.remove("error");
+    }
+    if (elements.summary) {
+      elements.summary.classList.add("hidden");
+      elements.summary.innerHTML = "";
+    }
+    if (elements.metadata) {
+      elements.metadata.classList.add("hidden");
+      elements.metadata.innerHTML = "";
+    }
+    if (elements.pipeline) {
+      elements.pipeline.classList.add("hidden");
+      elements.pipeline.innerHTML = "";
+    }
+    if (elements.applyBtn) {
+      elements.applyBtn.classList.add("hidden");
+      elements.applyBtn.disabled = true;
+      const label =
+        elements.applyBtn.dataset.default || "Apply metadata and Box folder tagging";
+      elements.applyBtn.textContent = label;
+    }
+    if (elements.container) {
+      if (options.keepVisible) {
+        elements.container.classList.remove("hidden");
+      } else {
+        elements.container.classList.add("hidden");
+      }
+    }
+  }
+
+  function setPreviewStatus(folderId, message, isError = false) {
+    const elements = getPreviewElements(folderId);
+    if (!elements || !elements.status) return;
+    elements.status.textContent = message;
+    if (isError) {
+      elements.status.classList.add("error");
+    } else {
+      elements.status.classList.remove("error");
+    }
+  }
+
+  function addPipelineStep(folderId, message, level = "info") {
+    const elements = getPreviewElements(folderId);
+    if (!elements || !elements.pipeline) return;
+    elements.pipeline.classList.remove("hidden");
+    const span = document.createElement("span");
+    span.textContent = message;
+    span.classList.add(`status-${level}`);
+    elements.pipeline.appendChild(span);
+  }
+
+  function parseTimestamp(value) {
+    if (!value && value !== 0) return 0;
+    if (typeof value === "number") return value;
+    const str = String(value).trim();
+    if (!str) return 0;
+    if (/^\d+$/.test(str)) {
+      const num = Number(str);
+      if (Number.isNaN(num)) return 0;
+      return num > 1e12 ? num : num * 1000;
+    }
+    const parsed = Date.parse(str);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+
+  function extractDealTimestamp(deal) {
+    const props = (deal && deal.properties) || {};
+    const candidates = [
+      props.agreement_start_date,
+      props.closedate,
+      props.hs_closed_won_date,
+      deal?.updatedAt,
+      deal?.createdAt,
+    ];
+    for (const candidate of candidates) {
+      const ts = parseTimestamp(candidate);
+      if (ts) return ts;
+    }
+    return 0;
+  }
+
+  function formatDate(ts) {
+    if (!ts) return "n/a";
+    const d = new Date(ts);
+    if (Number.isNaN(d.getTime())) return "n/a";
+    return d.toISOString().slice(0, 10);
+  }
+
+  function extractPortalIdFromUrl(url) {
+    if (!url) return "";
+    const match = String(url).match(/contacts\/(\d+)\/record/);
+    return match ? match[1] : "";
+  }
+
+  function buildContactLink(portalId, contactId) {
+    if (!portalId || !contactId) return undefined;
+    return `https://app.hubspot.com/contacts/${portalId}/record/0-1/${contactId}`;
+  }
+
+  function formatAssociatedContact({ name, email, id, link }) {
+    const parts = [];
+    if (email) parts.push(email);
+    if (id) parts.push(`ID: ${id}`);
+    if (link) parts.push(`Link: ${link}`);
+    if (!parts.length) return name || "Contact";
+    return `${name || "Contact"} (${parts.join(" | ")})`;
+  }
+
+  function buildMetadataPreview(payload, deal, contact) {
+    const primaryName = [payload.hs_contact_firstname, payload.hs_contact_lastname]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+    const spouseName = [payload.hs_spouse_firstname, payload.hs_spouse_lastname]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+
+    const portalId = extractPortalIdFromUrl(contact?.url);
+    const primaryLink = contact?.url || buildContactLink(portalId, payload.hs_contact_id);
+    const spouseLink = buildContactLink(portalId, payload.hs_spouse_id);
+
+    const associatedIdSet = new Set();
+    const associatedContacts = [];
+    const seenContactKeys = new Set();
+
+    const pushAssociatedContact = ({ name, email, id, link }) => {
+      const trimmedId = (id || "").trim();
+      const key = `${trimmedId}|${(email || name || "").toLowerCase()}`;
+      if (key && seenContactKeys.has(key)) {
+        return;
+      }
+      if (key) {
+        seenContactKeys.add(key);
+      }
+      if (trimmedId) {
+        associatedIdSet.add(trimmedId);
+      }
+      associatedContacts.push(
+        formatAssociatedContact({
+          name: name || "Contact",
+          email: email || "",
+          id: trimmedId,
+          link,
+        }),
+      );
+    };
+
+    if (primaryName || payload.hs_contact_id || payload.hs_contact_email) {
+      pushAssociatedContact({
+        name: primaryName || "Primary Contact",
+        email: payload.hs_contact_email || "",
+        id: payload.hs_contact_id || "",
+        link: primaryLink,
+      });
+    }
+    if (spouseName || payload.hs_spouse_id || payload.hs_spouse_email) {
+      pushAssociatedContact({
+        name: spouseName || "Spouse",
+        email: payload.hs_spouse_email || "",
+        id: payload.hs_spouse_id || "",
+        link: spouseLink,
+      });
+    }
+
+    const metadataFields = {
+      deal_salutation: payload.deal_salutation || "",
+      household_type: payload.household_type || "",
+      primary_contact_id: payload.hs_contact_id || "",
+      primary_contact_link: primaryLink || "",
+      hs_spouse_id: payload.hs_spouse_id || "",
+      spouse_contact_link: spouseLink || "",
+    };
+
+    const dealDetails = (() => {
+      if (!deal) return undefined;
+      const props = deal.properties || {};
+      return {
+        id: props.hs_deal_record_id || deal.id || "",
+        name: props.dealname || "",
+        stage: props.dealstage || "",
+        close_date: formatDate(extractDealTimestamp(deal)) || "",
+      };
+    })();
+
+    return {
+      folder_id: payload.folder_id,
+      deal_id: payload.deal_id,
+      deal: dealDetails,
+      metadata_fields: metadataFields,
+      contacts: {
+        primary: {
+          id: payload.hs_contact_id || "",
+          name: primaryName || "",
+          email: payload.hs_contact_email || "",
+          link: primaryLink || "",
+        },
+        spouse: {
+          id: payload.hs_spouse_id || "",
+          name: spouseName || "",
+          email: payload.hs_spouse_email || "",
+          link: spouseLink || "",
+          firstname: payload.hs_spouse_firstname || "",
+          lastname: payload.hs_spouse_lastname || "",
+        },
+        additional: associatedContacts,
+      },
+    };
+  }
+
+  function buildContactSummary(contact) {
+    if (!contact) {
+      return "—";
+    }
+    const name =
+      contact.name ||
+      [contact.firstname, contact.lastname].filter(Boolean).join(" ").trim();
+    const parts = [];
+    if (name) {
+      parts.push(`<strong>${escapeHtml(name)}</strong>`);
+    }
+    if (contact.email) {
+      parts.push(`<span class="muted small">${escapeHtml(contact.email)}</span>`);
+    }
+    if (contact.id) {
+      parts.push(`<span class="muted small">ID: ${escapeHtml(contact.id)}</span>`);
+    }
+    if (contact.link) {
+      parts.push(
+        `<a href="${escapeHtml(contact.link)}" target="_blank" rel="noopener">HubSpot</a>`,
+      );
+    }
+    return parts.length ? parts.join("<br/>") : "—";
+  }
+
+  function isMetadataValueEmpty(value) {
+    if (value === null || value === undefined) {
+      return true;
+    }
+    if (typeof value === "string") {
+      return value.trim() === "";
+    }
+    if (Array.isArray(value)) {
+      return value.length === 0;
+    }
+    if (typeof value === "object") {
+      return Object.keys(value).length === 0;
+    }
+    return false;
+  }
+
+  function formatMetadataValue(value) {
+    if (
+      value === null
+      || value === undefined
+      || (typeof value === "string" && value.trim() === "")
+    ) {
+      return '<span class="muted small">—</span>';
+    }
+    if (typeof value === "object") {
+      try {
+        const serialized = JSON.stringify(value, null, 2);
+        return `<pre>${escapeHtml(serialized)}</pre>`;
+      } catch (error) {
+        return `<pre>${escapeHtml(String(value))}</pre>`;
+      }
+    }
+    return escapeHtml(String(value));
+  }
+
+  function buildMetadataTableRows(fields) {
+    const entries = Object.entries(fields || {}).filter(([, value]) => !isMetadataValueEmpty(value));
+    if (!entries.length) {
+      return '<tr><td colspan="2">No metadata fields populated.</td></tr>';
+    }
+    return entries
+      .map(
+        ([key, value]) =>
+          `<tr><td>${escapeHtml(key)}</td><td>${formatMetadataValue(value)}</td></tr>`,
+      )
+      .join("");
+  }
+
+  function selectBestDeal(deals) {
+    if (!Array.isArray(deals) || !deals.length) {
+      return null;
+    }
+    const sorted = [...deals].sort(
+      (a, b) => extractDealTimestamp(b) - extractDealTimestamp(a),
+    );
+    return sorted[0];
+  }
+
+  function buildBasePayload(folderId, contact, selectedDeal) {
+    const payload = { folder_id: folderId };
+    const dealProps = (selectedDeal && selectedDeal.properties) || {};
+    const dealId = String(dealProps.hs_deal_record_id || selectedDeal?.id || "").trim();
+    if (dealId) {
+      payload.deal_id = dealId;
+      payload.hs_deal_record_id = dealId;
+    }
+    const contactProps = (contact && contact.properties) || {};
+    if (contact && contact.id) payload.hs_contact_id = contact.id;
+    if (contactProps.firstname) payload.hs_contact_firstname = contactProps.firstname;
+    if (contactProps.lastname) payload.hs_contact_lastname = contactProps.lastname;
+    if (contactProps.email) payload.hs_contact_email = contactProps.email;
+    if (dealProps.hs_spouse_id && !payload.hs_spouse_id) payload.hs_spouse_id = dealProps.hs_spouse_id;
+    if (dealProps.hs_spouse_firstname && !payload.hs_spouse_firstname) payload.hs_spouse_firstname = dealProps.hs_spouse_firstname;
+    if (dealProps.hs_spouse_lastname && !payload.hs_spouse_lastname) payload.hs_spouse_lastname = dealProps.hs_spouse_lastname;
+    if (dealProps.hs_spouse_email && !payload.hs_spouse_email) payload.hs_spouse_email = dealProps.hs_spouse_email;
+    if (dealProps.deal_salutation && !payload.deal_salutation) payload.deal_salutation = dealProps.deal_salutation;
+    if (dealProps.household_type && !payload.household_type) payload.household_type = dealProps.household_type;
+
+    return payload;
+  }
+
+  function buildPayloadForApply(basePayload, previewData) {
+    const payload = { ...basePayload };
+    const metadataFields = previewData?.metadata_fields || {};
+    Object.entries(metadataFields).forEach(([key, value]) => {
+      if (!isMetadataValueEmpty(value)) {
+        payload[key] = value;
+      }
+    });
+    return payload;
+  }
+
+  function renderPreviewSummary(folderId, previewData, deal, rootFolder) {
+    const elements = getPreviewElements(folderId);
+    if (!elements || !elements.summary) return;
+    const folderName = rootFolder?.name || rootFolder?.path || previewData.folder_id || folderId;
+    const folderLink = rootFolder?.url
+      ? `<a href="${escapeHtml(rootFolder.url)}" target="_blank" rel="noopener">${escapeHtml(folderName)}</a>`
+      : escapeHtml(folderName);
+    const contacts = previewData.contacts || {};
+    const dealInfo = previewData.deal || {};
+    const dealUrl = deal?.url;
+    const dealLabel = escapeHtml(dealInfo.name || dealInfo.id || "n/a");
+    const dealLink = dealUrl
+      ? `<a href="${escapeHtml(dealUrl)}" target="_blank" rel="noopener">${dealLabel}</a>`
+      : dealLabel;
+
+    elements.summary.innerHTML = `
+      <h4>Metadata preview</h4>
+      <p><strong>Box folder:</strong> <span>${folderLink}</span></p>
+      <p><strong>Primary contact:</strong> <span>${buildContactSummary(contacts.primary)}</span></p>
+      <p><strong>Spouse:</strong> <span>${buildContactSummary(contacts.spouse)}</span></p>
+      <p><strong>Deal:</strong> <span>${dealLink} · Stage: ${escapeHtml(dealInfo.stage || "n/a")} · Close: ${escapeHtml(dealInfo.close_date || "n/a")}</span></p>
+    `;
+    elements.summary.classList.remove("hidden");
+  }
+
+  function renderMetadataTable(folderId, metadataFields) {
+    const elements = getPreviewElements(folderId);
+    if (!elements || !elements.metadata) return;
+    const rows = buildMetadataTableRows(metadataFields);
+    elements.metadata.innerHTML = `
+      <table>
+        <thead>
+          <tr>
+            <th>Field</th>
+            <th>Value</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+    elements.metadata.classList.remove("hidden");
+  }
+
+  async function loadPreviewForFolder(folderId, button) {
+    const elements = getPreviewElements(folderId, button);
+    if (!elements) return;
+    previewState.delete(folderId);
+    resetPreviewDisplay(folderId, button);
+    elements.container.classList.remove("hidden");
+    setPreviewStatus(folderId, "Preparing preview…");
+    setBusy(button, true, "Loading…");
+    const aggregatedAll = new Map();
+    const aggregatedExternal = new Map();
+
+    const registerCollaborator = (collab, contextLabel) => {
+      if (!collab || !collab.email) return;
+      const key = String(collab.email).trim().toLowerCase();
+      if (!key) return;
+      if (!aggregatedAll.has(key)) {
+        aggregatedAll.set(key, { collab, context: contextLabel || "Folder" });
+      }
+      if (!key.endsWith(PIVOT_DOMAIN) && !aggregatedExternal.has(key)) {
+        aggregatedExternal.set(key, { collab, context: contextLabel || "Folder" });
+      }
+    };
+
+    const registerFromResponse = (data, contextLabel) => {
+      const collaborators = Array.isArray(data?.collaborators) ? data.collaborators : [];
+      collaborators.forEach((collab) => registerCollaborator(collab, contextLabel));
+    };
+
+    try {
+      addPipelineStep(folderId, "Fetching collaborators…", "info");
+      const collaboratorsData = await fetchJSON(
+        `/box/folder/collaborators?folder_id=${encodeURIComponent(folderId)}&include_subfolders=1`,
+      );
+      addPipelineStep(folderId, "Root collaborators loaded", "success");
+      registerFromResponse(collaboratorsData, "Root folder");
+
+      const subfolders = Array.isArray(collaboratorsData.subfolders)
+        ? collaboratorsData.subfolders
+        : [];
+      for (const sub of subfolders) {
+        const label = sub.name || sub.id || "Subfolder";
+        addPipelineStep(folderId, `Scanning subfolder ${label}…`, "info");
+        try {
+          const subData = await fetchJSON(
+            `/box/folder/collaborators?folder_id=${encodeURIComponent(
+              folderId,
+            )}&subfolder_id=${encodeURIComponent(sub.id)}&subfolder=${encodeURIComponent(sub.name || "")}`,
+          );
+          registerFromResponse(subData, `Subfolder ${label}`);
+          addPipelineStep(folderId, `Subfolder ${label} processed`, "success");
+        } catch (error) {
+          console.error(error);
+          addPipelineStep(
+            folderId,
+            `Failed to scan subfolder ${label}: ${error.message}`,
+            "error",
+          );
+        }
+      }
+
+      const externalList = Array.from(aggregatedExternal.values());
+      const allList = Array.from(aggregatedAll.values());
+      if (!externalList.length && allList.length) {
+        addPipelineStep(
+          folderId,
+          "No external collaborators detected; using first available collaborator.",
+          "info",
+        );
+      }
+      const chosenRecord = externalList[0] || allList[0] || null;
+      const chosen = chosenRecord?.collab || null;
+      if (!chosen || !chosen.email) {
+        setPreviewStatus(folderId, "Unable to generate preview · no collaborators found.", true);
+        addPipelineStep(folderId, "No collaborators returned", "error");
+        return;
+      }
+
+      addPipelineStep(
+        folderId,
+        `Selected collaborator ${chosen.email}${chosenRecord?.context ? ` (${chosenRecord.context})` : ""}`,
+        "info",
+      );
+      const contactData = await fetchJSON(
+        `/box/collaborators/contact?email=${encodeURIComponent(chosen.email)}`,
+      );
+      addPipelineStep(folderId, "HubSpot contact loaded", "success");
+
+      const deals = Array.isArray(contactData?.deals) ? contactData.deals : [];
+      const selectedDeal = selectBestDeal(deals);
+      if (!selectedDeal) {
+        setPreviewStatus(folderId, "No associated deals found in HubSpot.", true);
+        addPipelineStep(folderId, "No deals associated with contact", "error");
+        return;
+      }
+
+      addPipelineStep(
+        folderId,
+        `Selected deal ${escapeHtml(selectedDeal.properties?.dealname || selectedDeal.id || "n/a")}`,
+        "info",
+      );
+
+      const rootFolder = collaboratorsData.root_folder || {
+        id: folderId,
+        name: collaboratorsData?.inspected?.name || "",
+        url: `https://app.box.com/folder/${folderId}`,
+      };
+
+      const basePayload = buildBasePayload(folderId, contactData.contact, selectedDeal);
+      const previewData = buildMetadataPreview(basePayload, selectedDeal, contactData.contact);
+      const finalPayload = buildPayloadForApply(basePayload, previewData);
+      renderPreviewSummary(folderId, previewData, selectedDeal, rootFolder);
+      renderMetadataTable(folderId, previewData.metadata_fields);
+
+      const metadataFields = previewData.metadata_fields || {};
+      const hasMetadataContent = Object.entries(metadataFields).some(
+        ([, value]) => !isMetadataValueEmpty(value),
+      );
+      if (!hasMetadataContent) {
+        addPipelineStep(folderId, "Metadata fields missing or blank", "error");
+        setPreviewStatus(
+          folderId,
+          "Preview generated but metadata fields are incomplete.",
+          true,
+        );
+        previewState.set(folderId, {
+          folderId,
+          basePayload,
+          finalPayload,
+          payload: finalPayload,
+          previewData,
+          contact: contactData.contact,
+          deal: selectedDeal,
+          rootFolder,
+          collaborator: chosen,
+        });
+        return;
+      }
+
+      previewState.set(folderId, {
+        folderId,
+        basePayload,
+        finalPayload,
+        payload: finalPayload,
+        previewData,
+        contact: contactData.contact,
+        deal: selectedDeal,
+        rootFolder,
+        collaborator: chosen,
+      });
+      setPreviewStatus(folderId, "Preview ready. Review and apply when ready.");
+      addPipelineStep(folderId, "Metadata preview generated", "success");
+
+      if (elements.applyBtn) {
+        elements.applyBtn.classList.remove("hidden");
+        elements.applyBtn.disabled = false;
+        elements.applyBtn.dataset.default = elements.applyBtn.dataset.default || elements.applyBtn.textContent;
+      }
+    } catch (error) {
+      console.error(error);
+      setPreviewStatus(folderId, `Preview failed · ${error.message}`, true);
+      addPipelineStep(folderId, error.message, "error");
+    } finally {
+      setBusy(button, false);
+    }
+  }
+
+  async function applyMetadataForFolder(folderId, button) {
+    const state = previewState.get(folderId);
+    const elements = getPreviewElements(folderId, button);
+    if (!state) {
+      setPreviewStatus(folderId, "Generate preview before applying metadata.", true);
+      return;
+    }
+    const finalPayload =
+      state.finalPayload
+      || state.payload
+      || (state.basePayload && state.previewData
+        ? buildPayloadForApply(state.basePayload, state.previewData)
+        : null);
+    if (!finalPayload) {
+      setPreviewStatus(folderId, "Preview payload is unavailable; regenerate preview.", true);
+      return;
+    }
+    const defaultLabel = button ? (button.dataset.default || button.textContent) : "";
+    if (button) {
+      button.dataset.default = defaultLabel;
+      button.textContent = "Applying…";
+      button.disabled = true;
+    }
+    setPreviewStatus(folderId, "Applying metadata and updating HubSpot…");
+    addPipelineStep(folderId, "Applying metadata via API…", "info");
+    try {
+      const response = await fetchJSON("/box/folder/tag/auto", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(finalPayload),
+      });
+      addPipelineStep(folderId, "Metadata applied in Box", "success");
+      addPipelineStep(folderId, "HubSpot update completed", "success");
+      setPreviewStatus(
+        folderId,
+        `Metadata applied successfully to folder ${escapeHtml(response.folder_id)}.`,
+      );
+      if (button) {
+        button.dataset.default = "Metadata applied";
+        button.textContent = "Metadata applied";
+        button.disabled = true;
+      }
+    } catch (error) {
+      console.error(error);
+      setPreviewStatus(folderId, `Apply failed · ${error.message}`, true);
+      addPipelineStep(folderId, error.message, "error");
+      if (button) {
+        button.disabled = false;
+        button.textContent = defaultLabel || "Apply metadata and Box folder tagging";
+      }
+      return;
+    } finally {
+      if (button && !button.disabled) {
+        button.textContent = button.dataset.default || defaultLabel || button.textContent;
+      }
+    }
+  }
+
+  document.querySelectorAll(".preview-link").forEach((button) => {
+    button.addEventListener("click", () => {
+      const folderId = button.dataset.folderId;
+      if (!folderId) return;
+      loadPreviewForFolder(folderId, button);
+    });
+  });
+
+  document.querySelectorAll(".apply-link").forEach((button) => {
+    button.addEventListener("click", () => {
+      const folderId = button.dataset.folderId;
+      if (!folderId) return;
+      applyMetadataForFolder(folderId, button);
     });
   });
 </script>

@@ -291,34 +291,6 @@ def _build_metadata_from_payload(payload: dict) -> Tuple[dict, List[dict], Optio
             _make_contact(spouse_id, spouse_first, spouse_last, spouse_email)
         )
 
-    associated_ids: List[str] = []
-    associated_contacts: List[dict] = []
-    for idx, contact in enumerate(contacts):
-        contact_id = contact.get("id")
-        props = contact.get("properties") or {}
-        first = props.get("firstname") or ""
-        last = props.get("lastname") or ""
-        email = props.get("email") or ""
-
-        if contact_id:
-            associated_ids.append(str(contact_id))
-
-        display = box_service._format_contact_display(contact, position=idx)
-        contact_entry = {
-            "id": contact_id,
-            "firstname": first,
-            "lastname": last,
-            "email": email,
-            "display_name": display,
-            "url": _hubspot_contact_url(contact_id),
-        }
-        associated_contacts.append(contact_entry)
-
-    if associated_ids:
-        metadata["associated_contact_ids"] = associated_ids
-    if associated_contacts:
-        metadata["associated_contacts"] = associated_contacts
-
     share_email = primary_email or None
 
     return metadata, contacts, share_email
@@ -345,33 +317,35 @@ def _fetch_deal_metadata(deal_id: str) -> Optional[dict]:
         resp.raise_for_status()
         props = resp.json().get("properties", {})
         contacts = box_service.get_hubspot_deal_contacts(deal_id)
-        associated_contact_ids: list[str] = []
-        associated_contacts: list[dict] = []
-        for idx, contact in enumerate(contacts):
-            contact_id = contact.get("id")
-            if contact_id:
-                associated_contact_ids.append(contact_id)
-            props_contact = contact.get("properties") or {}
-            associated_contacts.append(
-                {
-                    "id": contact_id,
-                    "firstname": props_contact.get("firstname"),
-                    "lastname": props_contact.get("lastname"),
-                    "email": props_contact.get("email"),
-                    "display_name": box_service._format_contact_display(contact, position=idx),
-                    "url": _hubspot_contact_url(contact_id),
-                }
-            )
 
-        primary_contact_id = props.get("hs_contact_id") or (
+        def _contact_by_label(label: str) -> Optional[dict]:
+            target = label.strip().lower()
+            for contact in contacts:
+                for assoc in contact.get("association_types", []):
+                    assoc_label = (assoc.get("label") or "").strip().lower()
+                    if assoc_label == target:
+                        return contact
+            return None
+
+        associated_contact_ids: list[str] = [
+            str(contact.get("id"))
+            for contact in contacts
+            if contact.get("id")
+        ]
+
+        primary_contact = _contact_by_label("Client") or (contacts[0] if contacts else None)
+        spouse_contact = _contact_by_label("Client's Spouse")
+
+        primary_contact_id = props.get("hs_contact_id") or (primary_contact.get("id") if primary_contact else None) or (
             associated_contact_ids[0] if associated_contact_ids else None
         )
         primary_contact_link = _hubspot_contact_url(primary_contact_id)
 
-        spouse_id = props.get("hs_spouse_id")
-        if not spouse_id and len(associated_contact_ids) > 1:
-            spouse_id = associated_contact_ids[1]
+        spouse_id = props.get("hs_spouse_id") or (spouse_contact.get("id") if spouse_contact else None)
         spouse_link = _hubspot_contact_url(spouse_id)
+
+        spouse_props = (spouse_contact or {}).get("properties") or {}
+        primary_props = (primary_contact or {}).get("properties") or {}
 
         metadata: dict[str, object] = {}
         if props.get("household_type"):
@@ -381,15 +355,22 @@ def _fetch_deal_metadata(deal_id: str) -> Optional[dict]:
         if primary_contact_id:
             metadata["primary_contact_id"] = primary_contact_id
             metadata["primary_contact_link"] = primary_contact_link or primary_contact_id
+            if primary_props.get("firstname"):
+                metadata["hs_contact_firstname"] = primary_props.get("firstname")
+            if primary_props.get("lastname"):
+                metadata["hs_contact_lastname"] = primary_props.get("lastname")
+            if primary_props.get("email"):
+                metadata["hs_contact_email"] = primary_props.get("email")
         if spouse_id:
             metadata["hs_spouse_id"] = spouse_id
             if spouse_link:
                 metadata["spouse_contact_link"] = spouse_link
-        if associated_contact_ids:
-            metadata["associated_contact_ids"] = associated_contact_ids
-        if associated_contacts:
-            metadata["associated_contacts"] = associated_contacts
-
+            if spouse_props.get("firstname"):
+                metadata["hs_spouse_firstname"] = spouse_props.get("firstname")
+            if spouse_props.get("lastname"):
+                metadata["hs_spouse_lastname"] = spouse_props.get("lastname")
+            if spouse_props.get("email"):
+                metadata["hs_spouse_email"] = spouse_props.get("email")
         logger.info("Fetched HubSpot metadata for deal %s: %s", deal_id, metadata)
         return metadata
     except requests.RequestException as exc:
@@ -483,34 +464,6 @@ def _build_metadata_from_payload(payload: dict) -> Tuple[dict, List[dict], Optio
         contacts.append(
             _make_contact(spouse_id, spouse_first, spouse_last, spouse_email)
         )
-
-    associated_ids: List[str] = []
-    associated_contacts: List[dict] = []
-    for idx, contact in enumerate(contacts):
-        contact_id = contact.get("id")
-        props = contact.get("properties") or {}
-        first = props.get("firstname") or ""
-        last = props.get("lastname") or ""
-        email = props.get("email") or ""
-
-        if contact_id:
-            associated_ids.append(str(contact_id))
-
-        display = box_service._format_contact_display(contact, position=idx)
-        contact_entry = {
-            "id": contact_id,
-            "firstname": first,
-            "lastname": last,
-            "email": email,
-            "display_name": display,
-            "url": _hubspot_contact_url(contact_id),
-        }
-        associated_contacts.append(contact_entry)
-
-    if associated_ids:
-        metadata["associated_contact_ids"] = associated_ids
-    if associated_contacts:
-        metadata["associated_contacts"] = associated_contacts
 
     share_email = primary_email or None
     return metadata, contacts, share_email
@@ -1500,9 +1453,26 @@ def box_collaborator_contact_details():
         associated_status = "complete"
         try:
             deal_contacts = box_service.get_hubspot_deal_contacts(deal_id)
+            def _contact_by_label(label: str) -> Optional[dict]:
+                target = label.strip().lower()
+                for contact_entry in deal_contacts:
+                    for assoc in contact_entry.get("association_types", []):
+                        assoc_label = (assoc.get("label") or "").strip().lower()
+                        if assoc_label == target:
+                            return contact_entry
+                return None
+
+            primary_entry = _contact_by_label("Client") or (deal_contacts[0] if deal_contacts else None)
+            spouse_entry = _contact_by_label("Client's Spouse")
+
             for idx, contact_entry in enumerate(deal_contacts):
                 contact_props = contact_entry.get("properties") or {}
                 assoc_id = contact_entry.get("id")
+                labels = [
+                    assoc.get("label")
+                    for assoc in contact_entry.get("association_types", [])
+                    if assoc.get("label")
+                ]
                 associated_contacts.append(
                     {
                         "id": assoc_id,
@@ -1511,8 +1481,32 @@ def box_collaborator_contact_details():
                         "email": contact_props.get("email"),
                         "display_name": box_service._format_contact_display(contact_entry, position=idx),
                         "url": _hubspot_contact_url(assoc_id),
+                        "association_labels": labels,
                     }
                 )
+
+            deal_props = deal.setdefault("properties", {})
+            if primary_entry:
+                primary_props = primary_entry.get("properties") or {}
+                if primary_entry.get("id"):
+                    deal_props.setdefault("hs_contact_id", primary_entry.get("id"))
+                if primary_props.get("firstname"):
+                    deal_props.setdefault("hs_contact_firstname", primary_props.get("firstname"))
+                if primary_props.get("lastname"):
+                    deal_props.setdefault("hs_contact_lastname", primary_props.get("lastname"))
+                if primary_props.get("email"):
+                    deal_props.setdefault("hs_contact_email", primary_props.get("email"))
+
+            if spouse_entry:
+                spouse_props = spouse_entry.get("properties") or {}
+                if spouse_entry.get("id"):
+                    deal_props["hs_spouse_id"] = spouse_entry.get("id")
+                if spouse_props.get("firstname"):
+                    deal_props["hs_spouse_firstname"] = spouse_props.get("firstname")
+                if spouse_props.get("lastname"):
+                    deal_props["hs_spouse_lastname"] = spouse_props.get("lastname")
+                if spouse_props.get("email"):
+                    deal_props["hs_spouse_email"] = spouse_props.get("email")
         except requests.RequestException as exc:
             logger.warning("Failed to load associated contacts for deal %s: %s", deal_id, exc)
             warnings.append(
