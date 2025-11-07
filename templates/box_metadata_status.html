@@ -14,6 +14,14 @@
     <div class="datebox">
       <span>Today: {{ today }}</span>
       <span>Updated: {{ updated_at_display or "Not cached yet" }}</span>
+      <span>
+        Cached:
+        {% if preview_cache_summary.total %}
+          {{ preview_cache_summary.success or preview_cache_summary.total }}/{{ preview_cache_summary.total }}
+        {% else %}
+          0/0
+        {% endif %}
+      </span>
     </div>
   </div>
 </div>
@@ -57,12 +65,17 @@
     <details class="assignment-slot">
       <summary>
         <span class="slot-name">{{ slot.assignee }}</span>
-        <span class="slot-count">{{ slot.count }} folders</span>
+        <span class="slot-count">
+          {{ slot.count }} folders
+          {% if slot.cached_count %}
+          <span class="slot-cached">{{ slot.cached_count }} cached</span>
+          {% endif %}
+        </span>
       </summary>
       {% if slot.folders %}
       <ul class="folder-list compact">
         {% for folder in slot.folders %}
-        <li>
+        <li{% if folder.preview_generated_at %} class="cached-folder"{% endif %}>
           <div class="folder-meta">
             {% set display_name = folder.name or folder.id %}
             <span class="folder-name">{{ display_name }}</span>
@@ -71,6 +84,10 @@
             {% endif %}
             {% if folder.path %}
             <span class="folder-path muted small">{{ folder.path }}</span>
+            {% endif %}
+            {% set preview_checked = folder.preview_generated_at_display or folder.preview_generated_at %}
+            {% if preview_checked %}
+            <span class="folder-tagged muted small cached-pill">Cached preview · {{ preview_checked }}</span>
             {% endif %}
       </div>
       <div class="folder-actions">
@@ -156,6 +173,50 @@
   {% endif %}
 </details>
 
+<details class="card collapsible" open>
+  <summary>Folders without associated deals ({{ untagged_no_deal_entries|length }})</summary>
+  <p class="muted small">
+    Cached metadata previews could not locate a HubSpot deal for these folders.
+    Re-run the preview or investigate the contact/deal in HubSpot before tagging.
+  </p>
+  {% if untagged_no_deal_entries %}
+  <ul class="folder-list">
+    {% for folder in untagged_no_deal_entries %}
+    <li>
+      <div class="folder-meta">
+        {% set display_name = folder.name or folder.id %}
+        <span class="folder-name">{{ display_name }}</span>
+        {% if folder.id and folder.id != display_name %}
+        <span class="folder-id"><code>{{ folder.id }}</code></span>
+        {% endif %}
+        {% if folder.path %}
+        <span class="folder-path muted small">{{ folder.path }}</span>
+        {% endif %}
+        {% set preview_checked = folder.preview_generated_at_display or folder.preview_generated_at %}
+        {% if preview_checked %}
+        <span class="folder-tagged muted small">Preview checked {{ preview_checked }}</span>
+        {% endif %}
+        {% if folder.preview_error %}
+        <span class="muted small" style="color:#b91c1c;">{{ folder.preview_error }}</span>
+        {% endif %}
+      </div>
+      <div class="folder-actions">
+        {% if folder.url %}
+        <a href="{{ folder.url }}" target="_blank" rel="noopener">Open in Box</a>
+        {% else %}
+        <span class="muted small">No URL captured</span>
+        {% endif %}
+        <button type="button" class="secondary collab-link" data-folder-id="{{ folder.id }}">Collaborators</button>
+        <button type="button" class="secondary preview-link" data-folder-id="{{ folder.id }}">Preview metadata</button>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted small">No folders currently flagged as missing HubSpot deals.</p>
+  {% endif %}
+</details>
+
 <details class="card collapsible" {% if counts.tagged and counts.tagged <= 40 %}open{% endif %}>
   <summary>Tagged folders ({{ counts.tagged }})</summary>
   {% if not snapshot_exists %}
@@ -173,8 +234,9 @@
         {% if folder.path %}
         <span class="folder-path muted small">{{ folder.path }}</span>
         {% endif %}
-        {% if folder.tagged_at %}
-        <span class="folder-tagged muted small">Tagged at {{ folder.tagged_at }}</span>
+        {% set tagged_stamp = folder.tagged_at_display or folder.tagged_at %}
+        {% if tagged_stamp %}
+        <span class="folder-tagged muted small">Tagged at {{ tagged_stamp }}</span>
         {% endif %}
       </div>
       <div class="folder-actions">
@@ -224,6 +286,20 @@
   <button id="refresh-btn" class="secondary refresh-btn" data-default="Refresh snapshot">
     Refresh snapshot
   </button>
+  <button
+    id="preview-cache-btn"
+    class="secondary refresh-btn"
+    data-default="Run metadata preview cache"
+  >
+    Run metadata preview cache
+  </button>
+  {% if preview_cache_summary.total %}
+  <span class="muted small">
+    Cached {{ preview_cache_summary.success or preview_cache_summary.total }}/{{ preview_cache_summary.total }} ·
+    Updated {{ preview_cache_summary.updated_at or "n/a" }}
+  </span>
+  {% endif %}
+  <span id="preview-cache-status" class="muted small"></span>
   <span id="refresh-status" class="muted small"></span>
 </div>
 {% endif %}
@@ -408,8 +484,28 @@
     color: var(--muted);
   }
 
+  .slot-cached {
+    margin-left: 6px;
+    color: #4c1d95;
+    font-weight: 600;
+    font-size: 0.75em;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+
   .assignment-slot .folder-list {
     margin-top: 8px;
+  }
+
+  .folder-list li.cached-folder {
+    border-color: rgba(99, 102, 241, 0.45);
+    background: rgba(99, 102, 241, 0.08);
+    box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.08);
+  }
+
+  .cached-pill {
+    color: #4338ca;
+    font-weight: 600;
   }
 
   .refresh-footer {
@@ -574,38 +670,93 @@
 {% block scripts %}
 <script>
   const refreshBtn = document.getElementById("refresh-btn");
-  if (refreshBtn) {
-    const status = document.getElementById("refresh-status");
-    refreshBtn.addEventListener("click", async () => {
-      status.textContent = "";
-      status.classList.remove("err");
-      const defaultLabel = refreshBtn.dataset.default || "Refresh snapshot";
-      refreshBtn.disabled = true;
-      refreshBtn.textContent = "Refreshing…";
-      try {
-        const response = await fetch("/box/folder/metadata/cache", { method: "POST" });
-        if (!response.ok) {
-          let detail = "";
-          try {
-            const payload = await response.json();
-            detail = payload.message || payload.error || "";
-          } catch (_) {
-            detail = "";
-          }
-          throw new Error(detail || response.statusText);
+  const previewCacheBtn = document.getElementById("preview-cache-btn");
+  const status = document.getElementById("refresh-status");
+  const previewCacheStatus = document.getElementById("preview-cache-status");
+
+  async function runRefreshSnapshot() {
+    if (!refreshBtn || !status) return;
+    status.textContent = "";
+    status.classList.remove("err");
+    const defaultLabel = refreshBtn.dataset.default || "Refresh snapshot";
+    refreshBtn.disabled = true;
+    refreshBtn.textContent = "Refreshing…";
+    console.log("[BoxMetadata] Refresh snapshot triggered");
+    try {
+      const response = await fetch("/box/folder/metadata/cache", { method: "POST" });
+      if (!response.ok) {
+        let detail = "";
+        try {
+          const payload = await response.json();
+          detail = payload.message || payload.error || "";
+        } catch (_) {
+          detail = "";
         }
-        refreshBtn.textContent = "Reloading…";
-        status.textContent = "Snapshot refreshed. Reloading…";
-        window.setTimeout(() => window.location.reload(), 600);
-      } catch (error) {
-        refreshBtn.disabled = false;
-        refreshBtn.textContent = defaultLabel;
-        status.textContent = `Failed to refresh: ${error.message}`;
-        status.classList.add("err");
+        throw new Error(detail || response.statusText);
       }
-    });
+      refreshBtn.textContent = "Reloading…";
+      status.textContent = "Snapshot refreshed. Reloading…";
+      window.setTimeout(() => window.location.reload(), 600);
+    } catch (error) {
+      refreshBtn.disabled = false;
+      refreshBtn.textContent = defaultLabel;
+      status.textContent = `Failed to refresh: ${error.message}`;
+      status.classList.add("err");
+    }
   }
 
+  async function runPreviewCache() {
+    if (!previewCacheBtn || !previewCacheStatus) return;
+    previewCacheStatus.textContent = "";
+    previewCacheStatus.classList.remove("err");
+    const defaultLabel = previewCacheBtn.dataset.default || "Run metadata preview cache";
+    previewCacheBtn.disabled = true;
+    previewCacheBtn.textContent = "Running…";
+    console.log("[BoxMetadata] Preview cache triggered");
+    try {
+      const response = await fetch("/box/folder/metadata/previews/run", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({}),
+      });
+      if (!response.ok) {
+        let detail = "";
+        try {
+          const payload = await response.json();
+          detail = payload.message || payload.error || "";
+        } catch (_) {
+          detail = "";
+        }
+        throw new Error(detail || response.statusText);
+      }
+      const payload = await response.json();
+      const summaryParts = [];
+      summaryParts.push(`Processed ${payload.processed} folder(s)`);
+      if (payload.skipped) {
+        summaryParts.push(`Skipped ${payload.skipped}`);
+      }
+      if (payload.errors && payload.errors.length) {
+        summaryParts.push(`Errors ${payload.errors.length}`);
+      }
+      previewCacheStatus.textContent = `${summaryParts.join(" · ")}. Refresh snapshot when ready.`;
+      previewCacheStatus.classList.remove("err");
+    } catch (error) {
+      previewCacheStatus.textContent = `Preview cache failed: ${error.message}`;
+      previewCacheStatus.classList.add("err");
+    } finally {
+      previewCacheBtn.disabled = false;
+      previewCacheBtn.textContent = defaultLabel;
+    }
+  }
+
+  if (refreshBtn) {
+    refreshBtn.addEventListener("click", runRefreshSnapshot);
+  }
+  if (previewCacheBtn) {
+    previewCacheBtn.addEventListener("click", runPreviewCache);
+  }
   document.querySelectorAll(".collab-link").forEach((button) => {
     button.addEventListener("click", () => {
       const folderId = button.dataset.folderId;
@@ -621,8 +772,20 @@
   });
 
   const previewState = new Map();
+  const PREVIEW_CACHE_ENABLED = {{ "true" if preview_cache_enabled else "false" }};
   const previewContainers = new Map();
   const PIVOT_DOMAIN = "@pivotwealth.com.au";
+  const previewCacheInitial = {{ preview_cache_summary | tojson }};
+  if (previewCacheStatus && previewCacheInitial && previewCacheInitial.total) {
+    const initParts = [];
+    initParts.push(
+      `Cached ${previewCacheInitial.success ?? previewCacheInitial.total}/${previewCacheInitial.total}`,
+    );
+    if (previewCacheInitial.updated_at) {
+      initParts.push(`Updated ${previewCacheInitial.updated_at}`);
+    }
+    previewCacheStatus.textContent = initParts.join(" · ");
+  }
 
   function setBusy(button, busy, label) {
     if (!button) return;
@@ -678,6 +841,16 @@
 
   function escapeAttr(value) {
     return String(value ?? "").replace(/"/g, '\\"');
+  }
+
+  async function fetchCachedPreview(folderId, options = {}) {
+    const refresh = options.refresh === true;
+    const url = new URL("/box/folder/metadata/preview", window.location.origin);
+    url.searchParams.set("folder_id", folderId);
+    if (refresh) {
+      url.searchParams.set("refresh", "1");
+    }
+    return fetchJSON(url);
   }
 
   function getPreviewElements(folderId, hintElement) {
@@ -747,6 +920,90 @@
       elements.applyBtn.textContent = label;
     }
     elements.container.classList.add("hidden");
+  }
+
+  function hydratePreviewStateFromCache(folderId, payload, previewData, rootFolder) {
+    if (!payload) {
+      return;
+    }
+    const basePayload = payload.base_payload || { folder_id: folderId };
+    const finalPayload = payload.final_payload || basePayload;
+    previewState.set(folderId, {
+      folderId,
+      basePayload,
+      finalPayload,
+      payload: finalPayload,
+      previewData,
+      contact: previewData?.contacts?.primary || null,
+      deal: payload.deal || previewData?.deal || null,
+      rootFolder,
+      collaborator: payload.collaborator || null,
+    });
+  }
+
+  function renderCachedPreview(folderId, payload, options = {}) {
+    const elements = getPreviewElements(folderId);
+    if (!elements) return;
+    const previewData = payload.preview || {};
+    const rootFolder =
+      payload.root_folder
+      || previewData.root_folder
+      || {
+        id: folderId,
+        name: "",
+        url: `https://app.box.com/folder/${folderId}`,
+      };
+    resetPreviewDisplay(folderId);
+    elements.container.classList.remove("hidden");
+    if (payload.status !== "ok" || !previewData.metadata_fields) {
+      const reason = payload.error || "Cached preview unavailable.";
+      setPreviewStatus(folderId, reason, true);
+      addPipelineStep(folderId, reason, "error");
+      return;
+    }
+    renderPreviewSummary(folderId, previewData, payload.deal || previewData.deal, rootFolder);
+    renderMetadataTable(folderId, previewData.metadata_fields);
+    hydratePreviewStateFromCache(folderId, payload, previewData, rootFolder);
+    const generatedAt = payload.generated_at || payload.generated_at_iso || "";
+    const sourceLabel = payload.source === "refreshed" ? "Refreshed preview" : "Cached preview";
+    const statusMessage = generatedAt ? `${sourceLabel} · ${generatedAt}` : `${sourceLabel} loaded`;
+    setPreviewStatus(folderId, statusMessage);
+    addPipelineStep(folderId, statusMessage, "success");
+    if (elements.applyBtn) {
+      elements.applyBtn.classList.remove("hidden");
+      if (payload.final_payload) {
+        elements.applyBtn.disabled = false;
+        elements.applyBtn.dataset.default =
+          elements.applyBtn.dataset.default || elements.applyBtn.textContent;
+      } else {
+        elements.applyBtn.disabled = true;
+      }
+    }
+  }
+
+  async function tryLoadCachedPreview(folderId, button, options = {}) {
+    if (!PREVIEW_CACHE_ENABLED) {
+      return false;
+    }
+    const refresh = options.refresh === true;
+    try {
+      setBusy(button, true, refresh ? "Refreshing…" : "Loading…");
+      const cached = await fetchCachedPreview(folderId, { refresh });
+      if (!cached) {
+        const message = cached?.error || "Cached preview not available.";
+        setPreviewStatus(folderId, message, true);
+        addPipelineStep(folderId, message, "error");
+        return false;
+      }
+      renderCachedPreview(folderId, cached, { refresh });
+      button.dataset.cacheLoaded = refresh ? "refreshed" : "cached";
+      return cached.status === "ok";
+    } catch (error) {
+      console.warn("Cached preview load failed", error);
+      return false;
+    } finally {
+      setBusy(button, false);
+    }
   }
 
   function clearPreviewState(folderId, options = {}) {
@@ -1353,10 +1610,14 @@
   }
 
   document.querySelectorAll(".preview-link").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async (event) => {
       const folderId = button.dataset.folderId;
       if (!folderId) return;
-      loadPreviewForFolder(folderId, button);
+      const forceRefresh = event.shiftKey || event.metaKey || event.altKey || event.ctrlKey;
+      const usedCache = await tryLoadCachedPreview(folderId, button, { refresh: forceRefresh });
+      if (!usedCache) {
+        loadPreviewForFolder(folderId, button);
+      }
     });
   });
 
