@@ -2041,6 +2041,7 @@ def box_folder_cache_metadata_status():
     payload = snapshot.to_dict() or {}
     tagged_entries = _normalize_snapshot_entries(payload.get("tagged"))
     untagged_entries = _normalize_snapshot_entries(payload.get("untagged"))
+    untagged_no_deal_entries = _normalize_snapshot_entries(payload.get("untagged_no_deal") or [])
     issues = list(payload.get("issues") or [])
     counts = {
         "tagged": len(tagged_entries),
@@ -2054,12 +2055,24 @@ def box_folder_cache_metadata_status():
     cached_total = 0
     cached_success = 0
     cached_errors = 0
-    doc_refs = []
+
+    combined_entries: List[Tuple[Dict[str, Optional[str]], str]] = []
     for entry in untagged_entries:
+        combined_entries.append((dict(entry), "untagged"))
+    for entry in untagged_no_deal_entries:
+        combined_entries.append((dict(entry), "no_deal"))
+
+    doc_refs = []
+    seen_ids = set()
+    for entry, _ in combined_entries:
         folder_id = entry.get("id")
         if not folder_id:
             continue
+        if folder_id in seen_ids:
+            continue
+        seen_ids.add(folder_id)
         doc_refs.append(preview_collection.document(folder_id))
+
     preview_map = {}
     if doc_refs:
         logger.info("Metadata cache refresh: fetching %d preview docs in batch", len(doc_refs))
@@ -2070,14 +2083,17 @@ def box_folder_cache_metadata_status():
         except Exception as exc:  # noqa: BLE001
             logger.warning("Metadata cache refresh: bulk preview fetch failed: %s", exc)
 
-    total_targets = len(untagged_entries)
-    for index, entry in enumerate(untagged_entries, start=1):
+    total_targets = len(combined_entries)
+    for index, (entry, original_bucket) in enumerate(combined_entries, start=1):
         folder_id = entry.get("id")
         if not folder_id:
             continue
         preview_doc = preview_map.get(folder_id)
         if not preview_doc:
-            refreshed_untagged.append(entry)
+            if original_bucket == "no_deal":
+                refreshed_no_deal.append(entry)
+            else:
+                refreshed_untagged.append(entry)
             continue
         root_info = preview_doc.get("root_folder") or {}
         has_deal = bool(
@@ -2095,6 +2111,20 @@ def box_folder_cache_metadata_status():
         enriched["path"] = enriched.get("path") or root_info.get("path") or ""
         enriched["url"] = enriched.get("url") or root_info.get("url") or f"https://app.box.com/folder/{folder_id}"
         generated_ts = preview_doc.get("generated_at_iso") or preview_doc.get("generated_at")
+        if original_bucket == "no_deal":
+            if generated_ts:
+                enriched["preview_generated_at"] = generated_ts
+            if has_deal:
+                enriched["preview_source"] = preview_doc.get("source") or enriched.get("preview_source")
+                enriched.setdefault(
+                    "preview_error",
+                    "Folder previously flagged as missing HubSpot deal. Remove manually once verified.",
+                )
+            else:
+                enriched["preview_error"] = preview_doc.get("error") or "No associated deals found in HubSpot."
+                enriched["preview_source"] = preview_doc.get("source") or "cache"
+            refreshed_no_deal.append(enriched)
+            continue
         if has_deal:
             enriched.pop("preview_error", None)
             enriched.pop("preview_source", None)

@@ -26,6 +26,20 @@
   </div>
 </div>
 
+<div class="card search-panel">
+  <label for="folder-search" class="search-label">Search folders</label>
+  <input
+    id="folder-search"
+    class="search-input"
+    type="search"
+    placeholder="Search by folder name, ID, or path…"
+    autocomplete="off"
+    spellcheck="false"
+  />
+  <p class="muted small">Filters folders across all sections instantly.</p>
+  <p id="search-results-note" class="muted small"></p>
+</div>
+
 {% if error_message %}
 <div class="card">
   <h3>Snapshot unavailable</h3>
@@ -75,7 +89,11 @@
       {% if slot.folders %}
       <ul class="folder-list compact">
         {% for folder in slot.folders %}
-        <li{% if folder.preview_generated_at %} class="cached-folder"{% endif %}>
+        <li{% if folder.preview_generated_at %} class="cached-folder"{% endif %}
+          data-folder-name="{{ display_name|e }}"
+          data-folder-id="{{ (folder.id or '')|e }}"
+          data-folder-path="{{ (folder.path or '')|e }}"
+        >
           <div class="folder-meta">
             {% set display_name = folder.name or folder.id %}
             <span class="folder-name">{{ display_name }}</span>
@@ -132,7 +150,11 @@
   <p class="muted">These folders still need the metadata template applied.</p>
   <ul class="folder-list">
     {% for folder in untagged_entries %}
-    <li>
+    <li
+      data-folder-name="{{ display_name|e }}"
+      data-folder-id="{{ (folder.id or '')|e }}"
+      data-folder-path="{{ (folder.path or '')|e }}"
+    >
       <div class="folder-meta">
         {% set display_name = folder.name or folder.id %}
         <span class="folder-name">{{ display_name }}</span>
@@ -182,7 +204,11 @@
   {% if untagged_no_deal_entries %}
   <ul class="folder-list">
     {% for folder in untagged_no_deal_entries %}
-    <li>
+    <li
+      data-folder-name="{{ display_name|e }}"
+      data-folder-id="{{ (folder.id or '')|e }}"
+      data-folder-path="{{ (folder.path or '')|e }}"
+    >
       <div class="folder-meta">
         {% set display_name = folder.name or folder.id %}
         <span class="folder-name">{{ display_name }}</span>
@@ -224,7 +250,11 @@
   {% elif tagged_entries %}
   <ul class="folder-list compact">
     {% for folder in tagged_entries %}
-    <li>
+    <li
+      data-folder-name="{{ display_name|e }}"
+      data-folder-id="{{ (folder.id or '')|e }}"
+      data-folder-path="{{ (folder.path or '')|e }}"
+    >
       <div class="folder-meta">
         {% set display_name = folder.name or folder.id %}
         <span class="folder-name">{{ display_name }}</span>
@@ -311,6 +341,51 @@
     display: flex;
     flex-direction: column;
     gap: 16px;
+  }
+
+  .search-panel {
+    margin: 16px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .search-label {
+    font-weight: 600;
+  }
+
+  .search-input {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 0.95em;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  .search-input:focus {
+    outline: none;
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+  }
+
+  .search-hidden {
+    display: none !important;
+  }
+
+  #search-results-note {
+    margin: 0;
+  }
+
+  #search-results-note:empty {
+    display: none;
+  }
+
+  .search-filter-empty summary {
+    color: #94a3b8;
+  }
+
+  .search-filter-empty {
+    opacity: 0.6;
   }
 
   .topbar-right {
@@ -673,6 +748,8 @@
   const previewCacheBtn = document.getElementById("preview-cache-btn");
   const status = document.getElementById("refresh-status");
   const previewCacheStatus = document.getElementById("preview-cache-status");
+  const folderSearchInput = document.getElementById("folder-search");
+  const searchResultsNote = document.getElementById("search-results-note");
 
   async function runRefreshSnapshot() {
     if (!refreshBtn || !status) return;
@@ -756,6 +833,11 @@
   }
   if (previewCacheBtn) {
     previewCacheBtn.addEventListener("click", runPreviewCache);
+  }
+  if (folderSearchInput) {
+    folderSearchInput.addEventListener("input", () => {
+      applyFolderSearch(folderSearchInput.value || "");
+    });
   }
   document.querySelectorAll(".collab-link").forEach((button) => {
     button.addEventListener("click", () => {
@@ -841,6 +923,67 @@
 
   function escapeAttr(value) {
     return String(value ?? "").replace(/"/g, '\\"');
+  }
+
+  function buildFolderHaystack(item) {
+    if (!item) return "";
+    if (item.dataset.searchHaystack) {
+      return item.dataset.searchHaystack;
+    }
+    const parts = [
+      item.dataset.folderName || "",
+      item.dataset.folderId || "",
+      item.dataset.folderPath || "",
+    ]
+      .join(" ")
+      .trim();
+    let haystack = parts.toLowerCase();
+    if (!haystack) {
+      const meta = item.querySelector(".folder-meta");
+      haystack = (meta && meta.textContent ? meta.textContent : item.textContent || "").toLowerCase();
+    }
+    item.dataset.searchHaystack = haystack;
+    return haystack;
+  }
+
+  function updateSectionSearchState(hasQuery) {
+    const sections = document.querySelectorAll("details.assignment-slot, details.collapsible");
+    sections.forEach((section) => {
+      const list = section.querySelectorAll(".folder-list li");
+      if (!list.length) return;
+      const visible = Array.from(list).some((item) => !item.classList.contains("search-hidden"));
+      section.classList.toggle("search-filter-empty", Boolean(hasQuery) && !visible);
+    });
+  }
+
+  function applyFolderSearch(term) {
+    const query = (term || "").trim().toLowerCase();
+    let matchCount = 0;
+    const items = document.querySelectorAll(".folder-list li");
+    items.forEach((item) => {
+      if (!query) {
+        item.classList.remove("search-hidden");
+        matchCount += 1;
+        return;
+      }
+      const haystack = buildFolderHaystack(item);
+      const matches = haystack.includes(query);
+      item.classList.toggle("search-hidden", !matches);
+      if (matches) {
+        matchCount += 1;
+      }
+    });
+    updateSectionSearchState(query.length > 0);
+    if (searchResultsNote) {
+      if (!query) {
+        searchResultsNote.textContent = "";
+      } else if (matchCount === 0) {
+        searchResultsNote.textContent = "No folders match your search.";
+      } else {
+        const plural = matchCount === 1 ? "" : "s";
+        searchResultsNote.textContent = `Showing ${matchCount} folder${plural} matching “${term.trim()}”.`;
+      }
+    }
   }
 
   async function fetchCachedPreview(folderId, options = {}) {
