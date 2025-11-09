@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 
 BOX_METADATA_PREVIEW_COLLECTION = os.environ.get("BOX_METADATA_PREVIEW_COLLECTION", "box_metadata_previews")
 INTERNAL_EMAIL_DOMAIN = (os.environ.get("PIVOT_INTERNAL_DOMAIN") or "@pivotwealth.com.au").strip().lower()
+MISMATCH_SECTION_KEY = "mismatch_pending"
 
 box_bp = Blueprint("box_api", __name__)
 
@@ -126,6 +127,24 @@ def _decorate_snapshot_entry(entry: Dict[str, object]) -> None:
         entry["preview_generated_at_display"] = preview_display
     if tagged_display:
         entry["tagged_at_display"] = tagged_display
+
+
+def _sort_untagged_snapshot_entries(entries: List[Dict[str, Optional[str]]]) -> None:
+    entries.sort(
+        key=lambda item: (
+            0 if item.get("preview_generated_at") else 1,
+            item.get("id") or "",
+        ),
+    )
+
+
+def _sort_tagged_snapshot_entries(entries: List[Dict[str, Optional[str]]]) -> None:
+    entries.sort(
+        key=lambda item: (
+            -_parse_timestamp_value(item.get("tagged_at") or item.get("tagged_at_display")),
+            item.get("id") or "",
+        ),
+    )
 
 
 def _parse_timestamp_value(value) -> int:
@@ -566,7 +585,7 @@ def _get_folder_root_info(service, folder_id: str) -> dict:
         return fallback
 
 
-def _generate_folder_metadata_preview(folder_id: str, service) -> dict:
+def _generate_folder_metadata_preview(folder_id: str, service, allow_contact_only: bool = False) -> dict:
     folder_id = (folder_id or "").strip()
     if not folder_id:
         raise ValueError("folder_id is required")
@@ -605,6 +624,24 @@ def _generate_folder_metadata_preview(folder_id: str, service) -> dict:
     selected_deal = None
     if deals:
         selected_deal = max(deals, key=_extract_deal_timestamp_value)
+    contact_only = False
+    if not selected_deal and allow_contact_only:
+        contact_props = (contact.get("properties") or {}) if contact else {}
+        contact_name = " ".join(
+            filter(None, [contact_props.get("firstname"), contact_props.get("lastname")])
+        ).strip()
+        pseudo_deal_id = contact.get("id") or contact_props.get("hs_object_id") or contact_props.get("email") or ""
+        selected_deal = {
+            "id": pseudo_deal_id,
+            "properties": {
+                "dealname": contact_name or "Contact Only",
+                "dealstage": "contact_only",
+                "hs_deal_record_id": pseudo_deal_id,
+            },
+            "url": contact.get("url") or _hubspot_contact_url(contact.get("id")),
+            "contact_only": True,
+        }
+        contact_only = True
     if not selected_deal:
         return {
             "folder_id": folder_id,
@@ -646,6 +683,7 @@ def _generate_folder_metadata_preview(folder_id: str, service) -> dict:
         "spouse": preview_data["contacts"]["spouse"],
         "deal": preview_data.get("deal"),
         "warnings": warnings,
+        "contact_only": contact_only,
     }
     return preview_doc
 
@@ -663,7 +701,7 @@ def _cache_metadata_previews(db, service, folder_entries: List[Dict[str, object]
     collection = db.collection(BOX_METADATA_PREVIEW_COLLECTION)
     for idx, (folder_id, entry) in enumerate(doc_ids.items(), start=1):
         try:
-            preview_doc = _generate_folder_metadata_preview(folder_id, service)
+            preview_doc = _generate_folder_metadata_preview(folder_id, service, allow_contact_only=True)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Failed to generate metadata preview for %s: %s", folder_id, exc)
             preview_doc = {
@@ -707,9 +745,18 @@ def _update_snapshot_no_deal_single(folder_id: str, preview_doc: dict) -> None:
     payload = snapshot.to_dict() or {}
     untagged_entries = _normalize_snapshot_entries(payload.get("untagged"))
     untagged_no_deal_entries = _normalize_snapshot_entries(payload.get("untagged_no_deal"))
+    mismatch_entries = _normalize_snapshot_entries(payload.get(MISMATCH_SECTION_KEY))
     untagged_by_id = {entry["id"]: entry for entry in untagged_entries if entry.get("id")}
     no_deal_by_id = {entry["id"]: entry for entry in untagged_no_deal_entries if entry.get("id")}
-    record = untagged_by_id.get(folder_id) or no_deal_by_id.get(folder_id)
+    mismatch_by_id = {entry["id"]: entry for entry in mismatch_entries if entry.get("id")}
+    record = untagged_by_id.get(folder_id)
+    from_no_deal = False
+    if not record and folder_id in no_deal_by_id:
+        record = no_deal_by_id.get(folder_id)
+        from_no_deal = True
+    if not record and folder_id in mismatch_by_id:
+        record = mismatch_by_id.get(folder_id)
+        mismatch_by_id.pop(folder_id, None)
     if not record:
         return
     root_info = preview_doc.get("root_folder") or {}
@@ -718,6 +765,8 @@ def _update_snapshot_no_deal_single(folder_id: str, preview_doc: dict) -> None:
         and preview_doc.get("deal")
         and preview_doc["deal"].get("id")
     )
+    if not preview_has_deal and preview_doc.get("contact_only"):
+        preview_has_deal = True
     record["name"] = record.get("name") or root_info.get("name") or ""
     record["path"] = record.get("path") or root_info.get("path") or ""
     record["url"] = record.get("url") or root_info.get("url") or f"https://app.box.com/folder/{folder_id}"
@@ -727,8 +776,8 @@ def _update_snapshot_no_deal_single(folder_id: str, preview_doc: dict) -> None:
     if preview_has_deal:
         record.pop("preview_error", None)
         record.pop("preview_source", None)
-        no_deal_by_id.pop(folder_id, None)
         untagged_by_id[folder_id] = record
+        no_deal_by_id.pop(folder_id, None)
     else:
         record["preview_error"] = preview_doc.get("error") or "No associated deals found in HubSpot."
         record["preview_source"] = preview_doc.get("source") or "cache"
@@ -737,6 +786,7 @@ def _update_snapshot_no_deal_single(folder_id: str, preview_doc: dict) -> None:
     update_doc = {
         "untagged": sorted(untagged_by_id.values(), key=lambda item: item.get("id") or ""),
         "untagged_no_deal": sorted(no_deal_by_id.values(), key=lambda item: item.get("id") or ""),
+        MISMATCH_SECTION_KEY: sorted(mismatch_by_id.values(), key=lambda item: item.get("id") or ""),
         "preview_updated_at": datetime.now(timezone.utc).isoformat(),
     }
     try:
@@ -2042,16 +2092,17 @@ def box_folder_cache_metadata_status():
     tagged_entries = _normalize_snapshot_entries(payload.get("tagged"))
     untagged_entries = _normalize_snapshot_entries(payload.get("untagged"))
     untagged_no_deal_entries = _normalize_snapshot_entries(payload.get("untagged_no_deal") or [])
+    mismatch_entries = _normalize_snapshot_entries(payload.get(MISMATCH_SECTION_KEY) or [])
     issues = list(payload.get("issues") or [])
     counts = {
         "tagged": len(tagged_entries),
         "untagged": len(untagged_entries),
         "issues": len(issues),
+        "mismatch": len(mismatch_entries),
     }
 
     preview_collection = db.collection(BOX_METADATA_PREVIEW_COLLECTION)
     refreshed_untagged: List[Dict[str, Optional[str]]] = []
-    refreshed_no_deal: List[Dict[str, Optional[str]]] = []
     cached_total = 0
     cached_success = 0
     cached_errors = 0
@@ -2059,8 +2110,6 @@ def box_folder_cache_metadata_status():
     combined_entries: List[Tuple[Dict[str, Optional[str]], str]] = []
     for entry in untagged_entries:
         combined_entries.append((dict(entry), "untagged"))
-    for entry in untagged_no_deal_entries:
-        combined_entries.append((dict(entry), "no_deal"))
 
     doc_refs = []
     seen_ids = set()
@@ -2090,9 +2139,7 @@ def box_folder_cache_metadata_status():
             continue
         preview_doc = preview_map.get(folder_id)
         if not preview_doc:
-            if original_bucket == "no_deal":
-                refreshed_no_deal.append(entry)
-            else:
+            if original_bucket == "untagged":
                 refreshed_untagged.append(entry)
             continue
         root_info = preview_doc.get("root_folder") or {}
@@ -2111,20 +2158,6 @@ def box_folder_cache_metadata_status():
         enriched["path"] = enriched.get("path") or root_info.get("path") or ""
         enriched["url"] = enriched.get("url") or root_info.get("url") or f"https://app.box.com/folder/{folder_id}"
         generated_ts = preview_doc.get("generated_at_iso") or preview_doc.get("generated_at")
-        if original_bucket == "no_deal":
-            if generated_ts:
-                enriched["preview_generated_at"] = generated_ts
-            if has_deal:
-                enriched["preview_source"] = preview_doc.get("source") or enriched.get("preview_source")
-                enriched.setdefault(
-                    "preview_error",
-                    "Folder previously flagged as missing HubSpot deal. Remove manually once verified.",
-                )
-            else:
-                enriched["preview_error"] = preview_doc.get("error") or "No associated deals found in HubSpot."
-                enriched["preview_source"] = preview_doc.get("source") or "cache"
-            refreshed_no_deal.append(enriched)
-            continue
         if has_deal:
             enriched.pop("preview_error", None)
             enriched.pop("preview_source", None)
@@ -2136,7 +2169,7 @@ def box_folder_cache_metadata_status():
             enriched["preview_source"] = preview_doc.get("source") or "cache"
             if generated_ts:
                 enriched["preview_generated_at"] = generated_ts
-            refreshed_no_deal.append(enriched)
+            untagged_no_deal_entries.append(enriched)
         if index % 20 == 0 or index == total_targets:
             logger.info(
                 "Metadata cache refresh: processed %d/%d folders (cached=%d, no_deal=%d)",
@@ -2147,13 +2180,13 @@ def box_folder_cache_metadata_status():
             )
 
     untagged_entries = refreshed_untagged
-    untagged_no_deal_entries = refreshed_no_deal
     counts["untagged"] = len(untagged_entries)
 
     refreshed_at = datetime.now(timezone.utc).isoformat()
     update_doc = {
         "untagged": untagged_entries,
         "untagged_no_deal": untagged_no_deal_entries,
+        MISMATCH_SECTION_KEY: mismatch_entries,
         "last_checked_at": refreshed_at,
         "updated_at": refreshed_at,
         "total_untagged": len(untagged_entries),
@@ -2180,6 +2213,394 @@ def box_folder_cache_metadata_status():
             "counts": counts,
             "issues": issues,
             "message": "Snapshot refreshed from Firestore.",
+        }
+    ), 200
+
+
+@box_bp.route("/box/folder/metadata/scan", methods=["POST"])
+def box_folder_metadata_scan():
+    """Scan Box active client folders and append any new entries to the snapshot."""
+    guard = _ensure_logged_in()
+    if guard is not None:
+        return guard
+
+    if not USE_FIRESTORE:
+        return jsonify({"message": "Firestore is not enabled; cannot update metadata snapshot"}), 503
+
+    db = get_firestore_client()
+    if not db:
+        return jsonify({"message": "Firestore client unavailable"}), 503
+
+    service = ensure_box_service()
+    if not service:
+        return jsonify({"message": "Box automation not configured"}), 503
+
+    doc_ref = db.collection("box_folder_metadata").document("tagging_status")
+    snapshot = doc_ref.get()
+    payload = snapshot.to_dict() if snapshot.exists else {}
+
+    tagged_entries = _normalize_snapshot_entries(payload.get("tagged"))
+    untagged_entries = _normalize_snapshot_entries(payload.get("untagged"))
+    untagged_no_deal_entries = _normalize_snapshot_entries(payload.get("untagged_no_deal") or [])
+    issues = list(payload.get("issues") or [])
+
+    existing_ids = {
+        entry["id"]
+        for entry in tagged_entries + untagged_entries + untagged_no_deal_entries
+        if entry.get("id")
+    }
+
+    try:
+        box_tagged, box_untagged, box_issues = service.collect_metadata_tagging_status()
+    except BoxAutomationError as exc:
+        logger.error("Failed to scan Box metadata status: %s", exc)
+        return jsonify({"message": "Unable to scan Box for metadata status", "error": str(exc)}), 500
+
+    issues.extend(box_issues or [])
+    new_tagged = 0
+    new_untagged = 0
+    now_iso = datetime.now(timezone.utc).isoformat()
+    new_entries_for_preview: List[Tuple[str, Dict[str, object]]] = []
+
+    def _normalize_entry(entry: dict) -> dict:
+        normalized = {
+            "id": entry.get("id"),
+            "name": entry.get("name") or "",
+            "path": entry.get("path") or "",
+            "url": entry.get("url") or (f"https://app.box.com/folder/{entry.get('id')}" if entry.get("id") else ""),
+        }
+        return {key: value for key, value in normalized.items() if value}
+
+    for entry in box_tagged:
+        folder_id = entry.get("id")
+        if not folder_id or folder_id in existing_ids:
+            continue
+        normalized = _normalize_entry(entry)
+        tagged_entries.append(normalized)
+        existing_ids.add(folder_id)
+        new_tagged += 1
+        new_entries_for_preview.append((folder_id, normalized))
+        logger.info("Scan: discovered tagged folder %s (%s)", folder_id, normalized.get("name"))
+
+    for entry in box_untagged:
+        folder_id = entry.get("id")
+        if not folder_id or folder_id in existing_ids:
+            continue
+        normalized = _normalize_entry(entry)
+        untagged_entries.append(normalized)
+        existing_ids.add(folder_id)
+        new_untagged += 1
+        new_entries_for_preview.append((folder_id, normalized))
+        logger.info("Scan: discovered untagged folder %s (%s)", folder_id, normalized.get("name"))
+
+    preview_collection = db.collection(BOX_METADATA_PREVIEW_COLLECTION)
+    preview_cached = 0
+    preview_errors = 0
+    preview_unauthorized = 0
+    preview_error_samples: List[Dict[str, str]] = []
+
+    for folder_id, record in new_entries_for_preview:
+        try:
+            preview_doc = _generate_folder_metadata_preview(folder_id, service)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to cache preview for %s during scan: %s", folder_id, exc)
+            preview_doc = {
+                "folder_id": folder_id,
+                "status": "error",
+                "error": str(exc),
+                "root_folder": {
+                    "id": folder_id,
+                    "name": record.get("name") or "",
+                    "path": record.get("path") or "",
+                    "url": record.get("url") or f"https://app.box.com/folder/{folder_id}",
+                },
+            }
+
+        generated_at = datetime.now(timezone.utc)
+        preview_doc["generated_at"] = generated_at
+        preview_doc["generated_at_iso"] = generated_at.isoformat()
+        try:
+            preview_collection.document(folder_id).set(preview_doc)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Unable to persist preview for %s: %s", folder_id, exc)
+
+        has_deal = bool(
+            preview_doc.get("status") == "ok"
+            and preview_doc.get("deal")
+            and preview_doc.get("deal", {}).get("id")
+        )
+        preview_ts = preview_doc.get("generated_at_iso") or preview_doc.get("generated_at")
+        if preview_ts:
+            record["preview_generated_at"] = preview_ts
+
+        if has_deal:
+            preview_cached += 1
+            record.pop("preview_error", None)
+            record.pop("preview_source", None)
+            logger.info("Scan: cached preview for %s (deal %s)", folder_id, preview_doc.get("deal", {}).get("id"))
+        else:
+            preview_errors += 1
+            error_text = preview_doc.get("error") or "No associated deals found in HubSpot."
+            record["preview_error"] = error_text
+            record["preview_source"] = preview_doc.get("source") or "scan"
+            if "401" in error_text:
+                preview_unauthorized += 1
+                issues.append(f"Box metadata preview unauthorized for folder {folder_id}")
+                logger.warning("Scan: 401 while caching preview for %s", folder_id)
+            if error_text and len(preview_error_samples) < 10:
+                preview_error_samples.append({"folder_id": folder_id, "error": error_text})
+            existing_no_deal = next((item for item in untagged_no_deal_entries if item.get("id") == folder_id), None)
+            if not existing_no_deal:
+                root_info = preview_doc.get("root_folder") or {}
+                no_deal_entry = {
+                    "id": folder_id,
+                    "name": record.get("name") or root_info.get("name") or "",
+                    "path": record.get("path") or root_info.get("path") or "",
+                    "url": record.get("url") or root_info.get("url") or f"https://app.box.com/folder/{folder_id}",
+                    "preview_error": error_text,
+                    "preview_source": record.get("preview_source"),
+                }
+                if preview_ts:
+                    no_deal_entry["preview_generated_at"] = preview_ts
+                untagged_no_deal_entries.append(no_deal_entry)
+
+    _sort_tagged_snapshot_entries(tagged_entries)
+    _sort_untagged_snapshot_entries(untagged_entries)
+    for entry in tagged_entries + untagged_entries + untagged_no_deal_entries:
+        _decorate_snapshot_entry(entry)
+
+    update_doc = {
+        "tagged": tagged_entries,
+        "untagged": untagged_entries,
+        "untagged_no_deal": untagged_no_deal_entries,
+        "issues": issues[-50:],
+        "updated_at": now_iso,
+        "last_scanned_at": now_iso,
+        "total_tagged": len(tagged_entries),
+        "total_untagged": len(untagged_entries),
+        "preview_cached_total": (payload.get("preview_cached_total") or 0) + preview_cached,
+        "preview_cached_success": (payload.get("preview_cached_success") or 0) + preview_cached,
+        "preview_cached_errors": (payload.get("preview_cached_errors") or 0) + preview_errors,
+        "preview_updated_at": now_iso,
+    }
+
+    try:
+        doc_ref.set(update_doc, merge=True)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Failed to persist scan results to Firestore: %s", exc)
+        return jsonify({"message": "Failed to store scan results", "error": str(exc)}), 500
+
+    logger.info(
+        "Box scan complete: new tagged=%d, new untagged=%d, previews cached=%d, preview errors=%d (401=%d)",
+        new_tagged,
+        new_untagged,
+        preview_cached,
+        preview_errors,
+        preview_unauthorized,
+    )
+
+    return jsonify(
+        {
+            "status": "ok",
+            "new_tagged": new_tagged,
+            "new_untagged": new_untagged,
+            "preview_cached": preview_cached,
+            "preview_errors": preview_errors,
+            "unauthorized": preview_unauthorized,
+            "issues": issues[-5:],
+            "errors": preview_error_samples,
+            "message": "Box folders scanned and snapshot updated.",
+        }
+    ), 200
+
+
+@box_bp.route("/box/folder/metadata/no-deal/retry", methods=["POST"])
+def box_folder_metadata_retry_no_deal():
+    """Re-run metadata preview generation for folders in the no-deal list."""
+    guard = _ensure_logged_in()
+    if guard is not None:
+        return guard
+
+    if not USE_FIRESTORE:
+        return jsonify({"message": "Firestore is not enabled; cannot retry metadata previews"}), 503
+
+    db = get_firestore_client()
+    if not db:
+        return jsonify({"message": "Firestore client unavailable"}), 503
+
+    service = ensure_box_service()
+    if not service:
+        return jsonify({"message": "Box automation not configured"}), 503
+
+    doc_ref = db.collection("box_folder_metadata").document("tagging_status")
+    snapshot = doc_ref.get()
+    if not snapshot.exists:
+        return jsonify({"message": "Metadata snapshot not found in Firestore."}), 404
+
+    payload = snapshot.to_dict() or {}
+    no_deal_entries = _normalize_snapshot_entries(payload.get("untagged_no_deal") or [])
+    if not no_deal_entries:
+        return jsonify({"status": "ok", "processed": 0, "message": "No folders currently flagged as missing deals."}), 200
+
+    request_payload = request.get_json(silent=True) or {}
+    folder_ids = request_payload.get("folder_ids")
+    limit = request_payload.get("limit")
+
+    targets = no_deal_entries
+    if folder_ids:
+        folder_targets = {str(value).strip() for value in folder_ids if str(value).strip()}
+        targets = [entry for entry in no_deal_entries if entry.get("id") in folder_targets]
+    if isinstance(limit, int) and limit > 0:
+        targets = targets[:limit]
+
+    if not targets:
+        return jsonify({"status": "ok", "processed": 0, "message": "Provided filters did not match any no-deal folders."}), 200
+
+    preview_collection = db.collection(BOX_METADATA_PREVIEW_COLLECTION)
+    processed = 0
+    resolved = 0
+    remaining = 0
+    unauthorized = 0
+    error_samples: List[Dict[str, str]] = []
+    logger.info("Retrying metadata preview for %d no-deal folders", len(targets))
+
+    for entry in targets:
+        folder_id = entry.get("id")
+        if not folder_id:
+            continue
+        try:
+            preview_doc = _generate_folder_metadata_preview(folder_id, service)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("No-deal retry failed for %s: %s", folder_id, exc)
+            preview_doc = {
+                "folder_id": folder_id,
+                "status": "error",
+                "error": str(exc),
+                "root_folder": {
+                    "id": folder_id,
+                    "name": entry.get("name") or "",
+                    "path": entry.get("path") or "",
+                    "url": entry.get("url") or f"https://app.box.com/folder/{folder_id}",
+                },
+            }
+
+        generated_at = datetime.now(timezone.utc)
+        preview_doc["generated_at"] = generated_at
+        preview_doc["generated_at_iso"] = generated_at.isoformat()
+        try:
+            preview_collection.document(folder_id).set(preview_doc)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to persist retried preview for %s: %s", folder_id, exc)
+
+        _update_snapshot_no_deal_single(folder_id, preview_doc)
+
+        processed += 1
+        has_deal = bool(
+            preview_doc.get("status") == "ok"
+            and preview_doc.get("deal")
+            and preview_doc.get("deal", {}).get("id")
+        )
+        if has_deal:
+            resolved += 1
+        else:
+            remaining += 1
+            error_text = preview_doc.get("error") or ""
+            if "401" in error_text:
+                unauthorized += 1
+            if error_text and len(error_samples) < 10:
+                error_samples.append({"folder_id": folder_id, "error": error_text})
+
+    retry_timestamp = datetime.now(timezone.utc).isoformat()
+    try:
+        doc_ref.set({"no_deal_retry_at": retry_timestamp}, merge=True)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to record no-deal retry timestamp: %s", exc)
+
+    return jsonify(
+        {
+            "status": "ok",
+            "processed": processed,
+            "resolved": resolved,
+            "remaining": remaining,
+            "unauthorized": unauthorized,
+            "errors": error_samples,
+            "message": "Re-ran metadata preview for folders without associated deals. Refresh snapshot to view updates.",
+        }
+    ), 200
+
+
+@box_bp.route("/box/folder/metadata/mismatch", methods=["POST"])
+def box_folder_metadata_mark_mismatch():
+    """Move a folder from active queues into the mismatch bucket for manual follow-up."""
+    guard = _ensure_logged_in()
+    if guard is not None:
+        return guard
+
+    payload = request.get_json(silent=True) or {}
+    folder_id = str(payload.get("folder_id") or "").strip()
+    reason = (payload.get("reason") or "").strip()
+    if not folder_id:
+        return jsonify({"message": "folder_id is required"}), 400
+
+    if not USE_FIRESTORE:
+        return jsonify({"message": "Firestore is not enabled; cannot mark mismatch"}), 503
+
+    db = get_firestore_client()
+    if not db:
+        return jsonify({"message": "Firestore client unavailable"}), 503
+
+    doc_ref = db.collection("box_folder_metadata").document("tagging_status")
+    snapshot = doc_ref.get()
+    if not snapshot.exists:
+        return jsonify({"message": "Metadata snapshot not found"}), 404
+
+    doc = snapshot.to_dict() or {}
+    tagged_entries = _normalize_snapshot_entries(doc.get("tagged"))
+    untagged_entries = _normalize_snapshot_entries(doc.get("untagged"))
+    untagged_no_deal_entries = _normalize_snapshot_entries(doc.get("untagged_no_deal") or [])
+    mismatch_entries = _normalize_snapshot_entries(doc.get(MISMATCH_SECTION_KEY) or [])
+
+    def _pop_entry(entries: List[Dict[str, object]]) -> Optional[Dict[str, object]]:
+        for idx, entry in enumerate(entries):
+            if entry.get("id") == folder_id:
+                return entries.pop(idx)
+        return None
+
+    record = (
+        _pop_entry(untagged_entries)
+        or _pop_entry(untagged_no_deal_entries)
+        or _pop_entry(tagged_entries)
+        or next((entry for entry in mismatch_entries if entry.get("id") == folder_id), None)
+    )
+    if not record:
+        return jsonify({"message": f"Folder {folder_id} not found in snapshot"}), 404
+    if record in mismatch_entries:
+        return jsonify({"status": "ok", "message": "Folder already in mismatch list."}), 200
+
+    mismatch_entry = dict(record)
+    mismatch_entry["mismatch_reason"] = reason or "User flagged mismatch"
+    mismatch_entry["mismatch_at"] = datetime.now(timezone.utc).isoformat()
+    mismatch_entries.append(mismatch_entry)
+    mismatch_entries = sorted(mismatch_entries, key=lambda item: item.get("id") or "")
+
+    update_doc = {
+        "tagged": tagged_entries,
+        "untagged": untagged_entries,
+        "untagged_no_deal": untagged_no_deal_entries,
+        MISMATCH_SECTION_KEY: mismatch_entries,
+        "mismatch_updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        doc_ref.set(update_doc, merge=True)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Failed to update mismatch list: %s", exc)
+        return jsonify({"message": "Unable to update mismatch list", "error": str(exc)}), 500
+
+    return jsonify(
+        {
+            "status": "ok",
+            "message": "Folder moved to mismatch queue.",
+            "mismatch_count": len(mismatch_entries),
         }
     ), 200
 
@@ -2278,12 +2699,13 @@ def box_folder_metadata_status_page():
     error_message = None
     tagged_entries: List[Dict[str, Optional[str]]] = []
     untagged_entries: List[Dict[str, Optional[str]]] = []
+    untagged_no_deal_entries: List[Dict[str, Optional[str]]] = []
+    mismatch_entries: List[Dict[str, Optional[str]]] = []
     issues: List[str] = []
-    counts = {"tagged": 0, "untagged": 0, "issues": 0}
+    counts = {"tagged": 0, "untagged": 0, "issues": 0, "mismatch": 0}
     updated_at_display: Optional[str] = None
     updated_at_raw: Optional[str] = None
     snapshot_exists = False
-    untagged_no_deal_entries: List[Dict[str, Optional[str]]] = []
 
     assignment_slots: List[Dict[str, object]] = []
     preview_cache_summary: Dict[str, Optional[str]] = {
@@ -2316,6 +2738,9 @@ def box_folder_metadata_status_page():
                     untagged_no_deal_entries = _normalize_snapshot_entries(
                         snapshot.get("untagged_no_deal") or []
                     )
+                    mismatch_entries = _normalize_snapshot_entries(
+                        snapshot.get(MISMATCH_SECTION_KEY) or []
+                    )
                     def _sort_untagged_entries(entries: List[Dict[str, Optional[str]]]) -> None:
                         entries.sort(
                             key=lambda item: (
@@ -2340,11 +2765,14 @@ def box_folder_metadata_status_page():
                         _decorate_snapshot_entry(entry)
                     for entry in untagged_no_deal_entries:
                         _decorate_snapshot_entry(entry)
+                    for entry in mismatch_entries:
+                        _decorate_snapshot_entry(entry)
                     issues = list(snapshot.get("issues") or [])
                     counts = {
                         "tagged": len(tagged_entries),
                         "untagged": len(untagged_entries),
                         "issues": len(issues),
+                        "mismatch": len(mismatch_entries),
                     }
                     updated_at_raw = snapshot.get("updated_at")
                     updated_at_display = _format_sydney_timestamp(updated_at_raw) or updated_at_raw
@@ -2412,6 +2840,7 @@ def box_folder_metadata_status_page():
         tagged_entries=tagged_entries,
         untagged_entries=untagged_entries,
         untagged_no_deal_entries=untagged_no_deal_entries,
+        mismatch_entries=mismatch_entries,
         issues=issues,
         updated_at_display=updated_at_display,
         updated_at_raw=updated_at_raw,

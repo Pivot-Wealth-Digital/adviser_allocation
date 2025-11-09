@@ -61,6 +61,10 @@
       <span class="label">Issues</span>
       <span class="metric">{{ counts.issues }}</span>
     </div>
+    <div class="summary-tile mismatch">
+      <span class="label">Mismatch queue</span>
+      <span class="metric">{{ counts.mismatch or 0 }}</span>
+    </div>
   </div>
   <p class="muted small">
     Snapshot stored in Firestore at <code>box_folder_metadata/tagging_status</code>.
@@ -122,6 +126,7 @@
         <div class="preview-summary hidden" data-preview-summary="{{ folder.id }}"></div>
         <div class="preview-metadata hidden" data-preview-metadata="{{ folder.id }}"></div>
         <div class="preview-pipeline hidden" data-preview-pipeline="{{ folder.id }}"></div>
+        <div class="preview-actions">
         <button
           type="button"
           class="secondary apply-link hidden"
@@ -129,6 +134,15 @@
         >
           Apply metadata and Box folder tagging
         </button>
+        <button
+          type="button"
+          class="secondary danger mismatch-link hidden"
+          data-folder-id="{{ folder.id }}"
+          data-default="Move to mismatch queue"
+        >
+          Move to mismatch queue
+        </button>
+        </div>
       </div>
     </li>
     {% endfor %}
@@ -179,6 +193,7 @@
         <div class="preview-summary hidden" data-preview-summary="{{ folder.id }}"></div>
         <div class="preview-metadata hidden" data-preview-metadata="{{ folder.id }}"></div>
         <div class="preview-pipeline hidden" data-preview-pipeline="{{ folder.id }}"></div>
+        <div class="preview-actions">
         <button
           type="button"
           class="secondary apply-link hidden"
@@ -186,6 +201,15 @@
         >
           Apply metadata and Box folder tagging
         </button>
+        <button
+          type="button"
+          class="secondary danger mismatch-link hidden"
+          data-folder-id="{{ folder.id }}"
+          data-default="Move to mismatch queue"
+        >
+          Move to mismatch queue
+        </button>
+        </div>
       </div>
     </li>
     {% endfor %}
@@ -195,8 +219,14 @@
   {% endif %}
 </details>
 
-<details class="card collapsible" open>
+<details class="card collapsible">
   <summary>Folders without associated deals ({{ untagged_no_deal_entries|length }})</summary>
+  <div class="card-toolbar no-deal-toolbar">
+    <button type="button" class="secondary" id="no-deal-retry-btn" data-default="Re-run checks">
+      Re-run checks
+    </button>
+    <span id="no-deal-retry-status" class="muted small"></span>
+  </div>
   <p class="muted small">
     Cached metadata previews could not locate a HubSpot deal for these folders.
     Re-run the preview or investigate the contact/deal in HubSpot before tagging.
@@ -243,6 +273,75 @@
   {% endif %}
 </details>
 
+<details class="card collapsible" {% if mismatch_entries %}open{% endif %}>
+  <summary>Mismatch queue ({{ mismatch_entries|length }})</summary>
+  <p class="muted small">
+    These folders were skipped because the suggested HubSpot data didn’t match. Review them manually.
+  </p>
+  {% if mismatch_entries %}
+  <ul class="folder-list">
+    {% for folder in mismatch_entries %}
+    <li
+      data-folder-name="{{ folder.name|e }}"
+      data-folder-id="{{ (folder.id or '')|e }}"
+      data-folder-path="{{ (folder.path or '')|e }}"
+    >
+      <div class="folder-meta">
+        {% set display_name = folder.name or folder.id %}
+        <span class="folder-name">{{ display_name }}</span>
+        {% if folder.id and folder.id != display_name %}
+        <span class="folder-id"><code>{{ folder.id }}</code></span>
+        {% endif %}
+        {% if folder.path %}
+        <span class="folder-path muted small">{{ folder.path }}</span>
+        {% endif %}
+        {% if folder.mismatch_reason %}
+        <span class="folder-tagged muted small" style="color:#b45309;">Reason: {{ folder.mismatch_reason }}</span>
+        {% endif %}
+        {% if folder.preview_generated_at %}
+        <span class="folder-tagged muted small">Last preview {{ folder.preview_generated_at }}</span>
+        {% endif %}
+      </div>
+      <div class="folder-actions">
+        {% if folder.url %}
+        <a href="{{ folder.url }}" target="_blank" rel="noopener">Open in Box</a>
+        {% else %}
+        <span class="muted small">No URL captured</span>
+        {% endif %}
+        <button type="button" class="secondary collab-link" data-folder-id="{{ folder.id }}">Collaborators</button>
+        <button type="button" class="secondary preview-link" data-folder-id="{{ folder.id }}">Preview metadata</button>
+      </div>
+      <div class="folder-preview hidden" data-preview-container="{{ folder.id }}">
+        <p class="preview-status muted small" data-preview-status="{{ folder.id }}"></p>
+        <div class="preview-summary hidden" data-preview-summary="{{ folder.id }}"></div>
+        <div class="preview-metadata hidden" data-preview-metadata="{{ folder.id }}"></div>
+        <div class="preview-pipeline hidden" data-preview-pipeline="{{ folder.id }}"></div>
+        <div class="preview-actions">
+        <button
+          type="button"
+          class="secondary apply-link hidden"
+          data-folder-id="{{ folder.id }}"
+        >
+          Apply metadata and Box folder tagging
+        </button>
+        <button
+          type="button"
+          class="secondary danger mismatch-link hidden"
+          data-folder-id="{{ folder.id }}"
+          data-default="Move to mismatch queue"
+        >
+          Move to mismatch queue
+        </button>
+        </div>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted small">Great! No folders are waiting in the mismatch queue.</p>
+  {% endif %}
+</details>
+
 <details class="card collapsible" {% if counts.tagged and counts.tagged <= 40 %}open{% endif %}>
   <summary>Tagged folders ({{ counts.tagged }})</summary>
   {% if not snapshot_exists %}
@@ -283,6 +382,7 @@
         <div class="preview-summary hidden" data-preview-summary="{{ folder.id }}"></div>
         <div class="preview-metadata hidden" data-preview-metadata="{{ folder.id }}"></div>
         <div class="preview-pipeline hidden" data-preview-pipeline="{{ folder.id }}"></div>
+        <div class="preview-actions">
         <button
           type="button"
           class="secondary apply-link hidden"
@@ -290,6 +390,15 @@
         >
           Apply metadata and Box folder tagging
         </button>
+        <button
+          type="button"
+          class="secondary danger mismatch-link hidden"
+          data-folder-id="{{ folder.id }}"
+          data-default="Move to mismatch queue"
+        >
+          Move to mismatch queue
+        </button>
+        </div>
       </div>
     </li>
     {% endfor %}
@@ -323,6 +432,13 @@
   >
     Run metadata preview cache
   </button>
+  <button
+    id="box-scan-btn"
+    class="secondary refresh-btn"
+    data-default="Scan Box for new folders"
+  >
+    Scan Box for new folders
+  </button>
   {% if preview_cache_summary.total %}
   <span class="muted small">
     Cached {{ preview_cache_summary.success or preview_cache_summary.total }}/{{ preview_cache_summary.total }} ·
@@ -331,6 +447,8 @@
   {% endif %}
   <span id="preview-cache-status" class="muted small"></span>
   <span id="refresh-status" class="muted small"></span>
+  <span id="box-scan-status" class="muted small"></span>
+  <span id="no-deal-footer-status" class="muted small"></span>
 </div>
 {% endif %}
 {% endblock %}
@@ -372,6 +490,10 @@
     display: none !important;
   }
 
+  .err {
+    color: #b91c1c !important;
+  }
+
   #search-results-note {
     margin: 0;
   }
@@ -386,6 +508,18 @@
 
   .search-filter-empty {
     opacity: 0.6;
+  }
+
+  .card-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+
+  .no-deal-toolbar {
+    justify-content: flex-end;
   }
 
   .topbar-right {
@@ -457,6 +591,11 @@
   .summary-tile.issues {
     border-color: rgba(249, 115, 22, 0.3);
     background: rgba(249, 115, 22, 0.1);
+  }
+
+  .summary-tile.mismatch {
+    border-color: rgba(245, 158, 11, 0.4);
+    background: rgba(253, 230, 138, 0.2);
   }
 
   .folder-list {
@@ -719,6 +858,23 @@
   .folder-preview .apply-link {
     justify-self: start;
   }
+
+  .preview-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .danger {
+    background: #fee2e2;
+    border: 1px solid #f87171;
+    color: #b91c1c;
+  }
+
+  .danger:hover {
+    background: #fecaca;
+    border-color: #ef4444;
+  }
   .warning-card {
     border: 1px solid rgba(249, 115, 22, 0.4);
     background: rgba(249, 115, 22, 0.12);
@@ -746,8 +902,13 @@
 <script>
   const refreshBtn = document.getElementById("refresh-btn");
   const previewCacheBtn = document.getElementById("preview-cache-btn");
+  const boxScanBtn = document.getElementById("box-scan-btn");
+  const noDealRetryBtn = document.getElementById("no-deal-retry-btn");
   const status = document.getElementById("refresh-status");
   const previewCacheStatus = document.getElementById("preview-cache-status");
+  const boxScanStatus = document.getElementById("box-scan-status");
+  const noDealRetryStatus = document.getElementById("no-deal-retry-status");
+  const noDealFooterStatus = document.getElementById("no-deal-footer-status");
   const folderSearchInput = document.getElementById("folder-search");
   const searchResultsNote = document.getElementById("search-results-note");
 
@@ -828,12 +989,142 @@
     }
   }
 
+  async function runBoxScan() {
+    if (!boxScanBtn || !boxScanStatus) return;
+    boxScanStatus.textContent = "";
+    boxScanStatus.classList.remove("err");
+    const defaultLabel = boxScanBtn.dataset.default || "Scan Box for new folders";
+    boxScanBtn.disabled = true;
+    boxScanBtn.textContent = "Scanning…";
+    console.log("[BoxMetadata] Box folder scan triggered");
+    try {
+      const response = await fetch("/box/folder/metadata/scan", { method: "POST" });
+      if (!response.ok) {
+        let detail = "";
+        try {
+          const payload = await response.json();
+          detail = payload.message || payload.error || "";
+        } catch (_) {
+          detail = "";
+        }
+        throw new Error(detail || response.statusText);
+      }
+      const payload = await response.json();
+      const parts = [];
+      parts.push(`New tagged: ${payload.new_tagged || 0}`);
+      parts.push(`New untagged: ${payload.new_untagged || 0}`);
+      if (payload.preview_cached !== undefined) {
+        parts.push(`Previews cached: ${payload.preview_cached}`);
+      }
+      if (payload.preview_errors) {
+        parts.push(`Preview errors: ${payload.preview_errors}`);
+      }
+      if (payload.unauthorized) {
+        parts.push(`401s: ${payload.unauthorized}`);
+      }
+      boxScanStatus.textContent = `${parts.join(" · ")}. Refresh snapshot to view them.`;
+      boxScanStatus.classList.remove("err");
+    } catch (error) {
+      boxScanStatus.textContent = `Scan failed: ${error.message}`;
+      boxScanStatus.classList.add("err");
+    } finally {
+      boxScanBtn.disabled = false;
+      boxScanBtn.textContent = defaultLabel;
+    }
+  }
+
+  async function runNoDealRetry() {
+    if (!noDealRetryBtn || !noDealRetryStatus) return;
+    noDealRetryStatus.textContent = "";
+    noDealRetryStatus.classList.remove("err");
+    if (noDealFooterStatus) {
+      noDealFooterStatus.textContent = "";
+      noDealFooterStatus.classList.remove("err");
+    }
+    const defaultLabel = noDealRetryBtn.dataset.default || "Re-run checks";
+    noDealRetryBtn.disabled = true;
+    noDealRetryBtn.textContent = "Running…";
+    console.log("[BoxMetadata] No-deal retry triggered");
+    try {
+      const response = await fetch("/box/folder/metadata/no-deal/retry", { method: "POST" });
+      if (!response.ok) {
+        let detail = "";
+        try {
+          const payload = await response.json();
+          detail = payload.message || payload.error || "";
+        } catch (_) {
+          detail = "";
+        }
+        throw new Error(detail || response.statusText);
+      }
+      const payload = await response.json();
+      const parts = [];
+      parts.push(`Processed ${payload.processed || 0}`);
+      parts.push(`Moved out of no-deal ${payload.resolved || 0}`);
+      parts.push(`Still in no-deal ${payload.remaining || 0}`);
+      if (payload.unauthorized) {
+        parts.push(`401s ${payload.unauthorized}`);
+      }
+      const summary = `${parts.join(" · ")}. Refresh snapshot to view updates.`;
+      noDealRetryStatus.textContent = summary;
+      noDealRetryStatus.classList.remove("err");
+      if (noDealFooterStatus) {
+        noDealFooterStatus.textContent = summary;
+        noDealFooterStatus.classList.remove("err");
+      }
+    } catch (error) {
+      noDealRetryStatus.textContent = `Retry failed: ${error.message}`;
+      noDealRetryStatus.classList.add("err");
+      if (noDealFooterStatus) {
+        noDealFooterStatus.textContent = `Retry failed: ${error.message}`;
+        noDealFooterStatus.classList.add("err");
+      }
+    } finally {
+      noDealRetryBtn.disabled = false;
+      noDealRetryBtn.textContent = defaultLabel;
+    }
+  }
+
   if (refreshBtn) {
     refreshBtn.addEventListener("click", runRefreshSnapshot);
   }
   if (previewCacheBtn) {
     previewCacheBtn.addEventListener("click", runPreviewCache);
   }
+  if (boxScanBtn) {
+    boxScanBtn.addEventListener("click", runBoxScan);
+  }
+  if (noDealRetryBtn) {
+    noDealRetryBtn.addEventListener("click", runNoDealRetry);
+  }
+  document.querySelectorAll(".mismatch-link").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const folderId = button.dataset.folderId;
+      if (!folderId) return;
+      const reasonInput = window.prompt("Describe the mismatch (optional):", "");
+      button.disabled = true;
+      button.textContent = "Moving…";
+      try {
+        const response = await fetch("/box/folder/metadata/mismatch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ folder_id: folderId, reason: reasonInput || "" }),
+        });
+        if (!response.ok) {
+          const detail = await response.json().catch(() => ({}));
+          throw new Error(detail.message || response.statusText);
+        }
+        const payload = await response.json();
+        const message = payload.message || "Folder moved to mismatch queue.";
+        setPreviewStatus(folderId, `${message} Refresh snapshot to update lists.`);
+      } catch (error) {
+        setPreviewStatus(folderId, `Mismatch move failed · ${error.message}`, true);
+      } finally {
+        button.disabled = false;
+        button.textContent = button.dataset.default || "Move to mismatch queue";
+      }
+    });
+  });
   if (folderSearchInput) {
     folderSearchInput.addEventListener("input", () => {
       applyFolderSearch(folderSearchInput.value || "");
@@ -1031,10 +1322,11 @@
       status: container.querySelector(`[data-preview-status="${attrValue}"]`),
       summary: container.querySelector(`[data-preview-summary="${attrValue}"]`),
       metadata: container.querySelector(`[data-preview-metadata="${attrValue}"]`),
-      pipeline: container.querySelector(`[data-preview-pipeline="${attrValue}"]`),
-      applyBtn: container.querySelector(`.apply-link[data-folder-id="${attrValue}"]`),
-    };
-  }
+    pipeline: container.querySelector(`[data-preview-pipeline="${attrValue}"]`),
+    applyBtn: container.querySelector(`.apply-link[data-folder-id="${attrValue}"]`),
+    mismatchBtn: container.querySelector(`.mismatch-link[data-folder-id="${attrValue}"]`),
+  };
+}
 
   function resetPreviewDisplay(folderId, hintElement) {
     const elements = getPreviewElements(folderId, hintElement);
@@ -1061,6 +1353,12 @@
       const label =
         elements.applyBtn.dataset.default || "Apply metadata and Box folder tagging";
       elements.applyBtn.textContent = label;
+    }
+    if (elements.mismatchBtn) {
+      elements.mismatchBtn.classList.add("hidden");
+      elements.mismatchBtn.disabled = true;
+      elements.mismatchBtn.textContent =
+        elements.mismatchBtn.dataset.default || "Move to mismatch queue";
     }
     elements.container.classList.add("hidden");
   }
@@ -1121,6 +1419,18 @@
       } else {
         elements.applyBtn.disabled = true;
       }
+    }
+    if (elements.mismatchBtn) {
+      elements.mismatchBtn.classList.remove("hidden");
+      elements.mismatchBtn.disabled = false;
+      elements.mismatchBtn.dataset.default =
+        elements.mismatchBtn.dataset.default || elements.mismatchBtn.textContent;
+    }
+    if (elements.mismatchBtn) {
+      elements.mismatchBtn.classList.remove("hidden");
+      elements.mismatchBtn.disabled = false;
+      elements.mismatchBtn.dataset.default =
+        elements.mismatchBtn.dataset.default || elements.mismatchBtn.textContent;
     }
   }
 
@@ -1682,6 +1992,12 @@
         elements.applyBtn.classList.remove("hidden");
         elements.applyBtn.disabled = false;
         elements.applyBtn.dataset.default = elements.applyBtn.dataset.default || elements.applyBtn.textContent;
+      }
+      if (elements.mismatchBtn) {
+        elements.mismatchBtn.classList.remove("hidden");
+        elements.mismatchBtn.disabled = false;
+        elements.mismatchBtn.dataset.default =
+          elements.mismatchBtn.dataset.default || elements.mismatchBtn.textContent;
       }
     } catch (error) {
       console.error(error);
