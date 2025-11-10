@@ -1,5 +1,7 @@
 import logging
 import os
+import re
+import time
 from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Optional, Tuple, List, Dict
@@ -71,6 +73,158 @@ def _stable_bucket(value: str, slots: int) -> int:
         return int(normalized) % slots
     digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
     return int(digest[:8], 16) % slots
+
+
+def _normalize_contact_record(record: dict) -> dict:
+    props = record.get("properties") or {}
+    contact_id = record.get("id") or props.get("hs_object_id") or ""
+    return {
+        "id": contact_id,
+        "properties": props,
+        "url": record.get("url") or _hubspot_contact_url(contact_id),
+    }
+
+
+def _fetch_hubspot_contact_by_id(contact_id: str) -> Optional[dict]:
+    contact_id = (contact_id or "").strip()
+    if not contact_id:
+        return None
+    params = {"properties": "firstname,lastname,email,phone"}
+    try:
+        response = requests.get(
+            f"https://api.hubapi.com/crm/v3/objects/contacts/{contact_id}",
+            params=params,
+            headers=_hubspot_headers(),
+            timeout=10,
+        )
+        response.raise_for_status()
+    except requests.HTTPError as exc:
+        status_code = exc.response.status_code if exc.response is not None else None
+        if status_code == 404:
+            return None
+        logger.warning("HubSpot contact fetch failed for id %s: %s", contact_id, exc)
+        return None
+    except requests.RequestException as exc:
+        logger.warning("HubSpot contact fetch failed for id %s: %s", contact_id, exc)
+        return None
+    data = response.json()
+    if contact_id and not data.get("url"):
+        data["id"] = data.get("id") or contact_id
+        data["url"] = _hubspot_contact_url(contact_id)
+    return data
+
+
+def _load_contact_record_from_summary(summary: Optional[dict]) -> Optional[dict]:
+    if not summary:
+        return None
+    contact_id = str(summary.get("id") or summary.get("hs_contact_id") or "").strip()
+    email = (summary.get("email") or "").strip()
+    contact = _fetch_hubspot_contact_by_id(contact_id) if contact_id else None
+    if not contact and email:
+        contact = _search_hubspot_contact_by_email(email)
+    if contact:
+        contact["url"] = contact.get("url") or _hubspot_contact_url(contact.get("id"))
+    return contact
+
+
+def _load_deals_for_contact_record(contact: dict) -> List[dict]:
+    contact_id = contact.get("id") or (contact.get("properties") or {}).get("hs_object_id")
+    if not contact_id:
+        return []
+    warnings: List[Dict[str, str]] = []
+    try:
+        deal_ids = _fetch_contact_associated_deal_ids(contact_id)
+    except requests.RequestException as exc:
+        logger.error("HubSpot deal lookup failed for contact %s: %s", contact_id, exc)
+        return []
+    logger.info("Contact %s: retrieved %d associated HubSpot deal ids", contact_id, len(deal_ids))
+    deals: List[dict] = []
+    for deal_id in deal_ids:
+        deal = _fetch_hubspot_deal(deal_id)
+        if deal:
+            deals.append(deal)
+        else:
+            logger.warning("Contact %s: associated deal %s could not be loaded", contact_id, deal_id)
+    logger.info("Contact %s: loaded %d complete deal records", contact_id, len(deals))
+    return deals
+
+
+def _search_hubspot_contact_by_name(first: str, last: str) -> Optional[dict]:
+    first = (first or "").strip()
+    last = (last or "").strip()
+    if not first or not last:
+        return None
+    payload = {
+        "filterGroups": [
+            {
+                "filters": [
+                    {
+                        "propertyName": "firstname",
+                        "operator": "CONTAINS_TOKEN",
+                        "value": first,
+                    },
+                    {
+                        "propertyName": "lastname",
+                        "operator": "CONTAINS_TOKEN",
+                        "value": last,
+                    },
+                ]
+            }
+        ],
+        "properties": ["firstname", "lastname", "email", "hs_object_id"],
+        "limit": 5,
+    }
+    response = requests.post(
+        "https://api.hubapi.com/crm/v3/objects/contacts/search",
+        headers=_hubspot_headers(),
+        json=payload,
+        timeout=10,
+    )
+    response.raise_for_status()
+    results = response.json().get("results") or []
+    if not results:
+        return None
+    record = results[0]
+    record["url"] = _hubspot_contact_url(record.get("id"))
+    return record
+
+
+def _parse_folder_name_candidates(folder_name: Optional[str]) -> List[Tuple[str, str]]:
+    candidates: List[Tuple[str, str]] = []
+    if not folder_name:
+        return candidates
+    text = folder_name.strip()
+    if "," not in text:
+        return candidates
+    last_part, rest = text.split(",", 1)
+    last_tokens = [token.strip() for token in re.split(r"[-/&]", last_part) if token.strip()]
+    first_parts = [token.strip() for token in rest.split("&") if token.strip()]
+    for first in first_parts:
+        first_token = first.split()[0]
+        for last in last_tokens:
+            last_token = last.split()[0]
+            candidates.append((first_token, last_token))
+    return candidates
+
+
+def _match_contact_for_folder_entry(entry: dict) -> Optional[dict]:
+    folder_name = entry.get("name") or entry.get("path") or ""
+    for first, last in _parse_folder_name_candidates(folder_name):
+        try:
+            contact = _search_hubspot_contact_by_name(first, last)
+        except requests.RequestException as exc:
+            logger.warning("HubSpot name search failed for %s %s: %s", first, last, exc)
+            continue
+        if contact:
+            logger.info(
+                "Contact match found for folder %s via %s %s -> contact %s",
+                entry.get("id"),
+                first,
+                last,
+                contact.get("id"),
+            )
+            return contact
+    return None
 
 
 def _parse_assignee_names(raw: Optional[str], default_slots: int = 8) -> List[str]:
@@ -563,6 +717,70 @@ def _build_preview_output(
     }
 
 
+def _build_preview_from_contact_and_deal(folder_id: str, service, contact: dict, deal: dict) -> dict:
+    root_info = _get_folder_root_info(service, folder_id)
+    base_payload = _build_preview_base_payload(folder_id, contact, deal)
+    metadata_payload, _, _ = _build_metadata_from_payload(base_payload)
+    preview_data = _build_preview_output(folder_id, metadata_payload or {}, contact, deal, root_info)
+    generated_at = datetime.now(timezone.utc)
+    return {
+        "folder_id": folder_id,
+        "status": "ok",
+        "root_folder": root_info,
+        "preview": preview_data,
+        "metadata_fields": metadata_payload or {},
+        "base_payload": base_payload,
+        "final_payload": base_payload,
+        "contact": preview_data["contacts"]["primary"],
+        "deal": preview_data.get("deal"),
+        "warnings": [],
+        "generated_at": generated_at,
+        "generated_at_iso": generated_at.isoformat(),
+    }
+
+
+def _build_contact_only_preview(folder_id: str, service, contact: dict) -> dict:
+    root_info = _get_folder_root_info(service, folder_id)
+    contact_props = (contact.get("properties") or {}) if contact else {}
+    contact_name = " ".join(filter(None, [contact_props.get("firstname"), contact_props.get("lastname")])).strip()
+    pseudo_deal_id = contact.get("id") or contact_props.get("hs_object_id") or contact_props.get("email") or ""
+    pseudo_deal = {
+        "id": pseudo_deal_id,
+        "properties": {
+            "dealname": contact_name or "Contact Only",
+            "dealstage": "contact_only",
+            "hs_deal_record_id": pseudo_deal_id,
+        },
+        "url": contact.get("url") or _hubspot_contact_url(contact.get("id")),
+    }
+    base_payload = _build_preview_base_payload(folder_id, contact, pseudo_deal)
+    metadata_payload, _, _ = _build_metadata_from_payload(base_payload)
+    preview_data = _build_preview_output(folder_id, metadata_payload or {}, contact, pseudo_deal, root_info)
+    generated_at = datetime.now(timezone.utc)
+    preview_doc = {
+        "folder_id": folder_id,
+        "status": "ok",
+        "root_folder": root_info,
+        "preview": preview_data,
+        "metadata_fields": metadata_payload or {},
+        "base_payload": base_payload,
+        "final_payload": base_payload,
+        "contact": preview_data["contacts"]["primary"],
+        "deal": preview_data.get("deal"),
+        "warnings": [
+            {
+                "source": "hubspot",
+                "scope": "deal",
+                "message": "Contact-only metadata preview (no associated deal).",
+            }
+        ],
+        "contact_only": True,
+        "generated_at": generated_at,
+        "generated_at_iso": generated_at.isoformat(),
+    }
+    return preview_doc
+
+
 def _get_folder_root_info(service, folder_id: str) -> dict:
     fallback = {
         "id": folder_id,
@@ -570,19 +788,31 @@ def _get_folder_root_info(service, folder_id: str) -> dict:
         "path": "",
         "url": f"https://app.box.com/folder/{folder_id}",
     }
-    try:
-        details = service._get_folder_details(folder_id)  # noqa: SLF001
-        if not details:
-            return fallback
-        return {
-            "id": folder_id,
-            "name": details.get("name") or "",
-            "path": service._folder_display_path(details),  # noqa: SLF001
-            "url": f"https://app.box.com/folder/{folder_id}",
-        }
-    except BoxAutomationError as exc:
-        logger.warning("Unable to fetch folder details for %s: %s", folder_id, exc)
-        return fallback
+    max_attempts = 2
+    for attempt in range(1, max_attempts + 1):
+        try:
+            details = service._get_folder_details(folder_id)  # noqa: SLF001
+            if not details:
+                return fallback
+            return {
+                "id": folder_id,
+                "name": details.get("name") or "",
+                "path": service._folder_display_path(details),  # noqa: SLF001
+                "url": f"https://app.box.com/folder/{folder_id}",
+            }
+        except BoxAutomationError as exc:
+            message = str(exc).lower()
+            retryable = any(keyword in message for keyword in ("connection reset", "connection aborted"))
+            if retryable and attempt < max_attempts:
+                logger.info("Retrying folder details for %s after transient error: %s", folder_id, exc)
+                time.sleep(0.4)
+                continue
+            logger.warning("Unable to fetch folder details for %s: %s", folder_id, exc)
+            break
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Unexpected error fetching folder %s: %s", folder_id, exc)
+            break
+    return fallback
 
 
 def _generate_folder_metadata_preview(folder_id: str, service, allow_contact_only: bool = False) -> dict:
@@ -776,6 +1006,10 @@ def _update_snapshot_no_deal_single(folder_id: str, preview_doc: dict) -> None:
     if preview_has_deal:
         record.pop("preview_error", None)
         record.pop("preview_source", None)
+        if preview_doc.get("contact_only"):
+            record["contact_only"] = True
+        else:
+            record.pop("contact_only", None)
         untagged_by_id[folder_id] = record
         no_deal_by_id.pop(folder_id, None)
     else:
@@ -1417,6 +1651,7 @@ def _search_hubspot_contact_by_email(email: str) -> Optional[dict]:
 
 def _fetch_contact_associated_deal_ids(contact_id: str) -> List[str]:
     url = f"https://api.hubapi.com/crm/v4/objects/contacts/{contact_id}/associations/deals"
+    logger.info("HubSpot associations query: GET %s", url)
     resp = requests.get(url, headers=_hubspot_headers(), timeout=10)
     resp.raise_for_status()
     return [
@@ -2438,72 +2673,205 @@ def box_folder_metadata_retry_no_deal():
         return jsonify({"message": "Metadata snapshot not found in Firestore."}), 404
 
     payload = snapshot.to_dict() or {}
+    untagged_entries = _normalize_snapshot_entries(payload.get("untagged") or [])
     no_deal_entries = _normalize_snapshot_entries(payload.get("untagged_no_deal") or [])
-    if not no_deal_entries:
-        return jsonify({"status": "ok", "processed": 0, "message": "No folders currently flagged as missing deals."}), 200
+    contact_only_entries = [entry for entry in untagged_entries if entry.get("contact_only")]
+    if not no_deal_entries and not contact_only_entries:
+        return jsonify(
+            {
+                "status": "ok",
+                "processed": 0,
+                "message": "No folders currently flagged as missing deals or contact-only.",
+            }
+        ), 200
 
     request_payload = request.get_json(silent=True) or {}
     folder_ids = request_payload.get("folder_ids")
     limit = request_payload.get("limit")
 
-    targets = no_deal_entries
+    candidate_targets: List[Tuple[str, Dict[str, object]]] = []
+    for entry in no_deal_entries:
+        folder_id = str(entry.get("id") or "").strip()
+        if not folder_id:
+            continue
+        candidate_targets.append(("no_deal", entry))
+    for entry in contact_only_entries:
+        folder_id = str(entry.get("id") or "").strip()
+        if not folder_id:
+            continue
+        candidate_targets.append(("contact_only", entry))
+
+    if not candidate_targets:
+        return jsonify(
+            {
+                "status": "ok",
+                "processed": 0,
+                "message": "No folders currently flagged as missing deals or contact-only.",
+            }
+        ), 200
+
+    target_map: Dict[str, Tuple[str, Dict[str, object]]] = {}
+    for source, entry in candidate_targets:
+        folder_id = str(entry.get("id") or "").strip()
+        if not folder_id:
+            continue
+        existing = target_map.get(folder_id)
+        if not existing:
+            target_map[folder_id] = (source, entry)
+            continue
+        # Prefer explicit no-deal source over contact-only if both exist
+        if existing[0] == "contact_only" and source == "no_deal":
+            target_map[folder_id] = (source, entry)
+
+    targets: List[Tuple[str, Dict[str, object]]] = list(target_map.values())
     if folder_ids:
         folder_targets = {str(value).strip() for value in folder_ids if str(value).strip()}
-        targets = [entry for entry in no_deal_entries if entry.get("id") in folder_targets]
+        targets = [item for item in targets if str(item[1].get("id") or "").strip() in folder_targets]
     if isinstance(limit, int) and limit > 0:
         targets = targets[:limit]
 
     if not targets:
-        return jsonify({"status": "ok", "processed": 0, "message": "Provided filters did not match any no-deal folders."}), 200
+        return jsonify(
+            {
+                "status": "ok",
+                "processed": 0,
+                "message": "Provided filters did not match any eligible folders.",
+            }
+        ), 200
 
     preview_collection = db.collection(BOX_METADATA_PREVIEW_COLLECTION)
     processed = 0
+    processed_no_deal = 0
+    processed_contact_only = 0
     resolved = 0
+    resolved_no_deal = 0
+    resolved_contact_only = 0
     remaining = 0
+    remaining_no_deal = 0
+    remaining_contact_only = 0
     unauthorized = 0
+    deals_found = 0
+    promoted_to_contact_only = 0
     error_samples: List[Dict[str, str]] = []
-    logger.info("Retrying metadata preview for %d no-deal folders", len(targets))
+    logger.info(
+        "Retrying metadata preview for %d folders (no-deal=%d, contact-only=%d)",
+        len(targets),
+        len([1 for source, _ in targets if source == "no_deal"]),
+        len([1 for source, _ in targets if source == "contact_only"]),
+    )
 
-    for entry in targets:
+    for source, entry in targets:
         folder_id = entry.get("id")
         if not folder_id:
             continue
-        try:
-            preview_doc = _generate_folder_metadata_preview(folder_id, service)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("No-deal retry failed for %s: %s", folder_id, exc)
-            preview_doc = {
-                "folder_id": folder_id,
-                "status": "error",
-                "error": str(exc),
-                "root_folder": {
-                    "id": folder_id,
-                    "name": entry.get("name") or "",
-                    "path": entry.get("path") or "",
-                    "url": entry.get("url") or f"https://app.box.com/folder/{folder_id}",
-                },
-            }
+        logger.info("No-deal retry processing folder %s (source=%s)", folder_id, source)
 
-        generated_at = datetime.now(timezone.utc)
+        preview_doc: Optional[dict] = None
+        preview_doc_ref = preview_collection.document(folder_id)
+        cached_contact_record: Optional[dict] = None
+        cached_contact_deals: List[dict] = []
+        preview_contact_summary: Optional[dict] = None
+        try:
+            cached_preview_snapshot = preview_doc_ref.get()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Unable to load cached preview for %s: %s", folder_id, exc)
+            cached_preview_snapshot = None
+        if cached_preview_snapshot and cached_preview_snapshot.exists:
+            cached_preview_doc = cached_preview_snapshot.to_dict() or {}
+            preview_contact_summary = cached_preview_doc.get("contact")
+            if not preview_contact_summary:
+                preview_contact_summary = (cached_preview_doc.get("contacts") or {}).get("primary")
+            if preview_contact_summary:
+                hydrated_contact = _load_contact_record_from_summary(preview_contact_summary)
+                if hydrated_contact:
+                    cached_contact_record = _normalize_contact_record(hydrated_contact)
+                    cached_contact_deals = _load_deals_for_contact_record(cached_contact_record)
+
+        contact_record = cached_contact_record
+        contact_deals: List[dict] = list(cached_contact_deals)
+        if not contact_record:
+            contact_match = _match_contact_for_folder_entry(entry)
+            if contact_match:
+                contact_record = _normalize_contact_record(contact_match)
+        if contact_record and not contact_deals:
+            contact_deals = _load_deals_for_contact_record(contact_record)
+
+        if contact_record:
+            selected_contact_deal = None
+            if contact_deals:
+                selected_contact_deal = max(contact_deals, key=_extract_deal_timestamp_value)
+            try:
+                if selected_contact_deal:
+                    preview_doc = _build_preview_from_contact_and_deal(
+                        folder_id,
+                        service,
+                        contact_record,
+                        selected_contact_deal,
+                    )
+                else:
+                    preview_doc = _build_contact_only_preview(folder_id, service, contact_record)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Contact-based preview failed for %s: %s", folder_id, exc)
+
+        if preview_doc is None:
+            try:
+                preview_doc = _generate_folder_metadata_preview(folder_id, service, allow_contact_only=True)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("No-deal retry failed for %s: %s", folder_id, exc)
+                preview_doc = {
+                    "folder_id": folder_id,
+                    "status": "error",
+                    "error": str(exc),
+                    "root_folder": {
+                        "id": folder_id,
+                        "name": entry.get("name") or "",
+                        "path": entry.get("path") or "",
+                        "url": entry.get("url") or f"https://app.box.com/folder/{folder_id}",
+                    },
+                }
+
+        generated_at = preview_doc.get("generated_at")
+        if not isinstance(generated_at, datetime):
+            generated_at = datetime.now(timezone.utc)
         preview_doc["generated_at"] = generated_at
         preview_doc["generated_at_iso"] = generated_at.isoformat()
         try:
-            preview_collection.document(folder_id).set(preview_doc)
+            preview_doc_ref.set(preview_doc)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Failed to persist retried preview for %s: %s", folder_id, exc)
 
         _update_snapshot_no_deal_single(folder_id, preview_doc)
 
         processed += 1
-        has_deal = bool(
+        if source == "no_deal":
+            processed_no_deal += 1
+        else:
+            processed_contact_only += 1
+
+        preview_has_deal = bool(
             preview_doc.get("status") == "ok"
             and preview_doc.get("deal")
             and preview_doc.get("deal", {}).get("id")
         )
-        if has_deal:
+        preview_contact_only = bool(preview_doc.get("contact_only"))
+        resolved_this = preview_has_deal
+        if not resolved_this and preview_contact_only and source == "no_deal":
+            resolved_this = True
+            promoted_to_contact_only += 1
+        if resolved_this:
             resolved += 1
+            if preview_has_deal:
+                deals_found += 1
+            if source == "no_deal":
+                resolved_no_deal += 1
+            else:
+                resolved_contact_only += 1
         else:
             remaining += 1
+            if source == "no_deal":
+                remaining_no_deal += 1
+            else:
+                remaining_contact_only += 1
             error_text = preview_doc.get("error") or ""
             if "401" in error_text:
                 unauthorized += 1
@@ -2520,11 +2888,19 @@ def box_folder_metadata_retry_no_deal():
         {
             "status": "ok",
             "processed": processed,
+            "processed_no_deal": processed_no_deal,
+            "processed_contact_only": processed_contact_only,
             "resolved": resolved,
+            "resolved_no_deal": resolved_no_deal,
+            "resolved_contact_only": resolved_contact_only,
             "remaining": remaining,
+            "remaining_no_deal": remaining_no_deal,
+            "remaining_contact_only": remaining_contact_only,
+            "deals_found": deals_found,
+            "promoted_to_contact_only": promoted_to_contact_only,
             "unauthorized": unauthorized,
             "errors": error_samples,
-            "message": "Re-ran metadata preview for folders without associated deals. Refresh snapshot to view updates.",
+            "message": "Re-ran metadata preview for folders without deals and contact-only folders. Refresh snapshot to view updates.",
         }
     ), 200
 
@@ -2808,10 +3184,15 @@ def box_folder_metadata_status_page():
         for idx, name in enumerate(assignee_names):
             bucket_entries = list(buckets[idx])
             cached_folders: List[Dict[str, Optional[str]]] = []
+            contact_only_folders: List[Dict[str, Optional[str]]] = []
             pending_folders: List[Dict[str, Optional[str]]] = []
             for entry in bucket_entries:
-                target = cached_folders if entry.get("preview_generated_at") else pending_folders
-                target.append(entry)
+                if entry.get("contact_only"):
+                    contact_only_folders.append(entry)
+                elif entry.get("preview_generated_at"):
+                    cached_folders.append(entry)
+                else:
+                    pending_folders.append(entry)
 
             cached_folders.sort(
                 key=lambda item: (
@@ -2819,15 +3200,25 @@ def box_folder_metadata_status_page():
                     item.get("id") or "",
                 ),
             )
+            contact_only_folders.sort(
+                key=lambda item: (
+                    -_parse_timestamp_value(item.get("preview_generated_at")),
+                    item.get("id") or "",
+                ),
+            )
             pending_folders.sort(key=lambda item: item.get("id") or "")
-            folders = cached_folders + pending_folders
             assignment_slots.append(
                 {
                     "index": idx,
                     "assignee": name,
-                    "count": len(folders),
+                    "count": len(bucket_entries),
                     "cached_count": len(cached_folders),
-                    "folders": folders,
+                    "contact_only_count": len(contact_only_folders),
+                    "folders": {
+                        "cached": cached_folders,
+                        "contact_only": contact_only_folders,
+                        "pending": pending_folders,
+                    },
                 }
             )
 

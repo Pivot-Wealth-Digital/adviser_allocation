@@ -2,6 +2,66 @@
 {% set title = "Box Metadata Snapshot" %}
 
 {% block content %}
+{% macro assignment_list(folders, label, label_style="") %}
+  {% if folders %}
+  <p class="muted small"{% if label_style %} style="{{ label_style }}"{% endif %}>{{ label }}</p>
+  <ul class="folder-list compact">
+    {% for folder in folders %}
+    {% set display_name = folder.name or folder.id %}
+    {% set preview_checked = folder.preview_generated_at_display or folder.preview_generated_at %}
+    <li{% if folder.preview_generated_at %} class="cached-folder"{% endif %}
+      data-folder-name="{{ display_name|e }}"
+      data-folder-id="{{ (folder.id or '')|e }}"
+      data-folder-path="{{ (folder.path or '')|e }}"
+    >
+      <div class="folder-meta">
+        <span class="folder-name">{{ display_name }}</span>
+        {% if folder.id and folder.id != display_name %}
+        <span class="folder-id"><code>{{ folder.id }}</code></span>
+        {% endif %}
+        {% if folder.path %}
+        <span class="folder-path muted small">{{ folder.path }}</span>
+        {% endif %}
+        {% if preview_checked %}
+        <span class="folder-tagged muted small cached-pill">Cached preview · {{ preview_checked }}</span>
+        {% endif %}
+        {% if folder.contact_only %}
+        <span class="folder-tagged muted small contact-pill">Contact-only</span>
+        {% endif %}
+      </div>
+      <div class="folder-actions">
+        {% if folder.url %}
+        <a href="{{ folder.url }}" target="_blank" rel="noopener">Open in Box</a>
+        {% else %}
+        <span class="muted small">No URL captured</span>
+        {% endif %}
+        <button type="button" class="secondary collab-link" data-folder-id="{{ folder.id }}">Collaborators</button>
+        <button type="button" class="secondary preview-link" data-folder-id="{{ folder.id }}">Preview metadata</button>
+      </div>
+      <div class="folder-preview hidden" data-preview-container="{{ folder.id }}">
+        <p class="preview-status muted small" data-preview-status="{{ folder.id }}"></p>
+        <div class="preview-summary hidden" data-preview-summary="{{ folder.id }}"></div>
+        <div class="preview-metadata hidden" data-preview-metadata="{{ folder.id }}"></div>
+        <div class="preview-pipeline hidden" data-preview-pipeline="{{ folder.id }}"></div>
+        <div class="preview-actions">
+          <button type="button" class="secondary apply-link hidden" data-folder-id="{{ folder.id }}">
+            Apply metadata and Box folder tagging
+          </button>
+          <button
+            type="button"
+            class="secondary danger mismatch-link hidden"
+            data-folder-id="{{ folder.id }}"
+            data-default="Move to mismatch queue"
+          >
+            Move to mismatch queue
+          </button>
+        </div>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+{% endmacro %}
 <div class="topbar">
   <div style="display:flex;align-items:center;gap:16px;">
     <a href="/box/collaborators" style="color:#d0d7e2;text-decoration:none;font-size:0.9em;">← Box Tools</a>
@@ -39,6 +99,62 @@
   <p class="muted small">Filters folders across all sections instantly.</p>
   <p id="search-results-note" class="muted small"></p>
 </div>
+
+{% macro render_assignment_group(folders, title, title_style="") -%}
+{% if folders %}
+<p class="muted small"{% if title_style %} style="{{ title_style }}"{% endif %}>{{ title }}</p>
+<ul class="folder-list compact">
+  {% for folder in folders %}
+  {% set display_name = folder.name or folder.id %}
+  {% set preview_checked = folder.preview_generated_at_display or folder.preview_generated_at %}
+  <li{% if folder.preview_generated_at %} class="cached-folder"{% endif %}
+    data-folder-name="{{ display_name|e }}"
+    data-folder-id="{{ (folder.id or '')|e }}"
+    data-folder-path="{{ (folder.path or '')|e }}"
+  >
+    <div class="folder-meta">
+      <span class="folder-name">{{ display_name }}</span>
+      {% if folder.id and folder.id != display_name %}
+      <span class="folder-id"><code>{{ folder.id }}</code></span>
+      {% endif %}
+      {% if folder.path %}
+      <span class="folder-path muted small">{{ folder.path }}</span>
+      {% endif %}
+      {% if preview_checked %}
+      <span class="folder-tagged muted small cached-pill">Cached preview · {{ preview_checked }}</span>
+      {% endif %}
+      {% if folder.contact_only %}
+      <span class="folder-tagged muted small contact-pill">Contact-only</span>
+      {% endif %}
+    </div>
+    <div class="folder-actions">
+      {% if folder.url %}
+      <a href="{{ folder.url }}" target="_blank" rel="noopener">Open in Box</a>
+      {% else %}
+      <span class="muted small">No URL captured</span>
+      {% endif %}
+      <button type="button" class="secondary collab-link" data-folder-id="{{ folder.id }}">Collaborators</button>
+      <button type="button" class="secondary preview-link" data-folder-id="{{ folder.id }}">Preview metadata</button>
+    </div>
+    <div class="folder-preview hidden" data-preview-container="{{ folder.id }}">
+      <p class="preview-status muted small" data-preview-status="{{ folder.id }}"></p>
+      <div class="preview-summary hidden" data-preview-summary="{{ folder.id }}"></div>
+      <div class="preview-metadata hidden" data-preview-metadata="{{ folder.id }}"></div>
+      <div class="preview-pipeline hidden" data-preview-pipeline="{{ folder.id }}"></div>
+      <div class="preview-actions">
+        <button type="button" class="secondary apply-link hidden" data-folder-id="{{ folder.id }}">
+          Apply metadata and Box folder tagging
+        </button>
+        <button type="button" class="secondary danger mismatch-link hidden" data-folder-id="{{ folder.id }}" data-default="Move to mismatch queue">
+          Move to mismatch queue
+        </button>
+      </div>
+    </div>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+{%- endmacro %}
 
 {% if error_message %}
 <div class="card">
@@ -78,7 +194,7 @@
     Slots computed from <code>folder_id % {{ assignment_slots|length }}</code> so every refresh keeps the same owner.
     Provide your own labels using <code>?assignees=Alex,Bianca,...</code>.
   </p>
-  <div class="assignment-grid">
+    <div class="assignment-grid">
     {% for slot in assignment_slots %}
     <details class="assignment-slot">
       <summary>
@@ -88,66 +204,18 @@
           {% if slot.cached_count %}
           <span class="slot-cached">{{ slot.cached_count }} cached</span>
           {% endif %}
+          {% if slot.contact_only_count %}
+          <span class="slot-contact">{{ slot.contact_only_count }} contact-only</span>
+          {% endif %}
         </span>
       </summary>
-      {% if slot.folders %}
-      <ul class="folder-list compact">
-        {% for folder in slot.folders %}
-        <li{% if folder.preview_generated_at %} class="cached-folder"{% endif %}
-          data-folder-name="{{ display_name|e }}"
-          data-folder-id="{{ (folder.id or '')|e }}"
-          data-folder-path="{{ (folder.path or '')|e }}"
-        >
-          <div class="folder-meta">
-            {% set display_name = folder.name or folder.id %}
-            <span class="folder-name">{{ display_name }}</span>
-            {% if folder.id and folder.id != display_name %}
-            <span class="folder-id"><code>{{ folder.id }}</code></span>
-            {% endif %}
-            {% if folder.path %}
-            <span class="folder-path muted small">{{ folder.path }}</span>
-            {% endif %}
-            {% set preview_checked = folder.preview_generated_at_display or folder.preview_generated_at %}
-            {% if preview_checked %}
-            <span class="folder-tagged muted small cached-pill">Cached preview · {{ preview_checked }}</span>
-            {% endif %}
-      </div>
-      <div class="folder-actions">
-        {% if folder.url %}
-        <a href="{{ folder.url }}" target="_blank" rel="noopener">Open in Box</a>
-        {% else %}
-        <span class="muted small">No URL captured</span>
-        {% endif %}
-        <button type="button" class="secondary collab-link" data-folder-id="{{ folder.id }}">Collaborators</button>
-        <button type="button" class="secondary preview-link" data-folder-id="{{ folder.id }}">Preview metadata</button>
-      </div>
-      <div class="folder-preview hidden" data-preview-container="{{ folder.id }}">
-        <p class="preview-status muted small" data-preview-status="{{ folder.id }}"></p>
-        <div class="preview-summary hidden" data-preview-summary="{{ folder.id }}"></div>
-        <div class="preview-metadata hidden" data-preview-metadata="{{ folder.id }}"></div>
-        <div class="preview-pipeline hidden" data-preview-pipeline="{{ folder.id }}"></div>
-        <div class="preview-actions">
-        <button
-          type="button"
-          class="secondary apply-link hidden"
-          data-folder-id="{{ folder.id }}"
-        >
-          Apply metadata and Box folder tagging
-        </button>
-        <button
-          type="button"
-          class="secondary danger mismatch-link hidden"
-          data-folder-id="{{ folder.id }}"
-          data-default="Move to mismatch queue"
-        >
-          Move to mismatch queue
-        </button>
-        </div>
-      </div>
-    </li>
-    {% endfor %}
-  </ul>
-      {% else %}
+      {% set cached = slot.folders.cached %}
+      {% set contact_only = slot.folders.contact_only %}
+      {% set pending = slot.folders.pending %}
+      {{ render_assignment_group(cached, "Cached previews") }}
+      {{ render_assignment_group(contact_only, "Contact-only metadata", "color:#b45309;") }}
+      {{ render_assignment_group(pending, "Pending previews") }}
+      {% if not (cached or contact_only or pending) %}
       <p class="muted small">No folders currently allocated to this slot.</p>
       {% endif %}
     </details>
@@ -707,6 +775,15 @@
     letter-spacing: 0.03em;
   }
 
+  .slot-contact {
+    margin-left: 6px;
+    color: #b45309;
+    font-weight: 600;
+    font-size: 0.75em;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+
   .assignment-slot .folder-list {
     margin-top: 8px;
   }
@@ -719,6 +796,11 @@
 
   .cached-pill {
     color: #4338ca;
+    font-weight: 600;
+  }
+
+  .contact-pill {
+    color: #b45309;
     font-weight: 600;
   }
 
@@ -1058,12 +1140,31 @@
         throw new Error(detail || response.statusText);
       }
       const payload = await response.json();
+      const processedTotal = payload.processed ?? 0;
+      const processedNoDeal = payload.processed_no_deal ?? payload.processed ?? 0;
+      const processedContactOnly = payload.processed_contact_only ?? 0;
+      const resolvedTotal = payload.resolved ?? 0;
+      const resolvedNoDeal = payload.resolved_no_deal ?? 0;
+      const resolvedContactOnly = payload.resolved_contact_only ?? 0;
+      const dealsFound = payload.deals_found ?? 0;
+      const promoted = payload.promoted_to_contact_only ?? 0;
+      const remainingTotal = payload.remaining ?? 0;
+      const remainingNoDeal = payload.remaining_no_deal ?? payload.remaining ?? 0;
+      const remainingContactOnly = payload.remaining_contact_only ?? 0;
+      const unauthorizedCount = payload.unauthorized ?? 0;
       const parts = [];
-      parts.push(`Processed ${payload.processed || 0}`);
-      parts.push(`Moved out of no-deal ${payload.resolved || 0}`);
-      parts.push(`Still in no-deal ${payload.remaining || 0}`);
-      if (payload.unauthorized) {
-        parts.push(`401s ${payload.unauthorized}`);
+      parts.push(
+        `Processed ${processedTotal} (no-deal ${processedNoDeal}, contact-only ${processedContactOnly})`,
+      );
+      parts.push(`Resolved ${resolvedTotal} (deals ${dealsFound}, promoted ${promoted})`);
+      parts.push(
+        `Remaining ${remainingTotal} (no-deal ${remainingNoDeal}, contact-only ${remainingContactOnly})`,
+      );
+      if (resolvedContactOnly && !dealsFound) {
+        parts.push(`Contact-only refreshed ${resolvedContactOnly}`);
+      }
+      if (unauthorizedCount) {
+        parts.push(`401s ${unauthorizedCount}`);
       }
       const summary = `${parts.join(" · ")}. Refresh snapshot to view updates.`;
       noDealRetryStatus.textContent = summary;
