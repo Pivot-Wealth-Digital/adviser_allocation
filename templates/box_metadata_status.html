@@ -346,6 +346,17 @@
   <p class="muted small">
     These folders were skipped because the suggested HubSpot data didn’t match. Review them manually.
   </p>
+  <div class="card-toolbar mismatch-toolbar">
+    <button
+      type="button"
+      class="secondary"
+      id="mismatch-fix-btn"
+      data-default="Fix mismatch contacts"
+    >
+      Fix mismatch via contact match
+    </button>
+    <span id="mismatch-fix-status" class="muted small"></span>
+  </div>
   {% if mismatch_entries %}
   <ul class="folder-list">
     {% for folder in mismatch_entries %}
@@ -480,6 +491,17 @@
 <div class="card warning-card">
   <h3>Scan issues</h3>
   <p class="muted small">The following folders could not be inspected during the last scan:</p>
+  <div class="card-toolbar issues-toolbar">
+    <button
+      type="button"
+      class="secondary"
+      id="issues-retry-btn"
+      data-default="Retry issue folders"
+    >
+      Retry issue folders
+    </button>
+    <span id="issues-retry-status" class="muted small"></span>
+  </div>
   <ul class="issue-list">
     {% for issue in issues %}
     <li>{{ issue }}</li>
@@ -507,6 +529,13 @@
   >
     Scan Box for new folders
   </button>
+  <button
+    id="cache-fix-btn"
+    class="secondary refresh-btn"
+    data-default="Fix cached metadata"
+  >
+    Fix cached metadata
+  </button>
   {% if preview_cache_summary.total %}
   <span class="muted small">
     Cached {{ preview_cache_summary.success or preview_cache_summary.total }}/{{ preview_cache_summary.total }} ·
@@ -517,6 +546,7 @@
   <span id="refresh-status" class="muted small"></span>
   <span id="box-scan-status" class="muted small"></span>
   <span id="no-deal-footer-status" class="muted small"></span>
+  <span id="cache-fix-status" class="muted small"></span>
 </div>
 {% endif %}
 {% endblock %}
@@ -991,6 +1021,12 @@
   const boxScanStatus = document.getElementById("box-scan-status");
   const noDealRetryStatus = document.getElementById("no-deal-retry-status");
   const noDealFooterStatus = document.getElementById("no-deal-footer-status");
+  const issuesRetryBtn = document.getElementById("issues-retry-btn");
+  const issuesRetryStatus = document.getElementById("issues-retry-status");
+  const cacheFixBtn = document.getElementById("cache-fix-btn");
+  const cacheFixStatus = document.getElementById("cache-fix-status");
+  const mismatchFixBtn = document.getElementById("mismatch-fix-btn");
+  const mismatchFixStatus = document.getElementById("mismatch-fix-status");
   const folderSearchInput = document.getElementById("folder-search");
   const searchResultsNote = document.getElementById("search-results-note");
 
@@ -1197,6 +1233,151 @@
   }
   if (noDealRetryBtn) {
     noDealRetryBtn.addEventListener("click", runNoDealRetry);
+  }
+  if (issuesRetryBtn) {
+    issuesRetryBtn.addEventListener("click", async () => {
+      issuesRetryStatus.textContent = "";
+      issuesRetryStatus.classList.remove("err");
+      const defaultLabel = issuesRetryBtn.dataset.default || "Retry issue folders";
+      issuesRetryBtn.disabled = true;
+      issuesRetryBtn.textContent = "Retrying…";
+      console.log("[BoxMetadata] Issues retry triggered");
+      try {
+        const response = await fetch("/box/folder/metadata/issues/retry", { method: "POST" });
+        if (!response.ok) {
+          let detail = "";
+          try {
+            const payload = await response.json();
+            detail = payload.message || payload.error || "";
+          } catch (_) {
+            detail = "";
+          }
+          throw new Error(detail || response.statusText);
+        }
+        const payload = await response.json();
+        const parts = [];
+        parts.push(`Processed ${payload.processed || 0}`);
+        parts.push(`Resolved ${payload.resolved || 0}`);
+        if (payload.errors && payload.errors.length) {
+          parts.push(`Errors ${payload.errors.length}`);
+        }
+        issuesRetryStatus.textContent = `${parts.join(" · ")}. Refresh snapshot to update issues.`;
+        issuesRetryStatus.classList.remove("err");
+      } catch (error) {
+        issuesRetryStatus.textContent = `Issue retry failed: ${error.message}`;
+        issuesRetryStatus.classList.add("err");
+      } finally {
+        issuesRetryBtn.disabled = false;
+        issuesRetryBtn.textContent = defaultLabel;
+      }
+    });
+  }
+  if (cacheFixBtn) {
+    cacheFixBtn.addEventListener("click", async () => {
+      if (cacheFixStatus) {
+        cacheFixStatus.textContent = "";
+        cacheFixStatus.classList.remove("err");
+      }
+      const defaultLabel = cacheFixBtn.dataset.default || "Fix cached metadata";
+      cacheFixBtn.disabled = true;
+      cacheFixBtn.textContent = "Fixing…";
+      console.log("[BoxMetadata] Cached metadata fix triggered");
+      try {
+        const response = await fetch("/box/folder/metadata/previews/cache/fix", { method: "POST" });
+        if (!response.ok) {
+          let detail = "";
+          try {
+            const payload = await response.json();
+            detail = payload.message || payload.error || "";
+          } catch (_) {
+            detail = "";
+          }
+          throw new Error(detail || response.statusText);
+        }
+        const payload = await response.json();
+        const parts = [];
+        parts.push(`Processed ${payload.processed || 0}`);
+        parts.push(`Updated ${payload.updated || 0}`);
+        if (payload.skipped_not_missing_fields) {
+          parts.push(`Already complete ${payload.skipped_not_missing_fields}`);
+        }
+        if (payload.skipped_contact_only) {
+          parts.push(`Contact-only retained ${payload.skipped_contact_only}`);
+        }
+        if (payload.moved_to_mismatch) {
+          parts.push(`Moved to mismatch ${payload.moved_to_mismatch}`);
+        }
+        if (payload.errors && payload.errors.length) {
+          parts.push(`Errors ${payload.errors.length}`);
+        }
+        if (cacheFixStatus) {
+          cacheFixStatus.textContent = `${parts.join(" · ")}. Refresh snapshot to view updates.`;
+          cacheFixStatus.classList.remove("err");
+        }
+      } catch (error) {
+        if (cacheFixStatus) {
+          cacheFixStatus.textContent = `Metadata fix failed: ${error.message}`;
+          cacheFixStatus.classList.add("err");
+        }
+      } finally {
+        cacheFixBtn.disabled = false;
+        cacheFixBtn.textContent = defaultLabel;
+      }
+    });
+  }
+  if (mismatchFixBtn) {
+    mismatchFixBtn.addEventListener("click", async () => {
+      if (mismatchFixStatus) {
+        mismatchFixStatus.textContent = "";
+        mismatchFixStatus.classList.remove("err");
+      }
+      const defaultLabel = mismatchFixBtn.dataset.default || "Fix mismatch contacts";
+      mismatchFixBtn.disabled = true;
+      mismatchFixBtn.textContent = "Matching…";
+      console.log("[BoxMetadata] Mismatch contact fix triggered");
+      try {
+        const response = await fetch("/box/folder/metadata/mismatch/fix-contacts", { method: "POST" });
+        if (!response.ok) {
+          let detail = "";
+          try {
+            const payload = await response.json();
+            detail = payload.message || payload.error || "";
+          } catch (_) {
+            detail = "";
+          }
+          throw new Error(detail || response.statusText);
+        }
+        const payload = await response.json();
+        const parts = [];
+        parts.push(`Processed ${payload.processed || 0}`);
+        if (payload.matched_contacts) {
+          parts.push(`Matches ${payload.matched_contacts}`);
+        }
+        if (payload.matched_with_deal) {
+          parts.push(`Deals ${payload.matched_with_deal}`);
+        }
+        if (payload.contact_only_refreshed) {
+          parts.push(`Contact-only ${payload.contact_only_refreshed}`);
+        }
+        if (payload.no_match) {
+          parts.push(`No match ${payload.no_match}`);
+        }
+        if (payload.errors && payload.errors.length) {
+          parts.push(`Errors ${payload.errors.length}`);
+        }
+        if (mismatchFixStatus) {
+          mismatchFixStatus.textContent = `${parts.join(" · ")}. Refresh snapshot to view updates.`;
+        }
+      } catch (error) {
+        if (mismatchFixStatus) {
+          mismatchFixStatus.textContent = `Mismatch fix failed: ${error.message}`;
+          mismatchFixStatus.classList.add("err");
+        }
+      } finally {
+        mismatchFixBtn.disabled = false;
+        mismatchFixBtn.textContent = defaultLabel;
+      }
+    });
   }
   document.querySelectorAll(".mismatch-link").forEach((button) => {
     button.addEventListener("click", async () => {
@@ -1469,7 +1650,10 @@
       return;
     }
     const basePayload = payload.base_payload || { folder_id: folderId };
-    const finalPayload = payload.final_payload || basePayload;
+    const finalPayload = payload.final_payload ? { ...payload.final_payload } : { ...basePayload };
+    if (!finalPayload.folder_id) {
+      finalPayload.folder_id = folderId;
+    }
     previewState.set(folderId, {
       folderId,
       basePayload,
@@ -1885,12 +2069,24 @@
 
   function buildPayloadForApply(basePayload, previewData) {
     const payload = { ...basePayload };
+    if (!payload.folder_id && basePayload?.folder_id) {
+      payload.folder_id = basePayload.folder_id;
+    }
     const metadataFields = previewData?.metadata_fields || {};
     Object.entries(metadataFields).forEach(([key, value]) => {
-      if (!isMetadataValueEmpty(value)) {
-        payload[key] = value;
+      if (value === undefined || value === null) {
+        payload[key] = "";
+        return;
       }
+      if (typeof value === "string") {
+        payload[key] = value;
+        return;
+      }
+      payload[key] = value;
     });
+    if (!payload.folder_id && previewData?.folder_id) {
+      payload.folder_id = previewData.folder_id;
+    }
     return payload;
   }
 
