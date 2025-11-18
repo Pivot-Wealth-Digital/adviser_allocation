@@ -536,6 +536,13 @@
   >
     Fix cached metadata
   </button>
+  <button
+    id="fix-spouse-btn"
+    class="secondary refresh-btn"
+    data-default="Fix spouse metadata"
+  >
+    Fix spouse metadata
+  </button>
   {% if preview_cache_summary.total %}
   <span class="muted small">
     Cached {{ preview_cache_summary.success or preview_cache_summary.total }}/{{ preview_cache_summary.total }} ·
@@ -547,8 +554,58 @@
   <span id="box-scan-status" class="muted small"></span>
   <span id="no-deal-footer-status" class="muted small"></span>
   <span id="cache-fix-status" class="muted small"></span>
+  <span id="fix-spouse-status" class="muted small"></span>
 </div>
 {% endif %}
+
+<div class="card info-card admin-tools-card">
+  <h3>Manual Metadata Tools</h3>
+
+  <section>
+    <h4>Contact Match API</h4>
+    <p class="muted small">
+      Need to refresh a folder’s metadata using folder-name contact matching? POST to
+      <code>/box/folder/metadata/contact-match</code> with a JSON body like
+      <code>{"folder_id":"148851810344"}</code>. The server will run the HubSpot match, refresh the cached preview, and move
+      the folder to the correct queue—no extra UI button required.
+    </p>
+  </section>
+
+  <section>
+    <h4>Manual Metadata Tagging</h4>
+    <p class="muted small">
+      Already know the HubSpot contact (and optional deal) that should drive metadata for a folder? Submit the details below
+      to build and apply the metadata immediately.
+    </p>
+    <form id="manual-tag-form" class="manual-tag-form">
+      <label>
+        Box folder ID
+        <input type="text" name="folder_id" required placeholder="e.g. 148851810344" autocomplete="off" />
+      </label>
+      <label>
+        HubSpot contact ID
+        <input type="text" name="contact_id" required placeholder="e.g. 81428472235" autocomplete="off" />
+      </label>
+      <label>
+        HubSpot deal ID (optional)
+        <input type="text" name="deal_id" placeholder="e.g. 32347298416" autocomplete="off" />
+      </label>
+      <button type="submit" class="secondary" id="manual-tag-submit" data-default="Preview metadata">
+        Preview metadata
+      </button>
+      <p id="manual-tag-status" class="muted small"></p>
+    </form>
+    <div id="manual-preview-card" class="manual-preview hidden">
+      <h4>Preview result</h4>
+      <div id="manual-preview-summary" class="muted small"></div>
+      <div id="manual-preview-table" class="manual-preview-table"></div>
+      <button type="button" class="secondary" id="manual-preview-apply" data-default="Apply this metadata" disabled>
+        Apply this metadata
+      </button>
+      <p id="manual-preview-status" class="muted small"></p>
+    </div>
+  </section>
+</div>
 {% endblock %}
 
 {% block head %}
@@ -564,6 +621,71 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
+  }
+
+  .info-card h3 {
+    margin: 0 0 8px 0;
+  }
+
+  .admin-tools-card section + section {
+    border-top: 1px solid var(--border);
+    margin-top: 16px;
+    padding-top: 16px;
+  }
+
+  .admin-tools-card h4 {
+    margin: 0 0 6px 0;
+    font-size: 1rem;
+    color: #1f2937;
+  }
+
+  .manual-tag-form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .manual-tag-form label {
+    display: flex;
+    flex-direction: column;
+    font-size: 0.9em;
+    color: #475467;
+    gap: 4px;
+  }
+
+  .manual-tag-form input {
+    padding: 8px;
+    border: 1px solid #cbd5f5;
+    border-radius: 4px;
+    font-size: 0.95em;
+  }
+
+  .manual-preview {
+    margin-top: 16px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #f8fafc;
+  }
+
+  .manual-preview-table table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 8px;
+  }
+
+  .manual-preview-table th,
+  .manual-preview-table td {
+    border: 1px solid #e2e8f0;
+    padding: 6px 8px;
+    text-align: left;
+    font-size: 0.92em;
+  }
+
+  .manual-preview-table th {
+    background: #f1f5f9;
+    font-weight: 600;
   }
 
   .search-label {
@@ -1681,7 +1803,7 @@
       };
     resetPreviewDisplay(folderId);
     elements.container.classList.remove("hidden");
-    if (payload.status !== "ok" || !previewData.metadata_fields) {
+    if (payload.status !== "ok") {
       const reason = payload.error || "Cached preview unavailable.";
       setPreviewStatus(folderId, reason, true);
       addPipelineStep(folderId, reason, "error");
@@ -2384,5 +2506,155 @@
       applyMetadataForFolder(folderId, button);
     });
   });
+</script>
+
+<script>
+  (function () {
+    const manualTagForm = document.getElementById("manual-tag-form");
+    const manualTagStatus = document.getElementById("manual-tag-status");
+    const manualTagSubmit = document.getElementById("manual-tag-submit");
+    const manualPreviewCard = document.getElementById("manual-preview-card");
+    const manualPreviewSummary = document.getElementById("manual-preview-summary");
+    const manualPreviewTable = document.getElementById("manual-preview-table");
+    const manualPreviewApply = document.getElementById("manual-preview-apply");
+    const manualPreviewStatus = document.getElementById("manual-preview-status");
+    let manualPreviewPayload = null;
+    const fixSpouseBtn = document.getElementById("fix-spouse-btn");
+    const fixSpouseStatus = document.getElementById("fix-spouse-status");
+
+    function renderManualPreview(finalPayload, preview) {
+      if (!manualPreviewCard || !manualPreviewSummary || !manualPreviewTable) {
+        return;
+      }
+      const dealInfo = preview?.deal || {};
+      const contactInfo = preview?.contacts?.primary || {};
+      manualPreviewSummary.innerHTML = `
+        <div><strong>Primary contact:</strong> ${escapeHtml(contactInfo.name || contactInfo.email || contactInfo.id || "n/a")}</div>
+        <div><strong>Deal:</strong> ${escapeHtml(dealInfo.name || dealInfo.id || "n/a")}</div>
+      `;
+      manualPreviewTable.innerHTML = `
+        <table>
+          <thead><tr><th>Field</th><th>Value</th></tr></thead>
+          <tbody>
+            ${Object.entries(finalPayload || {})
+              .map(
+                ([key, value]) =>
+                  `<tr><th>${escapeHtml(key)}</th><td>${formatMetadataValue(value)}</td></tr>`,
+              )
+              .join("")}
+          </tbody>
+        </table>
+      `;
+      manualPreviewCard.classList.remove("hidden");
+    }
+
+    if (manualTagForm && manualTagStatus && manualTagSubmit) {
+      manualTagForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        manualTagStatus.textContent = "";
+        manualTagStatus.classList.remove("err");
+        const formData = new FormData(manualTagForm);
+        const folderId = (formData.get("folder_id") || "").trim();
+        const contactId = (formData.get("contact_id") || "").trim();
+        const dealId = (formData.get("deal_id") || "").trim();
+        if (!folderId || !contactId) {
+          manualTagStatus.textContent = "Folder ID and contact ID are required.";
+          manualTagStatus.classList.add("err");
+          return;
+        }
+        manualTagSubmit.disabled = true;
+        manualTagSubmit.textContent = "Previewing…";
+        try {
+          const payload = await fetchJSON("/box/folder/metadata/manual-preview", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify({
+              folder_id: folderId,
+              contact_id: contactId,
+              deal_id: dealId || undefined,
+            }),
+          });
+          manualPreviewPayload = {
+            folder_id: payload.folder_id,
+            contact_id: contactId,
+            deal_id: dealId || undefined,
+            metadata_fields: payload.metadata_fields,
+            final_payload: payload.final_payload,
+          };
+          renderManualPreview(payload.final_payload, payload.preview);
+          manualTagStatus.textContent = `Preview generated for folder ${payload.folder_id}. Review below, then apply when ready.`;
+          manualPreviewStatus.textContent = "";
+          if (manualPreviewApply) {
+            manualPreviewApply.disabled = !manualPreviewPayload;
+            manualPreviewApply.classList.remove("hidden");
+          }
+        } catch (error) {
+          manualTagStatus.textContent = `Manual tag failed: ${error.message}`;
+          manualTagStatus.classList.add("err");
+          manualPreviewPayload = null;
+          if (manualPreviewCard) {
+            manualPreviewCard.classList.add("hidden");
+          }
+        } finally {
+          manualTagSubmit.disabled = false;
+          manualTagSubmit.textContent = manualTagSubmit.dataset.default || "Preview metadata";
+        }
+      });
+    }
+
+    if (manualPreviewApply && manualPreviewStatus) {
+      manualPreviewApply.addEventListener("click", async () => {
+        if (!manualPreviewPayload) {
+          manualPreviewStatus.textContent = "Preview payload missing; generate a preview first.";
+          manualPreviewStatus.classList.add("err");
+          return;
+        }
+        manualPreviewStatus.textContent = "";
+        manualPreviewStatus.classList.remove("err");
+        manualPreviewApply.disabled = true;
+        manualPreviewApply.textContent = "Applying…";
+        try {
+          const response = await fetchJSON("/box/folder/metadata/manual-apply", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify(manualPreviewPayload),
+          });
+          manualPreviewStatus.textContent = `Metadata applied to folder ${response.folder_id}. Refresh snapshot to verify.`;
+          manualPreviewApply.disabled = true;
+          manualPreviewApply.textContent = "Applied";
+        } catch (error) {
+          manualPreviewStatus.textContent = `Apply failed: ${error.message}`;
+          manualPreviewStatus.classList.add("err");
+          manualPreviewApply.disabled = false;
+          manualPreviewApply.textContent = manualPreviewApply.dataset.default || "Apply this metadata";
+        }
+      });
+    }
+
+    if (fixSpouseBtn && fixSpouseStatus) {
+      fixSpouseBtn.addEventListener("click", async () => {
+        fixSpouseStatus.textContent = "";
+        fixSpouseStatus.classList.remove("err");
+        const defaultLabel = fixSpouseBtn.dataset.default || "Fix spouse metadata";
+        fixSpouseBtn.disabled = true;
+        fixSpouseBtn.textContent = "Fixing…";
+        try {
+        const payload = await fetchJSON("/box/folder/metadata/fix-spouses", {
+          method: "POST",
+          credentials: "same-origin",
+        });
+        fixSpouseStatus.textContent = `Processed ${payload.processed || 0}; spouse fixed ${payload.fixed || 0}; cleared ${payload.cleared || 0}; primary updated ${payload.primary_updated || 0}. Refresh snapshot to verify.`;
+      } catch (error) {
+        fixSpouseStatus.textContent = `Fix spouse failed: ${error.message}`;
+          fixSpouseStatus.classList.add("err");
+        } finally {
+          fixSpouseBtn.disabled = false;
+          fixSpouseBtn.textContent = defaultLabel;
+        }
+      });
+    }
+  })();
 </script>
 {% endblock %}

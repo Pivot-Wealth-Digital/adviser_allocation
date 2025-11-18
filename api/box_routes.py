@@ -577,6 +577,83 @@ def _choose_collaborator_entry(order: List[str], collaborators: Dict[str, dict])
     return None
 
 
+def _resolve_spouse_contact_from_deal(deal_id: Optional[str], primary_contact_id: Optional[str]) -> Optional[dict]:
+    """Resolve spouse contact via contact associations when possible, falling back to deal contacts."""
+    primary_contact_id = (primary_contact_id or "").strip()
+    spouse = _fetch_spouse_from_contact_associations(primary_contact_id)
+    if spouse:
+        return spouse
+
+    deal_id = (deal_id or "").strip()
+    if not deal_id:
+        return None
+    try:
+        contacts = box_service.get_hubspot_deal_contacts(deal_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Unable to load deal contacts for spouse resolution on %s: %s", deal_id, exc)
+        return None
+
+    normalized_primary = primary_contact_id
+    for contact in contacts:
+        contact_id = str(contact.get("id") or "").strip()
+        for assoc in contact.get("association_types", []):
+            label = (assoc.get("label") or contact.get("primaryAssociationLabel") or "").strip().lower()
+            if "spouse" in label and contact_id and contact_id != normalized_primary:
+                return contact
+    return None
+
+
+def _fetch_spouse_from_contact_associations(contact_id: Optional[str]) -> Optional[dict]:
+    contact_id = (contact_id or "").strip()
+    if not contact_id:
+        return None
+
+    params = {
+        "associations": "contacts",
+        "properties": ["firstname", "lastname", "email"],
+    }
+    try:
+        resp = requests.get(
+            f"https://api.hubapi.com/crm/v3/objects/contacts/{contact_id}",
+            headers=_hubspot_headers(),
+            params=params,
+            timeout=10,
+        )
+        resp.raise_for_status()
+    except requests.RequestException as exc:
+        logger.debug("Unable to load contact associations for %s: %s", contact_id, exc)
+        return None
+
+    data = resp.json()
+    associations = data.get("associations", {}).get("contacts", {}).get("results", [])
+    spouse_id = None
+    for assoc in associations:
+        assoc_type = (assoc.get("type") or "").strip().lower()
+        assoc_id = (assoc.get("id") or "").strip()
+        if assoc_type == "couple" and assoc_id and assoc_id != contact_id:
+            spouse_id = assoc_id
+            break
+
+    if not spouse_id:
+        return None
+
+    try:
+        spouse_resp = requests.get(
+            f"https://api.hubspot.com/crm/v3/objects/contacts/{spouse_id}",
+            headers=_hubspot_headers(),
+            params={"properties": ["firstname", "lastname", "email"]},
+            timeout=10,
+        )
+        spouse_resp.raise_for_status()
+    except requests.RequestException as exc:
+        logger.debug("Unable to load spouse contact %s: %s", spouse_id, exc)
+        return None
+
+    payload = spouse_resp.json()
+    payload.setdefault("id", spouse_id)
+    return payload
+
+
 def _load_contact_details_with_deals(email: str) -> Tuple[Optional[dict], List[dict], List[dict]]:
     """
     Fetch HubSpot contact plus associated deals (with contact metadata) for a given email.
@@ -1131,6 +1208,11 @@ def _update_snapshot_no_deal_single(folder_id: str, preview_doc: dict) -> None:
     if not record:
         return
     root_info = preview_doc.get("root_folder") or {}
+    metadata_fields = preview_doc.get("metadata_fields") or {}
+    metadata_has_values = any(
+        value not in (None, "", [])
+        for value in metadata_fields.values()
+    )
     preview_has_deal = bool(
         preview_doc.get("status") == "ok"
         and preview_doc.get("deal")
@@ -1144,8 +1226,9 @@ def _update_snapshot_no_deal_single(folder_id: str, preview_doc: dict) -> None:
     generated_at = preview_doc.get("generated_at_iso") or preview_doc.get("generated_at")
     if generated_at:
         record["preview_generated_at"] = generated_at
-    if preview_has_deal:
-        record.pop("preview_error", None)
+    original_reason = record.get("preview_error")
+    if preview_has_deal and metadata_has_values:
+        record["preview_error"] = original_reason or record.get("preview_error")
         record.pop("preview_source", None)
         if preview_doc.get("contact_only"):
             record["contact_only"] = True
@@ -1154,7 +1237,10 @@ def _update_snapshot_no_deal_single(folder_id: str, preview_doc: dict) -> None:
         untagged_by_id[folder_id] = record
         no_deal_by_id.pop(folder_id, None)
     else:
-        record["preview_error"] = preview_doc.get("error") or "No associated deals found in HubSpot."
+        if preview_has_deal and not metadata_has_values:
+            record["preview_error"] = original_reason or preview_doc.get("error") or "Metadata preview returned no fields."
+        else:
+            record["preview_error"] = original_reason or preview_doc.get("error") or "No associated deals found in HubSpot."
         record["preview_source"] = preview_doc.get("source") or "cache"
         untagged_by_id.pop(folder_id, None)
         no_deal_by_id[folder_id] = record
@@ -1391,10 +1477,16 @@ def _record_metadata_snapshot_tag(folder_id: str) -> None:
         payload = snapshot.to_dict() if snapshot.exists else {}
         tagged_entries = _normalize_snapshot_entries(payload.get("tagged"))
         untagged_entries = _normalize_snapshot_entries(payload.get("untagged"))
+        untagged_no_deal_entries = _normalize_snapshot_entries(payload.get("untagged_no_deal") or [])
+        mismatch_entries = _normalize_snapshot_entries(payload.get(MISMATCH_SECTION_KEY) or [])
 
         tagged_by_id = {entry["id"]: entry for entry in tagged_entries}
         untagged_by_id = {entry["id"]: entry for entry in untagged_entries}
+        untagged_no_deal_by_id = {entry["id"]: entry for entry in untagged_no_deal_entries}
+        mismatch_by_id = {entry["id"]: entry for entry in mismatch_entries}
         untagged_by_id.pop(folder_id, None)
+        untagged_no_deal_by_id.pop(folder_id, None)
+        mismatch_by_id.pop(folder_id, None)
 
         entry = tagged_by_id.get(folder_id) or {"id": folder_id}
         entry["tagged_at"] = now_iso
@@ -1402,15 +1494,21 @@ def _record_metadata_snapshot_tag(folder_id: str) -> None:
 
         new_tagged = sorted(tagged_by_id.values(), key=lambda item: item.get("id"))
         new_untagged = sorted(untagged_by_id.values(), key=lambda item: item.get("id"))
+        new_untagged_no_deal = sorted(untagged_no_deal_by_id.values(), key=lambda item: item.get("id"))
+        new_mismatch = sorted(mismatch_by_id.values(), key=lambda item: item.get("id"))
 
         update_doc: Dict[str, object] = {
             "tagged": new_tagged,
             "untagged": new_untagged,
+            "untagged_no_deal": new_untagged_no_deal,
             "total_tagged": len(new_tagged),
             "total_untagged": len(new_untagged),
             "total_scanned": len(new_tagged) + len(new_untagged),
             "updated_at": now_iso,
         }
+        if payload.get(MISMATCH_SECTION_KEY) is not None:
+            update_doc[MISMATCH_SECTION_KEY] = new_mismatch
+            update_doc["mismatch_count"] = len(new_mismatch)
         if "issues" in payload:
             update_doc["issues"] = payload.get("issues") or []
             update_doc["issue_count"] = len(update_doc["issues"])
@@ -1810,6 +1908,16 @@ def _fetch_hubspot_deal(deal_id: str) -> Optional[dict]:
                 "closedate",
                 "agreement_start_date",
                 "hs_deal_record_id",
+                "deal_salutation",
+                "household_type",
+                "hs_spouse_id",
+                "hs_spouse_firstname",
+                "hs_spouse_lastname",
+                "hs_spouse_email",
+                "hs_contact_id",
+                "hs_contact_firstname",
+                "hs_contact_lastname",
+                "hs_contact_email",
             ]
         }
         resp = requests.get(url, headers=_hubspot_headers(), params=params, timeout=10)
@@ -3505,7 +3613,7 @@ def box_folder_metadata_fix_cache():
 
 @box_bp.route("/box/folder/metadata/mismatch/fix-contacts", methods=["POST"])
 def box_folder_metadata_fix_mismatch_contacts():
-    """Attempt to resolve mismatch folders by matching names to HubSpot contacts/deals."""
+    """Attempt to resolve mismatch folders by using collaborator emails or folder names to find contacts."""
     guard = _ensure_logged_in()
     if guard is not None:
         return guard
@@ -3529,9 +3637,7 @@ def box_folder_metadata_fix_mismatch_contacts():
     payload = snapshot.to_dict() or {}
     mismatch_entries = _normalize_snapshot_entries(payload.get(MISMATCH_SECTION_KEY) or [])
     if not mismatch_entries:
-        return jsonify(
-            {"status": "ok", "processed": 0, "message": "Mismatch queue is empty."}
-        ), 200
+        return jsonify({"status": "ok", "processed": 0, "message": "Mismatch queue is empty."}), 200
 
     request_payload = request.get_json(silent=True) or {}
     folder_ids_param = request_payload.get("folder_ids")
@@ -3557,6 +3663,8 @@ def box_folder_metadata_fix_mismatch_contacts():
     stats = {
         "processed": 0,
         "matched_contacts": 0,
+        "matched_via_email": 0,
+        "matched_via_name": 0,
         "matched_with_deal": 0,
         "contact_only_refreshed": 0,
         "updated": 0,
@@ -3566,79 +3674,119 @@ def box_folder_metadata_fix_mismatch_contacts():
 
     logger.info("Mismatch contact fix triggered for %d folder(s)", len(targets))
 
+    def _load_contact_from_email(email: Optional[str]) -> tuple[Optional[dict], List[dict]]:
+        email = (email or "").strip().lower()
+        if not email or _is_internal_email(email):
+            return None, []
+        enriched_contact, enriched_deals, _ = _load_contact_details_with_deals(email)
+        if not enriched_contact:
+            return None, []
+        normalized = _normalize_contact_record(enriched_contact)
+        normalized["properties"] = enriched_contact.get("properties") or {}
+        return normalized, enriched_deals or []
+
+    def _find_contact_via_collaborators(folder_id: str) -> tuple[Optional[dict], List[dict], Optional[str]]:
+        try:
+            order, collaborators = _collect_folder_collaborators(service, folder_id)
+        except BoxAutomationError as exc:
+            logger.info("Mismatch contact fix: unable to list collaborators for %s: %s", folder_id, exc)
+            return None, [], None
+        for email in order:
+            record = collaborators.get(email) or {}
+            candidate = (record.get("email") or "").strip()
+            if not candidate or _is_internal_email(candidate):
+                continue
+            contact_record, deals = _load_contact_from_email(candidate)
+            if contact_record:
+                return contact_record, deals, candidate
+        return None, [], None
+
+    def _apply_spouse_fields(metadata_fields: dict, final_payload: dict, contact_record: dict) -> None:
+        spouse_entry = _fetch_spouse_from_contact_associations(contact_record.get("id"))
+        if not spouse_entry:
+            logger.info(
+                "Mismatch contact fix: no spouse association found for contact %s",
+                contact_record.get("id"),
+            )
+            return
+        props = spouse_entry.get("properties") or {}
+        spouse_id = str(spouse_entry.get("id") or props.get("hs_object_id") or "").strip()
+        if not spouse_id:
+            return
+        metadata_fields["hs_spouse_id"] = spouse_id
+        metadata_fields["hs_spouse_firstname"] = props.get("firstname") or ""
+        metadata_fields["hs_spouse_lastname"] = props.get("lastname") or ""
+        metadata_fields["hs_spouse_email"] = props.get("email") or ""
+        metadata_fields["spouse_contact_link"] = _hubspot_contact_url(spouse_id) or metadata_fields.get("spouse_contact_link") or ""
+        if isinstance(final_payload, dict):
+            final_payload["hs_spouse_id"] = metadata_fields["hs_spouse_id"]
+            final_payload["hs_spouse_firstname"] = metadata_fields["hs_spouse_firstname"]
+            final_payload["hs_spouse_lastname"] = metadata_fields["hs_spouse_lastname"]
+            final_payload["hs_spouse_email"] = metadata_fields["hs_spouse_email"]
+            final_payload["spouse_contact_link"] = metadata_fields["spouse_contact_link"]
+        logger.info(
+            "Mismatch contact fix: populated spouse %s for contact %s",
+            spouse_id,
+            contact_record.get("id"),
+        )
+
     for entry in targets:
         folder_id = str(entry.get("id") or "").strip()
         if not folder_id:
             continue
         stats["processed"] += 1
-        contact_match = _match_contact_for_folder_entry(entry)
-        if not contact_match:
+
+        contact_record: Optional[dict] = None
+        deals: List[dict] = []
+
+        contact_record, deals, collaborator_email = _find_contact_via_collaborators(folder_id)
+        if contact_record:
+            stats["matched_contacts"] += 1
+            stats["matched_via_email"] += 1
+            logger.info(
+                "Mismatch contact fix: folder %s matched via collaborator email %s -> contact %s",
+                folder_id,
+                collaborator_email,
+                contact_record.get("id"),
+            )
+        else:
+            contact_match = _match_contact_for_folder_entry(entry)
+            if contact_match:
+                normalized_contact = _normalize_contact_record(contact_match)
+                contact_email = (normalized_contact.get("properties") or {}).get("email") or ""
+                if contact_email and _is_internal_email(contact_email):
+                    normalized_contact = None
+                if normalized_contact:
+                    contact_record = normalized_contact
+                    deals = _load_deals_for_contact_record(contact_record)
+                    stats["matched_contacts"] += 1
+                    stats["matched_via_name"] += 1
+                    logger.info(
+                        "Mismatch contact fix: folder %s matched via name -> contact %s",
+                        folder_id,
+                        contact_record.get("id"),
+                    )
+
+        if not contact_record:
             stats["no_match"] += 1
             logger.info(
                 "Mismatch contact fix: no contact match for folder %s (%s)",
                 folder_id,
                 entry.get("name"),
             )
-            try:
-                preview_collection.document(folder_id).delete()
-                logger.debug("Mismatch contact fix: cleared cached preview for %s due to missing match", folder_id)
-            except Exception as exc:  # noqa: BLE001
-                logger.debug("Mismatch contact fix: unable to delete preview for %s: %s", folder_id, exc)
-            continue
-        contact_record = _normalize_contact_record(contact_match)
-        contact_props = contact_record.get("properties") or {}
-        contact_email = (contact_props.get("email") or contact_match.get("email") or "").strip()
-        if contact_email and _is_internal_email(contact_email):
-            stats["no_match"] += 1
-            reason = "Mismatch fix: matched contact email is internal"
-            _move_folder_to_mismatch(folder_id, reason)
-            logger.info(
-                "Mismatch contact fix: folder %s retained in mismatch due to internal email %s",
-                folder_id,
-                contact_email,
-            )
-            try:
-                preview_collection.document(folder_id).delete()
-            except Exception as exc:  # noqa: BLE001
-                logger.debug("Mismatch contact fix: unable to delete preview for %s: %s", folder_id, exc)
             continue
 
-        deals: List[dict] = []
-        if contact_email:
-            enriched_contact, enriched_deals, _ = _load_contact_details_with_deals(contact_email)
-            if enriched_contact:
-                contact_record = enriched_contact
-                contact_props = contact_record.get("properties") or {}
-            deals = enriched_deals or deals
-        contact_email = (contact_props.get("email") or contact_record.get("email") or "").strip()
-        if contact_email and _is_internal_email(contact_email):
-            stats["no_match"] += 1
-            reason = "Mismatch fix: enriched contact email is internal"
-            _move_folder_to_mismatch(folder_id, reason)
-            logger.info(
-                "Mismatch contact fix: folder %s retained in mismatch after enrichment due to internal email %s",
-                folder_id,
-                contact_email,
-            )
-            try:
-                preview_collection.document(folder_id).delete()
-            except Exception as exc:  # noqa: BLE001
-                logger.debug("Mismatch contact fix: unable to delete preview for %s: %s", folder_id, exc)
-            continue
         if not deals:
             deals = _load_deals_for_contact_record(contact_record)
+
         selected_deal = None
         if deals:
             selected_deal = max(deals, key=_extract_deal_timestamp_value)
             stats["matched_with_deal"] += 1
+
         try:
             if selected_deal:
-                preview_doc = _build_preview_from_contact_and_deal(
-                    folder_id,
-                    service,
-                    contact_record,
-                    selected_deal,
-                )
+                preview_doc = _build_preview_from_contact_and_deal(folder_id, service, contact_record, selected_deal)
                 preview_doc.pop("contact_only", None)
             else:
                 preview_doc = _build_contact_only_preview(folder_id, service, contact_record)
@@ -3651,91 +3799,27 @@ def box_folder_metadata_fix_mismatch_contacts():
         base_payload = preview_doc.get("base_payload") or {}
         metadata_fields = preview_doc.get("metadata_fields") or {}
         final_payload = preview_doc.get("final_payload") or {}
-        sanitized_deal = False
-        contact_id = str(
-            base_payload.get("hs_contact_id")
-            or metadata_fields.get("hs_contact_id")
-            or final_payload.get("hs_contact_id")
-            or (contact_record.get("id") or "")
-        ).strip()
-        deal_identifier = str(
-            base_payload.get("deal_id")
-            or base_payload.get("hs_deal_record_id")
-            or metadata_fields.get("deal_id")
-            or metadata_fields.get("hs_deal_record_id")
-            or final_payload.get("deal_id")
-            or final_payload.get("hs_deal_record_id")
-            or ""
-        ).strip()
-        if contact_id and deal_identifier and deal_identifier == contact_id:
-            sanitized_deal = True
-            for container in (base_payload, metadata_fields, final_payload):
-                if isinstance(container, dict):
-                    container.pop("deal_id", None)
-                    container.pop("hs_deal_record_id", None)
-            if isinstance(final_payload, dict) and not final_payload.get("folder_id"):
-                final_payload["folder_id"] = folder_id
-            if isinstance(base_payload, dict) and not base_payload.get("folder_id"):
-                base_payload["folder_id"] = folder_id
-            preview_block = preview_doc.get("preview")
-            if isinstance(preview_block, dict):
-                deal_block = preview_block.get("deal")
-                if isinstance(deal_block, dict) and str(deal_block.get("id") or "").strip() == contact_id:
-                    deal_block["id"] = ""
-        if sanitized_deal:
-            preview_doc["base_payload"] = base_payload
-            preview_doc["metadata_fields"] = metadata_fields
-            preview_doc["final_payload"] = final_payload
-            logger.info(
-                "Mismatch contact fix: sanitized deal reference for folder %s (deal_id matched contact_id %s)",
-                folder_id,
-                contact_id,
-            )
 
-        preview_doc["source"] = "mismatch_contact_fix"
-        generated_at = datetime.now(timezone.utc)
-        preview_doc["generated_at"] = generated_at
-        preview_doc["generated_at_iso"] = generated_at.isoformat()
+        _apply_spouse_fields(metadata_fields, final_payload, contact_record)
 
-        preview_contact_email = str(
-            (preview_doc.get("metadata_fields") or {}).get("hs_contact_email")
-            or ((preview_doc.get("contact") or {}).get("email"))
-            or ""
-        ).strip()
-        if preview_contact_email and _is_internal_email(preview_contact_email):
-            stats["no_match"] += 1
-            reason = "Mismatch fix: resulting contact email is internal"
-            _move_folder_to_mismatch(folder_id, reason)
-            logger.info(
-                "Mismatch contact fix: folder %s retained in mismatch after preview due to internal email %s",
-                folder_id,
-                preview_contact_email,
-            )
-            try:
-                preview_collection.document(folder_id).delete()
-            except Exception as exc:  # noqa: BLE001
-                logger.debug("Mismatch contact fix: unable to delete preview for %s: %s", folder_id, exc)
-            continue
+        preview_doc["base_payload"] = base_payload
+        preview_doc["metadata_fields"] = metadata_fields
+        preview_doc["final_payload"] = final_payload
+        preview_doc["contact_source"] = "collaborator" if collaborator_email else "name_match"
 
         try:
             preview_collection.document(folder_id).set(preview_doc)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Mismatch contact fix: failed to persist preview for %s: %s", folder_id, exc)
+            logger.warning("Mismatch contact fix: unable to persist preview for %s: %s", folder_id, exc)
             stats["errors"].append({"folder_id": folder_id, "error": str(exc)})
             continue
 
-        try:
-            _update_snapshot_no_deal_single(folder_id, preview_doc)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Mismatch contact fix: unable to update snapshot for %s: %s", folder_id, exc)
-
+        _update_snapshot_no_deal_single(folder_id, preview_doc)
         stats["updated"] += 1
-        stats["matched_contacts"] += 1
         logger.info(
-            "Mismatch contact fix: folder %s refreshed (contact=%s, deal=%s)",
+            "Mismatch contact fix: refreshed preview for folder %s using contact %s",
             folder_id,
             contact_record.get("id"),
-            selected_deal.get("id") if selected_deal else "contact_only",
         )
 
     return jsonify(
@@ -3743,6 +3827,8 @@ def box_folder_metadata_fix_mismatch_contacts():
             "status": "ok",
             "processed": stats["processed"],
             "matched_contacts": stats["matched_contacts"],
+            "matched_via_email": stats["matched_via_email"],
+            "matched_via_name": stats["matched_via_name"],
             "matched_with_deal": stats["matched_with_deal"],
             "contact_only_refreshed": stats["contact_only_refreshed"],
             "updated": stats["updated"],
@@ -3751,6 +3837,7 @@ def box_folder_metadata_fix_mismatch_contacts():
             "message": "Mismatch contact fix completed. Refresh snapshot to view updates.",
         }
     ), 200
+
 
 @box_bp.route("/box/folder/metadata/mismatch", methods=["POST"])
 def box_folder_metadata_mark_mismatch():
@@ -3771,6 +3858,10 @@ def box_folder_metadata_mark_mismatch():
     db = get_firestore_client()
     if not db:
         return jsonify({"message": "Firestore client unavailable"}), 503
+
+    service = ensure_box_service()
+    if not service:
+        return jsonify({"message": "Box automation not configured"}), 503
 
     doc_ref = db.collection("box_folder_metadata").document("tagging_status")
     snapshot = doc_ref.get()
@@ -3793,17 +3884,27 @@ def box_folder_metadata_mark_mismatch():
         _pop_entry(untagged_entries)
         or _pop_entry(untagged_no_deal_entries)
         or _pop_entry(tagged_entries)
-        or next((entry for entry in mismatch_entries if entry.get("id") == folder_id), None)
     )
-    if not record:
-        return jsonify({"message": f"Folder {folder_id} not found in snapshot"}), 404
-    if record in mismatch_entries:
+    existing_mismatch = next((entry for entry in mismatch_entries if entry.get("id") == folder_id), None)
+    if existing_mismatch and not record:
         return jsonify({"status": "ok", "message": "Folder already in mismatch list."}), 200
 
-    mismatch_entry = dict(record)
-    mismatch_entry["mismatch_reason"] = reason or "User flagged mismatch"
+    if not record:
+        root_info = _get_folder_root_info(service, folder_id)
+        record = {
+            "id": folder_id,
+            "name": root_info.get("name") or "",
+            "path": root_info.get("path") or "",
+            "url": root_info.get("url") or f"https://app.box.com/folder/{folder_id}",
+        }
+
+    mismatch_entry = existing_mismatch or dict(record)
+    previous_reason = mismatch_entry.get("mismatch_reason") or mismatch_entry.get("preview_error")
+    mismatch_entry["mismatch_reason"] = reason or previous_reason or "User flagged mismatch"
     mismatch_entry["mismatch_at"] = datetime.now(timezone.utc).isoformat()
-    mismatch_entries.append(mismatch_entry)
+
+    if not existing_mismatch:
+        mismatch_entries.append(mismatch_entry)
     mismatch_entries = sorted(mismatch_entries, key=lambda item: item.get("id") or "")
 
     update_doc = {
@@ -3826,6 +3927,164 @@ def box_folder_metadata_mark_mismatch():
             "mismatch_count": len(mismatch_entries),
         }
     ), 200
+
+
+@box_bp.route("/box/folder/metadata/contact-match", methods=["POST"])
+def box_folder_metadata_contact_match():
+    """Match folder name to HubSpot contact and refresh cached metadata."""
+    guard = _ensure_logged_in()
+    if guard is not None:
+        return guard
+
+    payload = request.get_json(silent=True) or {}
+    folder_id = str(payload.get("folder_id") or "").strip()
+    if not folder_id:
+        return jsonify({"message": "folder_id is required"}), 400
+
+    if not USE_FIRESTORE:
+        return jsonify({"message": "Firestore is not enabled; cannot refresh previews"}), 503
+
+    db = get_firestore_client()
+    if not db:
+        return jsonify({"message": "Firestore client unavailable"}), 503
+
+    service = ensure_box_service()
+    if not service:
+        return jsonify({"message": "Box automation not configured"}), 503
+
+    doc_ref = db.collection("box_folder_metadata").document("tagging_status")
+    snapshot = doc_ref.get()
+    payload_doc = snapshot.to_dict() if snapshot.exists else {}
+
+    def _lookup_entry(entries: Optional[List[dict]]) -> Optional[dict]:
+        for entry in _normalize_snapshot_entries(entries or []):
+            if str(entry.get("id") or "").strip() == folder_id:
+                return dict(entry)
+        return None
+
+    entry = (
+        _lookup_entry(payload_doc.get("untagged"))
+        or _lookup_entry(payload_doc.get("untagged_no_deal"))
+        or _lookup_entry(payload_doc.get(MISMATCH_SECTION_KEY))
+        or _lookup_entry(payload_doc.get("tagged"))
+    )
+    if not entry:
+        root_info = _get_folder_root_info(service, folder_id)
+        entry = {
+            "id": folder_id,
+            "name": root_info.get("name") or "",
+            "path": root_info.get("path") or "",
+            "url": root_info.get("url") or f"https://app.box.com/folder/{folder_id}",
+        }
+
+    contact_match = _match_contact_for_folder_entry(entry)
+    if not contact_match:
+        return jsonify({"status": "no_match", "message": "No HubSpot contact matched the folder name."}), 200
+
+    contact_props = contact_match.get("properties") or {}
+    matched_email = (contact_props.get("email") or contact_match.get("email") or "").strip()
+    if matched_email and _is_internal_email(matched_email):
+        return jsonify({"status": "internal_contact", "message": "Matched contact email is internal."}), 200
+
+    contact_record = _normalize_contact_record(contact_match)
+    contact_email = (contact_props.get("email") or contact_record.get("email") or "").strip()
+    deals: List[dict] = []
+    if contact_email:
+        enriched_contact, enriched_deals, _ = _load_contact_details_with_deals(contact_email)
+        if enriched_contact:
+            contact_record = enriched_contact
+            contact_props = contact_record.get("properties") or {}
+            contact_email = (contact_props.get("email") or contact_record.get("email") or "").strip()
+        deals = enriched_deals or deals
+    if contact_email and _is_internal_email(contact_email):
+        return jsonify({"status": "internal_contact", "message": "Enriched contact email is internal."}), 200
+
+    if not deals:
+        deals = _load_deals_for_contact_record(contact_record)
+
+    selected_deal = max(deals, key=_extract_deal_timestamp_value) if deals else None
+    preview_collection = db.collection(BOX_METADATA_PREVIEW_COLLECTION)
+    preview_doc_ref = preview_collection.document(folder_id)
+
+    try:
+        if selected_deal:
+            preview_doc = _build_preview_from_contact_and_deal(folder_id, service, contact_record, selected_deal)
+            preview_doc.pop("contact_only", None)
+        else:
+            preview_doc = _build_contact_only_preview(folder_id, service, contact_record)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Contact-match preview failed for %s: %s", folder_id, exc)
+        return jsonify({"status": "error", "message": f"Preview generation failed: {exc}"}), 500
+
+    base_payload = preview_doc.get("base_payload") or {}
+    metadata_fields = preview_doc.get("metadata_fields") or {}
+    final_payload = preview_doc.get("final_payload") or {}
+    contact_id = str(
+        base_payload.get("hs_contact_id")
+        or metadata_fields.get("hs_contact_id")
+        or final_payload.get("hs_contact_id")
+        or contact_record.get("id")
+        or ""
+    ).strip()
+    deal_identifier = str(
+        base_payload.get("deal_id")
+        or base_payload.get("hs_deal_record_id")
+        or metadata_fields.get("deal_id")
+        or metadata_fields.get("hs_deal_record_id")
+        or final_payload.get("deal_id")
+        or final_payload.get("hs_deal_record_id")
+        or ""
+    ).strip()
+    if contact_id and deal_identifier and contact_id == deal_identifier:
+        for container in (base_payload, metadata_fields, final_payload):
+            if isinstance(container, dict):
+                container.pop("deal_id", None)
+                container.pop("hs_deal_record_id", None)
+                container.setdefault("folder_id", folder_id)
+        preview_block = preview_doc.get("preview")
+        if isinstance(preview_block, dict):
+            deal_block = preview_block.get("deal")
+            if isinstance(deal_block, dict) and str(deal_block.get("id") or "").strip() == contact_id:
+                deal_block["id"] = ""
+    preview_doc["base_payload"] = base_payload
+    preview_doc["metadata_fields"] = metadata_fields
+    preview_doc["final_payload"] = final_payload
+    preview_doc["source"] = "contact_match_manual"
+    generated_at = datetime.now(timezone.utc)
+    preview_doc["generated_at"] = generated_at
+    preview_doc["generated_at_iso"] = generated_at.isoformat()
+
+    preview_contact_email = str(
+        metadata_fields.get("hs_contact_email")
+        or ((preview_doc.get("contact") or {}).get("email"))
+        or ""
+    ).strip()
+    if preview_contact_email and _is_internal_email(preview_contact_email):
+        return jsonify({"status": "internal_contact", "message": "Resulting metadata has internal email."}), 200
+
+    try:
+        preview_doc_ref.set(preview_doc)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Contact-match: failed to persist preview for %s: %s", folder_id, exc)
+        return jsonify({"status": "error", "message": f"Failed to store preview: {exc}"}), 500
+
+    try:
+        _update_snapshot_no_deal_single(folder_id, preview_doc)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Contact-match: unable to update snapshot for %s: %s", folder_id, exc)
+
+    return jsonify(
+        {
+            "status": "updated",
+            "folder_id": folder_id,
+            "contact_id": contact_record.get("id"),
+            "contact_email": contact_email or matched_email,
+            "deal_id": deal_identifier if deal_identifier and deal_identifier != contact_id else None,
+            "contact_only": not bool(selected_deal),
+            "preview_source": preview_doc["source"],
+        }
+    ), 200
+
 
 @box_bp.route("/box/folder/metadata/preview", methods=["GET"])
 def box_folder_metadata_preview():
@@ -4189,3 +4448,381 @@ def box_folder_preview():
 __all__ = ["box_bp", "create_box_folder_webhook"]
 def _is_internal_email(email: Optional[str]) -> bool:
     return (email or "").strip().lower().endswith(INTERNAL_EMAIL_DOMAIN)
+@box_bp.route("/box/folder/metadata/manual-preview", methods=["POST"])
+def box_folder_metadata_manual_preview():
+    """Build a metadata preview using a specified HubSpot contact (and optional deal) without applying it."""
+    guard = _ensure_logged_in()
+    if guard is not None:
+        return guard
+
+    payload = request.get_json(silent=True) or {}
+    return _process_manual_preview_request(payload)
+
+
+@box_bp.route("/box/folder/metadata/manual-apply", methods=["POST"])
+def box_folder_metadata_manual_apply():
+    """Apply metadata for a folder using previously previewed payload."""
+    guard = _ensure_logged_in()
+    if guard is not None:
+        return guard
+
+    payload = request.get_json(silent=True) or {}
+    payload["auto_apply"] = True
+    return _process_manual_preview_request(payload)
+
+
+def _process_manual_preview_request(payload: dict):
+    folder_id = str(payload.get("folder_id") or "").strip()
+    contact_id = str(payload.get("contact_id") or "").strip()
+    override_deal_id = str(payload.get("deal_id") or "").strip()
+    if not folder_id:
+        return jsonify({"message": "folder_id is required"}), 400
+    if not contact_id:
+        return jsonify({"message": "contact_id is required"}), 400
+
+    service = ensure_box_service()
+    if not service:
+        return jsonify({"message": "Box automation not configured"}), 503
+
+    contact = _fetch_hubspot_contact_by_id(contact_id)
+    if not contact:
+        return jsonify({"message": f"HubSpot contact {contact_id} not found."}), 404
+
+    deals: List[dict] = []
+    if override_deal_id:
+        deal = _fetch_hubspot_deal(override_deal_id)
+        if deal:
+            deals = [deal]
+    if not deals:
+        deals = _load_deals_for_contact_record(contact)
+
+    selected_deal = None
+    if override_deal_id:
+        selected_deal = next((deal for deal in deals if str(deal.get("id")) == override_deal_id), None)
+    if not selected_deal and deals:
+        selected_deal = max(deals, key=_extract_deal_timestamp_value)
+
+    try:
+        if selected_deal:
+            preview_doc = _build_preview_from_contact_and_deal(folder_id, service, contact, selected_deal)
+            preview_doc.pop("contact_only", None)
+        else:
+            preview_doc = _build_contact_only_preview(folder_id, service, contact)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Manual preview: unable to build preview for %s: %s", folder_id, exc)
+        return jsonify({"message": f"Preview generation failed: {exc}"}), 500
+
+    metadata_fields = preview_doc.get("metadata_fields") or {}
+    final_payload = preview_doc.get("final_payload") or {}
+    final_payload["folder_id"] = folder_id
+    if not metadata_fields.get("primary_contact_id"):
+        metadata_fields["primary_contact_id"] = contact_id
+    if not metadata_fields.get("hs_contact_id"):
+        metadata_fields["hs_contact_id"] = contact_id
+    if selected_deal:
+        deal_identifier = str(
+            selected_deal.get("properties", {}).get("hs_deal_record_id") or selected_deal.get("id") or ""
+        )
+        if deal_identifier:
+            final_payload["deal_id"] = deal_identifier
+            final_payload["hs_deal_record_id"] = deal_identifier
+        deal_props = selected_deal.get("properties") or {}
+        for key in (
+            "household_type",
+            "deal_salutation",
+            "hs_spouse_id",
+            "hs_spouse_firstname",
+            "hs_spouse_lastname",
+            "hs_spouse_email",
+            "hs_contact_id",
+            "hs_contact_firstname",
+            "hs_contact_lastname",
+            "hs_contact_email",
+        ):
+            if key in deal_props and deal_props.get(key):
+                metadata_fields[key] = deal_props[key]
+                final_payload[key] = deal_props[key]
+
+        if metadata_fields.get("hs_spouse_id") and metadata_fields.get("hs_spouse_id") == contact_id:
+            metadata_fields.pop("hs_spouse_id", None)
+            metadata_fields.pop("hs_spouse_firstname", None)
+            metadata_fields.pop("hs_spouse_lastname", None)
+            metadata_fields.pop("hs_spouse_email", None)
+            final_payload.pop("hs_spouse_id", None)
+            final_payload.pop("hs_spouse_firstname", None)
+            final_payload.pop("hs_spouse_lastname", None)
+            final_payload.pop("hs_spouse_email", None)
+        spouse_needed = (metadata_fields.get("household_type") or "").strip().lower() == "couple"
+        missing_spouse = not metadata_fields.get("hs_spouse_id")
+        if spouse_needed and missing_spouse:
+            spouse_entry = _resolve_spouse_contact_from_deal(
+                final_payload.get("deal_id"),
+                metadata_fields.get("primary_contact_id") or contact_id,
+            )
+            if spouse_entry:
+                props = spouse_entry.get("properties") or {}
+                metadata_fields["hs_spouse_id"] = spouse_entry.get("id")
+                metadata_fields["hs_spouse_firstname"] = props.get("firstname") or ""
+                metadata_fields["hs_spouse_lastname"] = props.get("lastname") or ""
+                metadata_fields["hs_spouse_email"] = props.get("email") or ""
+                metadata_fields["spouse_contact_link"] = _hubspot_contact_url(spouse_entry.get("id")) or ""
+                final_payload["hs_spouse_id"] = metadata_fields["hs_spouse_id"]
+                final_payload["hs_spouse_firstname"] = metadata_fields["hs_spouse_firstname"]
+                final_payload["hs_spouse_lastname"] = metadata_fields["hs_spouse_lastname"]
+                final_payload["hs_spouse_email"] = metadata_fields["hs_spouse_email"]
+                final_payload["spouse_contact_link"] = metadata_fields["spouse_contact_link"]
+    root_info = preview_doc.get("root_folder") or _get_folder_root_info(service, folder_id)
+    rebuilt_preview = _build_preview_output(
+        folder_id,
+        metadata_fields,
+        contact,
+        selected_deal or preview_doc.get("deal"),
+        root_info,
+    )
+    preview_doc["preview"] = rebuilt_preview
+
+    preview_doc["source"] = "manual_contact_preview"
+    preview_doc["generated_at"] = datetime.now(timezone.utc)
+    preview_doc["generated_at_iso"] = preview_doc["generated_at"].isoformat()
+
+    response_payload = {
+        "status": "ok",
+        "folder_id": folder_id,
+        "contact_id": contact_id,
+        "deal_id": final_payload.get("deal_id"),
+        "preview": preview_doc.get("preview"),
+        "metadata_fields": metadata_fields,
+        "final_payload": final_payload,
+    }
+
+    if payload.get("auto_apply"):
+        metadata_payload_built, _, _ = _build_metadata_from_payload(final_payload)
+        metadata_override = (
+            final_payload.get("metadata") if isinstance(final_payload.get("metadata"), dict) else None
+        )
+        metadata_to_apply = _merge_metadata(metadata_payload_built, metadata_override) or metadata_override or {}
+        metadata_to_apply = _ensure_required_metadata_fields(metadata_to_apply, contact)
+        missing_metadata = _missing_metadata_fields(metadata_to_apply)
+        if missing_metadata:
+            return (
+                jsonify(
+                    {
+                        "message": "Missing required metadata fields",
+                        "missing": missing_metadata,
+                    }
+                ),
+                400,
+            )
+
+        try:
+            service.apply_metadata_template(folder_id, metadata_to_apply)
+        except BoxAutomationError as exc:
+            logger.error("Manual preview auto apply failed for %s: %s", folder_id, exc)
+            return jsonify({"message": "Box metadata apply failed", "error": str(exc)}), 500
+
+        folder_url = f"https://app.box.com/folder/{folder_id}"
+        try:
+            _record_metadata_snapshot_tag(folder_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Manual preview: unable to update snapshot tag for %s: %s", folder_id, exc)
+        if HUBSPOT_BOX_FOLDER_DEAL_PROPERTY and final_payload.get("deal_id"):
+            if not _update_hubspot_deal_properties(
+                final_payload["deal_id"], {HUBSPOT_BOX_FOLDER_DEAL_PROPERTY: folder_url}
+            ):
+                logger.warning(
+                    "Manual preview: unable to update HubSpot deal %s with url %s",
+                    final_payload["deal_id"],
+                    folder_url,
+                )
+        for contact_identifier in {metadata_to_apply.get("primary_contact_id"), metadata_to_apply.get("hs_spouse_id")}:
+            contact_identifier = str(contact_identifier or "").strip()
+            if contact_identifier:
+                _update_hubspot_contact_property(contact_identifier, HUBSPOT_BOX_FOLDER_CONTACT_PROPERTY, folder_url)
+
+        response_payload["status"] = "tagged"
+        response_payload["box_folder_url"] = folder_url
+
+    return jsonify(response_payload), 200
+
+
+@box_bp.route("/box/folder/metadata/fix-spouses", methods=["POST"])
+def box_folder_metadata_fix_spouses():
+    """Ensure spouse IDs differ from the primary contact by rematching or clearing."""
+    guard = _ensure_logged_in()
+    if guard is not None:
+        return guard
+
+    if not USE_FIRESTORE:
+        return jsonify({"message": "Firestore is not enabled; cannot fix spouse metadata"}), 503
+    db = get_firestore_client()
+    if not db:
+        return jsonify({"message": "Firestore client unavailable"}), 503
+
+    service = ensure_box_service()
+    if not service:
+        return jsonify({"message": "Box automation not configured"}), 503
+
+    collection = db.collection(BOX_METADATA_PREVIEW_COLLECTION)
+    snapshot = db.collection("box_folder_metadata").document("tagging_status").get()
+    payload = snapshot.to_dict() if snapshot.exists else {}
+
+    entries = (
+        _normalize_snapshot_entries(payload.get("untagged"))
+        + _normalize_snapshot_entries(payload.get("untagged_no_deal"))
+        + _normalize_snapshot_entries(payload.get(MISMATCH_SECTION_KEY) or [])
+        + _normalize_snapshot_entries(payload.get("tagged"))
+    )
+
+    stats = {
+        "processed": 0,
+        "fixed": 0,
+        "cleared": 0,
+        "primary_updated": 0,
+        "errors": [],
+    }
+
+    for entry in entries:
+        folder_id = str(entry.get("id") or "").strip()
+        if not folder_id:
+            continue
+        stats["processed"] += 1
+        preview_doc = collection.document(folder_id).get()
+        if not preview_doc.exists:
+            continue
+        doc = preview_doc.to_dict() or {}
+        metadata_fields = doc.get("metadata_fields") or {}
+        final_payload = doc.get("final_payload") or {}
+        deal_reference = (
+            metadata_fields.get("deal_id")
+            or metadata_fields.get("hs_deal_record_id")
+            or final_payload.get("deal_id")
+            or final_payload.get("hs_deal_record_id")
+            or ""
+        )
+        primary_id = str(metadata_fields.get("primary_contact_id") or metadata_fields.get("hs_contact_id") or "").strip()
+        spouse_id = str(metadata_fields.get("hs_spouse_id") or "").strip()
+
+        if deal_reference:
+            try:
+                contacts = box_service.get_hubspot_deal_contacts(deal_reference)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Fix spouse: unable to load contacts for folder %s: %s", folder_id, exc)
+                contacts = []
+        else:
+            contacts = []
+
+        # If we have no deal context, attempt to match contact names from folder title (fallback).
+        if not contacts:
+            folder_name = entry.get("name") or entry.get("path") or ""
+            contact_match = _match_contact_for_folder_entry({"id": folder_id, "name": folder_name, "path": entry.get("path"), "url": entry.get("url")})
+            if contact_match:
+                contacts = [contact_match]
+
+        needs_spouse_fix = spouse_id and primary_id and spouse_id == primary_id
+        needs_primary_fix = False
+
+        new_primary = None
+        new_spouse = None
+        for contact in contacts:
+            contact_id = str(contact.get("id") or "").strip()
+            for assoc in contact.get("association_types", []):
+                label = (assoc.get("label") or contact.get("primaryAssociationLabel") or "").strip().lower()
+                if label in {"client", "primary", "client (primary)"}:
+                    if contact_id:
+                        new_primary = contact
+                if label in {"client's spouse", "client spouse", "spouse"}:
+                    if contact_id and contact_id != primary_id:
+                        new_spouse = contact
+                if new_primary and new_spouse:
+                    break
+            if new_primary and new_spouse:
+                break
+
+        if new_primary and str(new_primary.get("id") or "").strip() and str(new_primary.get("id") or "").strip() != primary_id:
+            needs_primary_fix = True
+        if new_spouse and str(new_spouse.get("id") or "").strip() != primary_id:
+            needs_spouse_fix = True
+
+        if not needs_spouse_fix and not needs_primary_fix:
+            continue
+
+        try:
+            contacts = box_service.get_hubspot_deal_contacts(metadata_fields.get("deal_id") or metadata_fields.get("hs_deal_record_id") or "")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Fix spouse: unable to load contacts for folder %s: %s", folder_id, exc)
+            contacts = []
+
+        if needs_primary_fix and new_primary:
+            props = new_primary.get("properties") or {}
+            primary_id = str(new_primary.get("id") or "").strip()
+            metadata_fields["primary_contact_id"] = primary_id
+            metadata_fields["primary_contact_link"] = _hubspot_contact_url(primary_id) or ""
+            metadata_fields["hs_contact_id"] = primary_id
+            metadata_fields["hs_contact_firstname"] = props.get("firstname") or metadata_fields.get("hs_contact_firstname") or ""
+            metadata_fields["hs_contact_lastname"] = props.get("lastname") or metadata_fields.get("hs_contact_lastname") or ""
+            metadata_fields["hs_contact_email"] = props.get("email") or metadata_fields.get("hs_contact_email") or ""
+            if isinstance(final_payload, dict):
+                final_payload["hs_contact_id"] = primary_id
+                final_payload["hs_contact_firstname"] = metadata_fields["hs_contact_firstname"]
+                final_payload["hs_contact_lastname"] = metadata_fields["hs_contact_lastname"]
+                final_payload["hs_contact_email"] = metadata_fields["hs_contact_email"]
+            logger.info("Fix spouse: updated primary contact for folder %s to %s", folder_id, primary_id)
+            stats["primary_updated"] += 1
+
+        if needs_spouse_fix and new_spouse:
+            props = new_spouse.get("properties") or {}
+            metadata_fields["hs_spouse_id"] = new_spouse.get("id")
+            metadata_fields["hs_spouse_firstname"] = props.get("firstname") or ""
+            metadata_fields["hs_spouse_lastname"] = props.get("lastname") or ""
+            metadata_fields["hs_spouse_email"] = props.get("email") or ""
+            metadata_fields["spouse_contact_link"] = _hubspot_contact_url(new_spouse.get("id")) or ""
+            if isinstance(final_payload, dict):
+                final_payload["hs_spouse_id"] = metadata_fields["hs_spouse_id"]
+                final_payload["hs_spouse_firstname"] = metadata_fields["hs_spouse_firstname"]
+                final_payload["hs_spouse_lastname"] = metadata_fields["hs_spouse_lastname"]
+                final_payload["hs_spouse_email"] = metadata_fields["hs_spouse_email"]
+                final_payload["spouse_contact_link"] = metadata_fields["spouse_contact_link"]
+            logger.info(
+                "Fix spouse: replaced spouse for folder %s with contact %s",
+                folder_id,
+                metadata_fields["hs_spouse_id"],
+            )
+            stats["fixed"] += 1
+        else:
+            metadata_fields.pop("hs_spouse_id", None)
+            metadata_fields.pop("hs_spouse_firstname", None)
+            metadata_fields.pop("hs_spouse_lastname", None)
+            metadata_fields.pop("hs_spouse_email", None)
+            metadata_fields.pop("spouse_contact_link", None)
+            if isinstance(final_payload, dict):
+                final_payload.pop("hs_spouse_id", None)
+                final_payload.pop("hs_spouse_firstname", None)
+                final_payload.pop("hs_spouse_lastname", None)
+                final_payload.pop("hs_spouse_email", None)
+                final_payload.pop("spouse_contact_link", None)
+            logger.info("Fix spouse: cleared spouse fields for folder %s (no alternative found)", folder_id)
+            stats["cleared"] += 1
+
+        doc["metadata_fields"] = metadata_fields
+        doc["final_payload"] = final_payload
+        doc["source"] = "fix_spouses"
+        doc["generated_at"] = datetime.now(timezone.utc)
+        doc["generated_at_iso"] = doc["generated_at"].isoformat()
+        try:
+            collection.document(folder_id).set(doc, merge=True)
+            _update_snapshot_no_deal_single(folder_id, doc)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Fix spouse: unable to persist preview for %s: %s", folder_id, exc)
+            stats["errors"].append({"folder_id": folder_id, "error": str(exc)})
+
+    return jsonify(
+        {
+            "status": "ok",
+            "processed": stats["processed"],
+            "fixed": stats["fixed"],
+            "cleared": stats["cleared"],
+            "primary_updated": stats["primary_updated"],
+            "errors": stats["errors"],
+            "message": "Spouse metadata fix completed. Refresh snapshot to view updates.",
+        }
+    ), 200
