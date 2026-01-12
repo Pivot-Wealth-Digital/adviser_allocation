@@ -482,8 +482,8 @@ def get_user_client_limits(user, tenure_limit=90):
     try:
         if start_date_str:
             start_date = datetime.fromisoformat(start_date_str).date()
-            # Adjust capacity for tenure/pod type
-            if ((date_today - start_date).days < tenure_limit) or (pod_type == "Solo Adviser"):
+            # Adjust capacity based on pod type only (no tenure-based reduction)
+            if pod_type == "Solo Adviser":
                 props["client_limit_monthly"] = 4
 
             # Compute earliest allocation week for future starters
