@@ -2,6 +2,7 @@ import os, time, secrets, json, re
 from datetime import datetime, date, timedelta
 import logging
 from collections import Counter
+from functools import lru_cache
 
 from urllib.parse import urlencode
 from flask import Flask, redirect, request, session, jsonify, render_template, render_template_string, url_for, send_from_directory
@@ -17,6 +18,8 @@ from core.allocation import (
     get_user_ids_adviser,
     build_service_household_matrix,
     refresh_capacity_override_cache,
+    get_user_meeting_details,
+    get_monday_from_weeks_ago,
 )
 from utils.firestore_helpers import (
     get_employee_leaves as get_employee_leaves_from_firestore,
@@ -140,6 +143,25 @@ API_BASE = "https://api.employmenthero.com"  # HR API base
 
 HUBSPOT_TOKEN = get_secret("HUBSPOT_TOKEN")
 HUBSPOT_HEADERS = {"Authorization": f"Bearer {HUBSPOT_TOKEN}", "Content-Type": "application/json"}
+DEFAULT_PORTAL_ID = os.getenv("HUBSPOT_PORTAL_ID", "47011873")
+
+
+@lru_cache(maxsize=1)
+def meeting_object_type_id() -> str:
+    """Return HubSpot object type id for meetings (fallback to standard id)."""
+    if not HUBSPOT_TOKEN:
+        return "0-4"
+    try:
+        resp = requests.get(
+            "https://api.hubapi.com/crm/v3/schemas/meetings",
+            headers=HUBSPOT_HEADERS,
+            timeout=8,
+        )
+        resp.raise_for_status()
+        return resp.json().get("objectTypeId") or "0-4"
+    except Exception as e:
+        logging.warning("Failed to fetch meetings schema: %s", e)
+        return "0-4"
 
 def ensure_eh_config():
     """Ensure EH OAuth config is present for current environment.
@@ -1679,6 +1701,134 @@ def availability_schedule():
     )
 
 
+@app.route("/availability/meetings")
+def availability_meetings():
+    """UI to view an adviser's individual Clarify/Kick Off meetings."""
+    try:
+        compute = request.args.get("compute") == "1"
+        weeks_back_param = request.args.get("weeks_back", "8")
+        try:
+            weeks_back = max(1, min(52, int(weeks_back_param)))
+        except ValueError:
+            weeks_back = 8
+
+        users = get_user_ids_adviser()
+        advisers = []
+        for user in users:
+            props = user.get("properties") or {}
+            taking_on_clients_value = props.get("taking_on_clients")
+
+            # Skip users with blank/None taking_on_clients
+            if taking_on_clients_value is None or str(taking_on_clients_value).strip() == "":
+                continue
+
+            advisers.append(user)
+    except Exception as e:
+        return (f"<p>Failed to load advisers: {e}</p>", 500, {"Content-Type": "text/html; charset=utf-8"})
+
+    def pretty_name(email: str) -> str:
+        local = (email or "").split("@")[0]
+        return " ".join(part.capitalize() for part in local.replace(".", " ").replace("_", " ").split()) or email
+
+    display_advisers = []
+    for user in advisers:
+        props = user.get("properties") or {}
+        email = props.get("hs_email") or ""
+        if not email:
+            continue
+        display_advisers.append({
+            "email": email,
+            "name": pretty_name(email),
+            "service_packages": props.get("client_types") or "",
+            "household_type": props.get("household_type") or "",
+        })
+
+    selected = request.args.get("email")
+    rows = []
+    error_msg = None
+    since_label = None
+    meeting_object_type = meeting_object_type_id()
+    portal_id = os.getenv("HUBSPOT_PORTAL_ID", DEFAULT_PORTAL_ID)
+
+    if selected and compute:
+        target_user = next(
+            (
+                u
+                for u in advisers
+                if (u.get("properties", {}).get("hs_email") or "").lower() == selected.lower()
+            ),
+            None,
+        )
+
+        if not target_user:
+            error_msg = f"Adviser {selected} not found."
+        else:
+            start_ts = get_monday_from_weeks_ago(n=weeks_back)
+            since_label = datetime.fromtimestamp(start_ts / 1000, tz=SYDNEY_TZ).date().isoformat()
+            try:
+                target_user = get_user_meeting_details(target_user, start_ts)
+            except Exception as e:
+                error_msg = f"Failed to fetch meetings for {selected}: {e}"
+            else:
+                meetings_raw = (target_user.get("meetings") or {}).get("results", [])
+                parsed = []
+                for item in meetings_raw:
+                    props = item.get("properties") or {}
+                    meeting_id = item.get("id")
+                    start_raw = props.get("hs_meeting_start_time") or ""
+                    start_dt = None
+                    try:
+                        start_dt = datetime.fromisoformat(start_raw.replace("Z", "+00:00"))
+                    except Exception:
+                        start_dt = None
+                    start_syd = start_dt.astimezone(SYDNEY_TZ) if start_dt else None
+                    activity_link = f"https://app.hubspot.com/contacts/{portal_id}/activities/{meeting_id}" if meeting_id else ""
+                    record_link = f"https://app.hubspot.com/contacts/{portal_id}/record/{meeting_object_type}/{meeting_id}" if meeting_id else ""
+                    parsed.append(
+                        {
+                            "id": meeting_id,
+                            "date": start_syd.strftime("%Y-%m-%d") if start_syd else start_raw,
+                            "time": start_syd.strftime("%H:%M") if start_syd else "",
+                            "start_iso": start_syd.isoformat() if start_syd else start_raw,
+                            "type": props.get("hs_activity_type") or "",
+                            "title": props.get("hs_meeting_title") or "",
+                            "outcome": props.get("hs_meeting_outcome") or "",
+                            "link": activity_link or record_link,
+                            "record_link": record_link,
+                            "activity_link": activity_link,
+                            "raw_start": start_raw,
+                            "_sort": start_syd,
+                        }
+                    )
+                parsed.sort(
+                    key=lambda m: m["_sort"] or datetime.max.replace(tzinfo=SYDNEY_TZ)
+                )
+                for item in parsed:
+                    item.pop("_sort", None)
+                rows = parsed
+
+    option_items = ['<option value="">-- Select adviser --</option>']
+    for entry in sorted(display_advisers, key=lambda item: item["name"].lower()):
+        e = entry["email"]
+        sel_attr = " selected" if selected == e else ""
+        label = f"{entry['name']}"
+        option_items.append(f"<option value=\"{e}\"{sel_attr}>{label}</option>")
+    options_html = "".join(option_items)
+
+    return render_template(
+        "availability_meetings.html",
+        rows=rows,
+        options_html=options_html,
+        today=sydney_today().isoformat(),
+        week_num=f"{sydney_today().isocalendar()[1]:02d}",
+        selected=selected or "",
+        weeks_back=weeks_back,
+        since_label=since_label,
+        compute=compute,
+        error_msg=error_msg,
+    )
+
+
 @app.route("/availability/matrix")
 def availability_matrix():
     try:
@@ -1720,6 +1870,55 @@ def availability_matrix():
             """,
             error=str(e),
         ), 500
+
+
+@app.route("/meeting/owner", methods=["POST"])
+def update_meeting_owner():
+    """Change the HubSpot owner of a meeting (Clarify/Kick Off)."""
+    if not HUBSPOT_TOKEN:
+        return jsonify({"error": "HUBSPOT_TOKEN is not configured"}), 500
+
+    payload = request.get_json(silent=True) or {}
+    meeting_id = str(payload.get("meeting_id") or payload.get("id") or "").strip()
+    new_owner_id = str(
+        payload.get("new_owner_id") or payload.get("owner_id") or ""
+    ).strip()
+
+    if not meeting_id or not new_owner_id:
+        return (
+            jsonify(
+                {
+                    "error": "meeting_id and new_owner_id are required",
+                    "payload": payload,
+                }
+            ),
+            400,
+        )
+
+    url = f"https://api.hubapi.com/crm/v3/objects/meetings/{meeting_id}"
+    try:
+        resp = requests.patch(
+            url,
+            headers=HUBSPOT_HEADERS,
+            json={"properties": {"hubspot_owner_id": new_owner_id}},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        body = resp.json()
+        return jsonify(
+            {
+                "ok": True,
+                "meeting_id": meeting_id,
+                "new_owner_id": new_owner_id,
+                "properties": body.get("properties", {}),
+            }
+        )
+    except requests.exceptions.HTTPError as e:
+        status = resp.status_code if "resp" in locals() else 500
+        return jsonify({"error": str(e), "details": getattr(resp, "text", "")}), status
+    except Exception as e:
+        logging.error("Failed to update meeting owner: %s", e)
+        return jsonify({"error": str(e)}), 500
 
 # Healthcheck
 @app.route("/_ah/warmup")

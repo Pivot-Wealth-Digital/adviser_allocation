@@ -12,6 +12,7 @@ from core.allocation import get_adviser
 from services.allocation_service import store_allocation_record
 from utils.common import SYDNEY_TZ, sydney_now
 from utils.secrets import get_secret
+from utils.http_client import post_with_retries, get_with_retries, patch_with_retries, DEFAULT_TIMEOUT
 
 allocation_bp = Blueprint("allocation_api", __name__)
 logger = logging.getLogger(__name__)
@@ -21,8 +22,8 @@ HUBSPOT_HEADERS = {
     "Authorization": f"Bearer {HUBSPOT_TOKEN}" if HUBSPOT_TOKEN else None,
     "Content-Type": "application/json",
 }
-# Google Chat webhook for allocation alerts (hardcoded)
-CHAT_WEBHOOK_URL = "https://chat.googleapis.com/v1/spaces/AAQADqcOrjo/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=TICoV6PHW8ED_C_9RQUV0JftTn9SKCfk7Ns9euSWnAw"
+# Google Chat webhook for allocation alerts (from environment/secrets)
+CHAT_WEBHOOK_URL = get_secret("CHAT_WEBHOOK_URL") or os.environ.get("CHAT_WEBHOOK_URL")
 
 _db = None
 
@@ -52,7 +53,7 @@ def send_chat_alert(payload: dict):
         logger.info("CHAT_WEBHOOK_URL not configured; skipping chat alert")
         return
     try:
-        resp = requests.post(CHAT_WEBHOOK_URL, json=payload, timeout=10)
+        resp = post_with_retries(CHAT_WEBHOOK_URL, json=payload, timeout=DEFAULT_TIMEOUT)
         if resp.status_code >= 400:
             logger.error("Chat webhook returned %s: %s", resp.status_code, resp.text)
         else:
@@ -124,7 +125,7 @@ def _fetch_deal_metadata(deal_id: str) -> Optional[dict]:
                 "deal_salutation",
             ]
         }
-        resp = requests.get(url, headers=_hubspot_headers(), params=params, timeout=10)
+        resp = get_with_retries(url, headers=_hubspot_headers(), params=params, timeout=DEFAULT_TIMEOUT)
         if resp.status_code == 404:
             logger.warning("HubSpot deal %s not found", deal_id)
             return None
@@ -212,11 +213,11 @@ def handle_allocation():
                 )
                 payload = {"properties": {"advisor": hubspot_owner_id}}
 
-                response = requests.patch(
+                response = patch_with_retries(
                     deal_update_url,
                     headers=_hubspot_headers(),
                     data=json.dumps(payload),
-                    timeout=10,
+                    timeout=DEFAULT_TIMEOUT,
                 )
                 response.raise_for_status()
 

@@ -4,7 +4,7 @@
 {% block content %}
 <div class="topbar">
   <div style="display: flex; align-items: center; gap: 16px;">
-    <a href="/" style="color: #d0d7e2; text-decoration: none; font-size: 0.9em;">← Home</a>
+    <a href="/" style="color: #d0d7e2; text-decoration: none; font-size: 0.9em;">&larr; Home</a>
     <h2>Adviser Schedule</h2>
   </div>
   <div class="datebox"><span>Today: {{ today }}</span><span>Week: {{ week_num }}</span></div>
@@ -43,7 +43,7 @@
     </div>
   </div>
   <div id="loading" style="display:none;margin-top:12px;color:var(--muted);">
-    <span>🔄 Computing adviser schedule...</span>
+    <span>&#128260; Computing adviser schedule...</span>
   </div>
 </div>
 
@@ -57,36 +57,34 @@
   <thead>
     <tr>
       <th>
-        Week
-        <div class="col-helper">Fortnight label for the schedule row</div>
+        Week Number
       </th>
       <th class="nowrap">
-        Monday Date
-        <div class="col-helper">Monday anchoring the fortnight</div>
+        Week Commencing
       </th>
       <th>
-        Clarify Count
-        <div class="col-helper">Clarify meetings booked this week</div>
+        Out Of Office
+        <span class="tooltip-icon" data-tooltip="Accounts for both personal leave and business wide events" tabindex="0">?</span>
       </th>
       <th>
-        OOO
-        <div class="col-helper">Out-of-office or closure notes</div>
+        Booked Clarifies
+        <span class="tooltip-icon" data-tooltip="Clarifies scheduled for the given week" tabindex="0">?</span>
       </th>
       <th>
-        Deal No Clarify
-        <div class="col-helper">Deals without a scheduled clarify session</div>
+        Clarifies Not Yet Booked
+        <span class="tooltip-icon" data-tooltip="Number of deals that have not yet booked a clarify that will require provisioning in the scheduler." tabindex="0">?</span>
       </th>
       <th>
-        Target
-        <div class="col-helper">Fortnight clarify target</div>
+        Capacity Utilised
+        <span class="tooltip-icon" data-tooltip="Total of booked and not yet booked, including outstanding overflow from prior fortnights." tabindex="0">?</span>
       </th>
       <th>
-        Actual
-        <div class="col-helper">Clarifies after adding carry-over</div>
+        Fortnightly Target
+        <span class="tooltip-icon" data-tooltip="Maximum number of clarifies to be completed in a given fortnight" tabindex="0">?</span>
       </th>
       <th>
-        Difference
-        <div class="col-helper">Actual minus target; overflow carries forward</div>
+        Variance
+        <span class="tooltip-icon" data-tooltip="Utilised less target. Overflow will carry forward to the next fortnight" tabindex="0">?</span>
       </th>
     </tr>
   </thead>
@@ -96,11 +94,11 @@
         <tr{% if r.is_earliest %} class="hl"{% endif %}>
           <td>{{ r.wk_label }}</td>
           <td class="nowrap">{{ r.monday }}</td>
+          <td data-field="ooo">{{ r.ooo }}</td>
           <td data-field="clarify">{{ r.clarify }}</td>
-          <td>{{ r.ooo }}</td>
           <td data-field="deals">{{ r.deals }}</td>
-          <td data-field="target">{{ r.target }}</td>
           <td data-field="actual">{{ r.actual }}</td>
+          <td data-field="target">{{ r.target }}</td>
           <td data-field="diff">{{ r.diff }}</td>
         </tr>
       {% endfor %}
@@ -257,7 +255,7 @@
       const tdTarget  = tr.querySelector('td[data-field="target"]');
       const tdActual  = tr.querySelector('td[data-field="actual"]');
       const tdDiff    = tr.querySelector('td[data-field="diff"]');
-      const tdOoo     = tr.children[3];
+      const tdOoo     = tr.querySelector('td[data-field="ooo"]');
       const oooRaw    = (tdOoo ? tdOoo.textContent : '').trim().toLowerCase();
       const isFull    = oooRaw.startsWith('full');
       const c = getNumFromCell(tdClarify);

@@ -18,7 +18,7 @@ Firestore is used as the persistent store when configured. When Firestore is not
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.12+ (for deployment; local dev supports 3.10+)
 - Google Cloud credentials if using Firestore (Application Default Credentials)
 - HubSpot Private App token with required scopes to read Users, Meetings, and Deals and update Deals
 
@@ -26,6 +26,12 @@ Install dependencies:
 
 ```bash
 pip install -r requirements.txt
+```
+
+Install test dependencies:
+
+```bash
+pip install -r requirements-test.txt
 ```
 
 
@@ -68,6 +74,55 @@ If using Firestore locally, ensure ADC is configured:
 
 ```bash
 gcloud auth application-default login
+```
+
+### Running Tests Locally
+
+```bash
+pytest --verbose
+# with coverage
+pytest --cov=. --cov-report=term-missing
+```
+
+
+## CI/CD Pipeline
+
+This project uses **Google Cloud Build** for automated testing and deployment.
+
+### How It Works
+
+- **Trigger**: Every push to `main` branch automatically starts a build
+- **Tests**: Pytest runs with coverage reporting
+- **Deployment**: If tests pass, the app deploys to Google App Engine
+- **Other branches**: Tests run but no deployment (safe for feature branches)
+
+### Build Steps
+
+1. Restore dependency cache (speeds up subsequent builds)
+2. Install production dependencies
+3. Install test dependencies
+4. Run tests with coverage
+5. Save cache for next build
+6. Deploy to App Engine (main branch only)
+
+**Build time**: 3-5 minutes first build, ~1-3 minutes subsequent builds (with cache)
+
+### Setup
+
+See [GITHUB_TRIGGER_SETUP.md](GITHUB_TRIGGER_SETUP.md) for complete setup instructions.
+
+Once configured, the pipeline runs automatically on push to main.
+
+### Monitoring
+
+View build status in [Cloud Build Console](https://console.cloud.google.com/cloud-build/builds?project=pivot-digital-466902):
+
+```bash
+# List recent builds
+gcloud builds list --project=pivot-digital-466902 --limit=10
+
+# View logs for a specific build
+gcloud builds log BUILD_ID --project=pivot-digital-466902
 ```
 
 

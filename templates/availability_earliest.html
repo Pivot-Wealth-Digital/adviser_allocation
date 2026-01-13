@@ -4,7 +4,7 @@
 {% block content %}
 <div class="topbar">
   <div style="display: flex; align-items: center; gap: 16px;">
-    <a href="/" style="color: #d0d7e2; text-decoration: none; font-size: 0.9em;">← Home</a>
+    <a href="/" style="color: #d0d7e2; text-decoration: none; font-size: 0.9em;">&larr; Home</a>
     <h2>Adviser Earliest Availability</h2>
   </div>
   <div class="datebox"><span>Today: {{ today }}</span><span>Week: {{ week_num }}</span></div>
@@ -21,7 +21,7 @@
   <p class="muted inline-guide-title">Quick guide</p>
   <ul class="inline-guide">
     <li>Select the agreement start date to centre the availability window.</li>
-    <li>Toggle “Include Non-Taking Advisers” when you need to review advisers on pause.</li>
+    <li>Toggle "Include Non-Taking Advisers" when you need to review advisers on pause.</li>
     <li>Sort any column to compare earliest week, client limits, or service package tags.</li>
   </ul>
   <div class="row">
@@ -41,29 +41,44 @@
     </div>
   </div>
   <div id="loading" style="display:none;margin-top:12px;color:var(--muted);">
-    <span>🔄 Computing adviser availability...</span>
+    <span>&#128260; Computing adviser availability...</span>
   </div>
 </div>
 
 <table>
   <thead>
     <tr>
-      <th>Adviser<div class="col-helper">Adviser full name</div></th>
-      <th data-sort="num">Taking<br/>On Clients<div class="col-helper">Yes/No based on adviser availability</div></th>
-      <th>Service<br/>Packages<div class="col-helper">Packages the adviser supports</div></th>
-      <th>Pod<br/>Type<div class="col-helper">Solo vs full pod</div></th>
-      <th>Household<br/>Type<div class="col-helper">Household types the adviser accepts</div></th>
-      <th>Client<br/>Monthly Limit<div class="col-helper">Monthly target converted from fortnight plan</div></th>
-      <th>Earliest<br/>Open Week<div class="col-helper">First week with available capacity</div></th>
-      <th class="nowrap">Monday Date<div class="col-helper">Monday that anchors the open week</div></th>
+      <th>
+        Adviser
+        <span class="tooltip-icon" data-tooltip="Are they taking on clients" tabindex="0">?</span>
+      </th>
+      <th>
+        Service Packages
+        <span class="tooltip-icon" data-tooltip="These are the service packages the adviser can service" tabindex="0">?</span>
+      </th>
+      <th>
+        Household Types
+        <span class="tooltip-icon" data-tooltip="This is an extra check to show whether the adviser is working with singles only, or couples and singles. Specific to Seed & Series A" tabindex="0">?</span>
+      </th>
+      <th>Pod Type</th>
+      <th data-sort="num">
+        Fortnightly Limit
+        <span class="tooltip-icon" data-tooltip="Maximum number of clarifies in a given fortnight" tabindex="0">?</span>
+      </th>
+      <th>Earliest Availability</th>
+      <th class="nowrap">Week Commencing</th>
     </tr>
   </thead>
   <tbody>
     {% if compute and rows %}
       {% for r in rows %}
         <tr>
-          <td>{{ r.name }}</td>
-          <td data-value="{{ r.taking_on_clients_sort }}">{{ r.taking_on_clients }}</td>
+          <td>
+            <div class="adviser-cell">
+              <span class="adviser-name">{{ r.name }}</span>
+              <span class="pill {% if not r.taking_on_clients_sort %}off{% endif %}">{{ r.taking_on_clients }}</span>
+            </div>
+          </td>
           <td>
             <div class="taglist">
               {% for t in r.tag_items %}
@@ -71,7 +86,6 @@
               {% endfor %}
             </div>
           </td>
-          <td>{{ r.pod }}</td>
           <td>
             <div class="taglist">
               {% for t in r.household_items %}
@@ -79,7 +93,8 @@
               {% endfor %}
             </div>
           </td>
-          <td>{{ r.limit }}</td>
+          <td>{{ r.pod }}</td>
+          <td data-value="{{ r.limit|replace(',', '') if r.limit else '' }}" title="{{ r.limit_hint or '' }}">{{ r.limit }}</td>
           <td>{{ r.wk_label }}</td>
           <td class="nowrap">{{ r.monday }}</td>
         </tr>
@@ -91,6 +106,64 @@
     {% endif %}
   </tbody>
 </table>
+
+<div class="card faq-card">
+  <h3 style="margin: 0 0 6px 0;">Adviser Allocation FAQ</h3>
+  <p class="muted" style="margin: 0 0 12px 0;">Expand questions below for a quick refresher on how availability is calculated.</p>
+  <div class="faq-accordion">
+    <div class="faq-item">
+      <button class="faq-question" type="button" aria-expanded="false">
+        <span>How does the algorithm pick the adviser for a client?</span>
+        <span class="faq-chevron" aria-hidden="true">&#9662;</span>
+      </button>
+      <div class="faq-answer" hidden>
+        <p>Before any assignment is made, the scheduler projects each adviser's workload at least two weeks ahead (or longer if the client's agreement start date is further out).</p>
+        <p>It models each adviser's fortnightly capacity by rolling forward existing clarifies already booked, outstanding deals and backlog, target workloads, and pod type limits. The algorithm skips any weeks where the adviser is fully out of office, then finds the first week with available capacity and no backlog.</p>
+        <p>Once every eligible adviser has an earliest open week, it filters out anyone who cannot start by the client's required date. It then chooses the adviser with the earliest available week and, if there is a tie, the lowest workload ratio (clarifies / fortnight target). If two advisers are still identical after that, it randomises the final pick so the load is shared fairly over time.</p>
+      </div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-question" type="button" aria-expanded="false">
+        <span>What happens if someone is on leave?</span>
+        <span class="faq-chevron" aria-hidden="true">&#9662;</span>
+      </button>
+      <div class="faq-answer" hidden>
+        <p>Leave data comes directly from Employment Hero and syncs into the scheduler. Each request is classified by weekday count: 1-2 days off keeps capacity the same, 3-4 days off cuts capacity for that week in half, and 5 days off marks the week as Full.</p>
+        <p>Leave automatically merges with company-wide closures or holidays, with the stricter rule taking priority. When an adviser is marked as Full, their clarify capacity resets to zero for that week (it does not roll forward), ensuring they are skipped in allocations until they return.</p>
+      </div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-question" type="button" aria-expanded="false">
+        <span>How does capacity differ for solo pods versus full pods?</span>
+        <span class="faq-chevron" aria-hidden="true">&#9662;</span>
+      </button>
+      <div class="faq-answer" hidden>
+        <p>A full-pod adviser typically manages about six clients per month (three per fortnight). For solo advisers or anyone still within their 90-day ramp-up, the system automatically reduces the target to four clients per month (two per fortnight).</p>
+        <p>All downstream logic - from backlog tracking to workload ratios - is calculated from that adjusted target so solo advisers are never overfilled and their earliest available week stays realistic.</p>
+      </div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-question" type="button" aria-expanded="false">
+        <span>What happens if there is an overflow?</span>
+        <span class="faq-chevron" aria-hidden="true">&#9662;</span>
+      </button>
+      <div class="faq-answer" hidden>
+        <p>If an adviser's clarifies exceed their fortnight target, the extra work is logged as overflow. At the start of each new scheduling window, the system adds any overflow from previous weeks into the backlog, deducts spare capacity from the backlog each week going forward, and continues rolling over any remaining excess until the backlog clears.</p>
+        <p>In the capacity table, the Difference column shows how each week tracks: positive numbers indicate overload (overflow) and negative numbers show spare capacity. Overflow automatically pushes the adviser's next open slot further into the future until their workload returns to target.</p>
+      </div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-question" type="button" aria-expanded="false">
+        <span>What does "Deal No Clarify" mean?</span>
+        <span class="faq-chevron" aria-hidden="true">&#9662;</span>
+      </button>
+      <div class="faq-answer" hidden>
+        <p>Deal No Clarify lists clients in the onboarding pipeline who already have an adviser assigned but do not yet have a clarify meeting booked. These deals are grouped by their agreement start week and count toward each adviser's backlog until a meeting is scheduled.</p>
+        <p>In the dashboard, this column acts as a quick visual check, helping operations teams spot clients who still need to be booked in so that no one slips through the cracks.</p>
+      </div>
+    </div>
+  </div>
+</div>
 
 {% endblock %}
 
@@ -140,6 +213,17 @@
 
   .inline-guide li:last-child {
     margin-bottom: 0;
+  }
+
+  .adviser-cell {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .adviser-name {
+    font-weight: 600;
   }
 
   .col-helper {
@@ -238,6 +322,23 @@
     helperToggle.addEventListener('change', applyHelperState);
     applyHelperState();
   }
+
+  // FAQ accordion toggle
+  const faqButtons = document.querySelectorAll('.faq-question');
+  faqButtons.forEach((btn) => {
+    const answer = btn.nextElementSibling;
+    if (answer) {
+      answer.hidden = true;
+    }
+    btn.addEventListener('click', () => {
+      const expanded = btn.getAttribute('aria-expanded') === 'true';
+      const nextState = !expanded;
+      btn.setAttribute('aria-expanded', nextState ? 'true' : 'false');
+      if (answer) {
+        answer.hidden = !nextState;
+      }
+    });
+  });
 })();
 </script>
 {% endblock %}

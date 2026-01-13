@@ -44,3 +44,12 @@ Thumbs.db
 *.log
 *.tmp
 *.temp
+
+# Build cache and coverage reports
+.cache/
+coverage.xml
+*.pyc
+.coverage
+
+# Node modules (if used in tooling)
+node_modules/
