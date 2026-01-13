@@ -16,49 +16,115 @@ A production Flask app that allocates HubSpot deals to advisers based on capacit
 
 | What | Details |
 |------|---------|
-| **Deployed At** | https://pivot-digital-466902.ts.r.appspot.com (Google App Engine) |
-| **Database** | Google Cloud Firestore |
-| **Integrations** | Employment Hero (HR), HubSpot (CRM), Box (Storage) |
-| **Authentication** | Employment Hero OAuth + Session-based admin |
-| **CI/CD** | Cloud Build (auto-deploy on push, 65 tests as gate) |
-| **Secrets** | Google Secret Manager |
+| **GCP Project** | `pivot-digital-466902` (Project ID) |
+| **Deployed At** | https://pivot-digital-466902.ts.r.appspot.com |
+| **Platform** | Google App Engine Standard (Python 3.12) |
+| **Region** | us-central1 |
+| **Service Name** | `default` (App Engine service) |
+| **Current Version** | `main` (active version - 100% traffic) |
+| **Database** | Google Cloud Firestore (multi-document ACID transactions) |
+| **Secrets** | Google Secret Manager (`projects/307314618542/secrets/*/versions/latest`) |
+| **Logging** | Google Cloud Logging (CloudLoggingHandler) |
+| **Integrations** | Employment Hero (HR), HubSpot (CRM), Box (Document storage), Google Chat |
+| **Authentication** | Employment Hero OAuth 2.0 + Session-based admin |
+| **CI/CD** | Cloud Build (auto-trigger on git push, 65 tests as deployment gate) |
+| **Instances** | Auto-scaled (Min: 1, Max: auto) - Check with `gcloud app instances list` |
 
 
 ## Features & Capabilities
 
 ### 🎯 Allocation System
-- Automatically assigns HubSpot deals to advisers based on earliest availability
+**What it does:** Automatically assigns HubSpot deals to advisers based on earliest availability
+
+**Data Sources:**
+- HubSpot: Deal data, adviser meetings (Clarify/Kick Off), adviser details
+- Firestore: Adviser capacity overrides, office closures, leave requests
+- Employment Hero: Adviser leave/OOO status
+
+**Behavior:**
 - Considers capacity limits, meetings, leave requests, service packages
 - Respects 2-week buffer and 52-week projection
-- Sends Google Chat notifications on allocation
-- Tracks allocation history with analytics dashboard
+- Sends Google Chat notifications on allocation (Google Chat API)
+- Stores allocation records in Firestore (`allocation_requests` collection)
+
+**Deployment:** Cloud Run via App Engine Standard, Python 3.12 runtime
 
 ### 👥 HR Integration (Employment Hero)
-- OAuth-based employee data sync
-- Leave request tracking (future approved only)
-- Automated sync endpoints for scheduling
-- Employee directory with search
+**What it does:** Syncs employee data and leave requests from Employment Hero HR system
+
+**Data Flow:**
+- OAuth 2.0 authentication (Employment Hero OAuth endpoints)
+- Tokens stored in Firestore (`eh_tokens` collection)
+- Employee data stored in Firestore (`employees` collection)
+- Leave requests stored as sub-collections (`employees/{id}/leave_requests`)
+
+**Sync Endpoints:**
+- `/sync/employees` - Fetches all employees from Employment Hero
+- `/sync/leave_requests` - Fetches future approved leave requests
+
+**UI Views:**
+- `/employees/ui` - Employee directory with search (Firestore-backed)
+- `/leave_requests/ui` - Calendar view of upcoming leave
+
+**Deployment:** Cloud Scheduler can trigger sync endpoints on schedule (recommended: every 1-12 hours)
 
 ### 📊 Availability Management
-- Real-time adviser availability calculation
-- Weekly capacity schedule breakdown
-- Meeting tracking (Clarify/Kick Off)
-- Service package and household type matrix
-- Capacity override management
-- Office closure/holiday tracking
+**What it does:** Calculates real-time adviser availability based on capacity, meetings, and leave
+
+**Data Sources:**
+- HubSpot: Meetings (Clarify/Kick Off counts), deal backlogs
+- Firestore: Leave requests, capacity overrides, office closures
+- Employment Hero: OOO/leave status
+
+**Key Features:**
+- Weekly capacity schedule breakdown per adviser
+- Service package × household type matrix
+- Capacity override management (Firestore-backed)
+- Office closure/holiday tracking (affects all advisers)
+- Multi-factor availability logic (meetings + leave + capacity)
+
+**Dashboards:**
+- `/availability/earliest` - Table of earliest-available advisers per service package
+- `/availability/schedule?email=X&compute=1` - Weekly schedule for specific adviser
+- `/availability/meetings?email=X` - Meeting list for specific adviser
+
+**Deployment:** Runs on App Engine, queries Firestore and HubSpot API
 
 ### 📁 Box Document Management
-- Automated client folder creation from HubSpot workflows
-- Metadata tagging (service package, deal info, contacts)
-- Client sharing automation
-- Metadata compliance scanning and repair
+**What it does:** Automates client folder creation and metadata tagging in Box
+
+**GCP Integration:**
+- Box JWT credentials stored in Google Secret Manager
+- Folder metadata stored in Firestore (`box_metadata` tracking)
+- Integration with HubSpot for deal details
+
+**Workflows:**
+- `/post/create_box_folder` - Creates folder from HubSpot workflow webhook
+- `/box/folder/tag/auto` - Auto-applies metadata (fetches from HubSpot)
+- `/box/folder/share` - Shares folders with specified email addresses
+
+**Admin Features:**
+- Metadata compliance scanning
+- Mismatch detection and repair
 - Collaborator management
 
+**Deployment:** App Engine triggers Box API calls, integrates with Secret Manager for credentials
+
 ### 🔐 Admin & Configuration
-- Office closure management (public holidays)
-- Adviser capacity overrides
-- Session-based authentication
-- Allocation history dashboard
+**What it does:** Provides UI and API for managing adviser constraints and system settings
+
+**Features:**
+- **Office Closures** (`/closures/ui`) - Manage public holidays (stored in Firestore)
+- **Capacity Overrides** (`/capacity_overrides/ui`) - Set adviser-specific capacity limits (stored in Firestore)
+- **Allocation History** (`/allocations/history`) - Dashboard with filtering and analytics (queried from Firestore)
+- **Session-based authentication** - Admin credentials in Secret Manager (`ADMIN_USERNAME`, `ADMIN_PASSWORD`)
+
+**Data Storage:**
+- Firestore `office_closures` collection
+- Firestore `adviser_capacity_overrides` collection
+- Firestore `allocation_requests` collection (read-only view)
+
+**Deployment:** App Engine Standard, Flask-based admin UIs, Firestore-backed
 
 
 ## Key Endpoints
@@ -147,29 +213,97 @@ Optional:
 
 ## Infrastructure & Storage
 
+### GCP Services & Resources
+
+| Service | Resource | Purpose |
+|---------|----------|---------|
+| **App Engine** | Project: `pivot-digital-466902`, Service: `default`, Region: `us-central1` | Hosts Flask application (Python 3.12 runtime) |
+| **Firestore** | Database in `pivot-digital-466902` project | Primary data store (NoSQL) |
+| **Secret Manager** | Project ID: `307314618542` (Cross-project secrets) | Stores credentials (EH, HubSpot, Box, admin passwords) |
+| **Cloud Logging** | Logs for App Engine service `default` | Application logging and monitoring |
+| **Cloud Build** | Trigger on git push to `main` branch | CI/CD pipeline (test gate + auto-deploy) |
+| **Cloud Scheduler** | (Optional, user-configured) | Triggers `/sync/employees` and `/sync/leave_requests` on schedule |
+
+### App Engine Deployment Details
+
+**Instance Management:**
+```bash
+# View active instances
+gcloud app instances list
+
+# View versions and traffic split
+gcloud app versions list
+gcloud app services describe default
+```
+
+**Current Configuration:**
+- **Runtime:** Python 3.12 (Standard Environment)
+- **Instances:** Auto-scaled (minimum 1, maximum auto)
+- **Memory:** 512 MB default per instance
+- **Timeout:** 540 seconds (request timeout)
+- **Entry Point:** `gunicorn -b :$PORT main:app`
+
 ### Database (Firestore)
 
-Collections:
-- `employees` - Employee data from Employment Hero
-- `employees/{id}/leave_requests` - Leave requests per employee
-- `office_closures` - Global holidays/office closures
-- `adviser_capacity_overrides` - Manual capacity limits
-- `allocation_requests` - Allocation history and analytics
-- `eh_tokens` - OAuth tokens
+**Project:** `pivot-digital-466902`
+
+**Collections:**
+| Collection | Purpose | Schema |
+|-----------|---------|--------|
+| `employees` | Employee data from Employment Hero | `{id, name, email, organisation_id, ...}` |
+| `employees/{id}/leave_requests` | Leave requests per employee (subcollection) | `{start_date, end_date, type, status}` |
+| `office_closures` | Global holidays/office closures | `{start_date, end_date, description, tags}` |
+| `adviser_capacity_overrides` | Manual capacity limits per adviser | `{adviser_email, effective_date, client_limit_monthly}` |
+| `allocation_requests` | Allocation history and analytics | `{deal_id, adviser_id, service_package, timestamp}` |
+| `eh_tokens` | Employment Hero OAuth tokens | `{access_token, refresh_token, expires_at}` |
+
+**Querying:**
+```bash
+# View collections in Cloud Firestore console
+gcloud firestore databases list
+```
+
+### Google Cloud Logging
+
+**Log Source:** `projects/pivot-digital-466902/logs/appengine.googleapis.com/default`
+
+**View Logs:**
+```bash
+# Stream live logs
+gcloud app logs tail -s default
+
+# View specific version logs
+gcloud app logs tail -s default --version=main
+```
 
 ### External APIs
 
-- **Employment Hero** - OAuth employee/leave data (https://api.employmenthero.com)
-- **HubSpot** - CRM data and deal allocation (Portal ID: 47011873)
-- **Box** - Document storage and metadata (Enterprise 260686117)
-- **Google Chat** - Allocation notifications
+| API | Purpose | Authentication | Project Resource |
+|-----|---------|-----------------|------------------|
+| **Employment Hero** | Employee/leave data sync | OAuth 2.0 | Credentials in Secret Manager |
+| **HubSpot** | Deal allocation, meetings, contacts | Private App Token | Portal ID: 47011873 |
+| **Box** | Folder creation and metadata | JWT Service Account | Enterprise 260686117 |
+| **Google Chat** | Allocation notifications | Webhook | Space: AAQADqcOrjo |
 
-### Secrets (Secret Manager)
+### Secrets (Google Secret Manager)
 
-- `EH_CLIENT_ID`, `EH_CLIENT_SECRET` - Employment Hero OAuth
-- `HUBSPOT_TOKEN` - HubSpot API access
-- `BOX_JWT_CONFIG_JSON` - Box service account
-- `SESSION_SECRET` - Flask session encryption
+**Secret Path Format:** `projects/307314618542/secrets/{SECRET_NAME}/versions/latest`
+
+| Secret | Purpose | Used By |
+|--------|---------|---------|
+| `EH_CLIENT_ID` | Employment Hero OAuth Client ID | oauth_service.py |
+| `EH_CLIENT_SECRET` | Employment Hero OAuth secret | oauth_service.py |
+| `HUBSPOT_TOKEN` | HubSpot API token (Private App) | allocation_routes.py, api calls |
+| `BOX_JWT_CONFIG_JSON` | Box service account JSON config | box_routes.py |
+| `SESSION_SECRET` | Flask session encryption | main.py |
+| `ADMIN_USERNAME` | Admin UI login username | main.py auth |
+| `ADMIN_PASSWORD` | Admin UI login password | main.py auth |
+| `CHAT_WEBHOOK_URL` | Google Chat webhook for notifications | allocation_routes.py |
+
+**View Secrets:**
+```bash
+gcloud secrets list --project=pivot-digital-466902
+```
 
 
 ## Running Locally
