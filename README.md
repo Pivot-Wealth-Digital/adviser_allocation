@@ -12,6 +12,100 @@ A production Flask app that allocates HubSpot deals to advisers based on capacit
 **Deployment:** Live at https://pivot-digital-466902.ts.r.appspot.com (CI/CD via Cloud Build)
 
 
+## Quick Facts
+
+| What | Details |
+|------|---------|
+| **Deployed At** | https://pivot-digital-466902.ts.r.appspot.com (Google App Engine) |
+| **Database** | Google Cloud Firestore |
+| **Integrations** | Employment Hero (HR), HubSpot (CRM), Box (Storage) |
+| **Authentication** | Employment Hero OAuth + Session-based admin |
+| **CI/CD** | Cloud Build (auto-deploy on push, 65 tests as gate) |
+| **Secrets** | Google Secret Manager |
+
+
+## Features & Capabilities
+
+### 🎯 Allocation System
+- Automatically assigns HubSpot deals to advisers based on earliest availability
+- Considers capacity limits, meetings, leave requests, service packages
+- Respects 2-week buffer and 52-week projection
+- Sends Google Chat notifications on allocation
+- Tracks allocation history with analytics dashboard
+
+### 👥 HR Integration (Employment Hero)
+- OAuth-based employee data sync
+- Leave request tracking (future approved only)
+- Automated sync endpoints for scheduling
+- Employee directory with search
+
+### 📊 Availability Management
+- Real-time adviser availability calculation
+- Weekly capacity schedule breakdown
+- Meeting tracking (Clarify/Kick Off)
+- Service package and household type matrix
+- Capacity override management
+- Office closure/holiday tracking
+
+### 📁 Box Document Management
+- Automated client folder creation from HubSpot workflows
+- Metadata tagging (service package, deal info, contacts)
+- Client sharing automation
+- Metadata compliance scanning and repair
+- Collaborator management
+
+### 🔐 Admin & Configuration
+- Office closure management (public holidays)
+- Adviser capacity overrides
+- Session-based authentication
+- Allocation history dashboard
+
+
+## Key Endpoints
+
+### Production Webhooks (HubSpot Integration)
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/post/allocate` | POST | Assign deal to earliest-available adviser |
+| `/post/create_box_folder` | POST | Create Box client folder from deal data |
+| `/box/folder/tag/auto` | POST | Apply metadata to Box folder |
+
+### Availability & Monitoring
+
+| Endpoint | Purpose |
+|----------|---------|
+| `/availability/earliest` | Show earliest-available advisers for each service package |
+| `/availability/schedule?email=X&compute=1` | View weekly capacity for specific adviser |
+| `/availability/meetings?email=X` | List Clarify/Kick Off meetings for adviser |
+| `/allocations/history` | Dashboard of allocation history with filters |
+
+### Data Sync (Scheduler-Friendly)
+
+| Endpoint | Purpose |
+|----------|---------|
+| `/sync/employees` | Sync employee data from Employment Hero |
+| `/sync/leave_requests` | Sync leave requests from Employment Hero |
+
+### Admin UI (Protected)
+
+| Endpoint | Purpose |
+|----------|---------|
+| `/closures/ui` | Manage office closures (holidays) |
+| `/capacity_overrides/ui` | Manage adviser capacity overrides |
+| `/employees/ui` | View employee directory |
+| `/leave_requests/ui` | Calendar view of upcoming leave |
+| `/box/create` | Box folder creation UI |
+
+### Authentication
+
+| Endpoint | Purpose |
+|----------|---------|
+| `/login` | Admin login page |
+| `/auth/start` | Start Employment Hero OAuth flow |
+| `/auth/callback` | OAuth callback handler |
+
+
 ## Requirements
 
 - Python 3.12+ (for deployment; local dev supports 3.10+)
@@ -49,6 +143,33 @@ Optional:
 - `BOX_IMPERSONATION_USER`: Box user email to impersonate
 - `PRESTART_WEEKS`: Adviser start buffer (default `3` weeks)
 - `PORT`: Server port (default `8080`)
+
+
+## Infrastructure & Storage
+
+### Database (Firestore)
+
+Collections:
+- `employees` - Employee data from Employment Hero
+- `employees/{id}/leave_requests` - Leave requests per employee
+- `office_closures` - Global holidays/office closures
+- `adviser_capacity_overrides` - Manual capacity limits
+- `allocation_requests` - Allocation history and analytics
+- `eh_tokens` - OAuth tokens
+
+### External APIs
+
+- **Employment Hero** - OAuth employee/leave data (https://api.employmenthero.com)
+- **HubSpot** - CRM data and deal allocation (Portal ID: 47011873)
+- **Box** - Document storage and metadata (Enterprise 260686117)
+- **Google Chat** - Allocation notifications
+
+### Secrets (Secret Manager)
+
+- `EH_CLIENT_ID`, `EH_CLIENT_SECRET` - Employment Hero OAuth
+- `HUBSPOT_TOKEN` - HubSpot API access
+- `BOX_JWT_CONFIG_JSON` - Box service account
+- `SESSION_SECRET` - Flask session encryption
 
 
 ## Running Locally
@@ -102,25 +223,7 @@ gcloud builds log BUILD_ID --stream
 3. You can then call protected routes that fetch data from EH.
 
 
-## Data Sync Endpoints
-
-These should run on a schedule (cron/job) rather than on-demand by user requests:
-
-- `GET/POST /sync/employees`: Fetch employees from EH and persist into Firestore.
-- `GET/POST /sync/leave_requests`: Fetch future approved leave requests from EH and persist under each employee.
-
-Manual fetch endpoints (return data and persist):
-
-- `GET /get/employees`
-- `GET /get/leave_requests`
-
-Lookup endpoints:
-
-- `GET /get/employee_id?email=<email>` → `{ employee_id }`
-- `GET /get/employee_leave_requests?employee_id=<id>` → `{ leave_requests: [...] }`
-- `GET /get/leave_requests_by_email?email=<email>` → reads from Firestore only; instructs to run sync if missing.
-
-### Global Holidays / Office Closures
+## Global Holidays / Office Closures
 
 To block weeks for everyone (e.g., Christmas shutdown), add documents to the Firestore collection `office_closures` with fields:
 
@@ -131,7 +234,8 @@ To block weeks for everyone (e.g., Christmas shutdown), add documents to the Fir
 
 The system classifies each affected week as `Full` (5 business days) or `Partial: N` and folds this into adviser availability the same way personal leave is handled. Weeks classified as `Full` set target capacity to 0 for all advisers.
 
-Endpoints to manage closures:
+### Management Endpoints
+
 - `GET /closures` → List current closures from `office_closures`.
 - `POST /closures` (JSON) → Add a closure:
   - Body: `{ "start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD", "description": "...", "tags": ["..."] }` (`end_date` optional; `tags` optional)
@@ -139,14 +243,16 @@ Endpoints to manage closures:
 - `DELETE /closures/<id>` → Delete a closure.
 - `GET /closures/ui` → Admin UI to add and manage closures.
 
-Admin UI highlights:
-- Topbar “Today” picker
+### Admin UI
+
+- Topbar "Today" picker
 - Add Closure card with live workdays (Mon–Fri) and a Tags input (with quick tag chips) before Description
 - Closures table with:
   - Columns: `#`, `Description` (shows tags as badges above text), `Start Date`, `End Date`, `Workdays`, `Actions`
   - Inline edit: edit tags and description in-row
 
-Admin authentication:
+### Authentication
+
 - Set `ADMIN_USERNAME` and `ADMIN_PASSWORD` (env or Secret Manager) to enable admin login.
 - `GET/POST /admin/login` → Sign in to manage closures.
 - `GET /admin/logout` → Sign out.
@@ -159,7 +265,7 @@ Admin authentication:
 - Expected payload: HubSpot workflow webhook for a Deal that includes `fields.service_package` and `fields.hs_deal_record_id`.
 - Behavior:
   - Finds eligible advisers (HubSpot Users) taking on clients for the given `service_package`.
-  - Pulls each adviser’s recent meetings, deals that have no Clarify booked, and EH leave; then computes capacity and earliest availability.
+  - Pulls each adviser's recent meetings, deals that have no Clarify booked, and EH leave; then computes capacity and earliest availability.
   - Assigns the Deal to the adviser with the earliest open week (sets HubSpot owner on the Deal).
 
 ### Allocation Algorithm
@@ -170,17 +276,6 @@ Finds the earliest week an adviser can take the deal by:
 3. Projecting 52 weeks ahead to avoid bottlenecks
 
 See [OPTIMIZATION_SUMMARY.md](OPTIMIZATION_SUMMARY.md) for technical details.
-
-
-## Other Useful Routes
-
-- `GET /` → Basic status and route list
-- `GET /test/organisations` → EH organisations (requires OAuth)
-- `GET /get/leave_requests_list` → Raw EH leave requests listing
-- `POST /post/create_box_folder` → HubSpot-triggered Box client folder creation (contact-based naming, template copy)
-- `GET /availability/earliest` → HTML table of earliest week availability for all advisers taking on clients. Columns: Email, Service Packages, Pod Type, Client Monthly Limit, Earliest Open Week.
-- `GET /availability/schedule` → UI to pick an adviser by email and view a weekly schedule table (Week label, Monday Date, Clarify Count, OOO, Deal No Clarify, Target, Actual). Highlights the earliest available week.
-- `GET /_ah/warmup` → Healthcheck
 
 
 ## Box Integration
