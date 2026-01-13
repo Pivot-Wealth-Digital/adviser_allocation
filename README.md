@@ -472,6 +472,122 @@ cron:
 - [CI_CD_SUMMARY.md](CI_CD_SUMMARY.md) - CI/CD pipeline explanation (9/10 score)
 - [DEPLOYMENT_VERIFICATION.md](DEPLOYMENT_VERIFICATION.md) - How to verify deployment and monitor health
 
+## Change Management & Handover Guide
+
+This section is for the next maintainer. Please follow these guidelines when making changes:
+
+### Making Changes to This Project
+
+**1. Before You Start**
+- Read [OPTIMIZATION_SUMMARY.md](OPTIMIZATION_SUMMARY.md) to understand the architecture
+- Understand the CI/CD process: all pushes to `main` trigger Cloud Build → Run 65 tests → Auto-deploy if tests pass
+- Know that breaking changes to the API affect HubSpot webhooks, Employment Hero OAuth, and Box integrations
+
+**2. Development Workflow**
+```bash
+# 1. Create a feature branch
+git checkout -b feature/your-feature-name
+
+# 2. Make changes
+# 3. Run tests locally
+pytest tests/ -v --cov=.
+
+# 4. Commit with clear messages
+git commit -m "Brief description of change"
+
+# 5. Push to GitHub
+git push origin feature/your-feature-name
+
+# 6. Create a PR for review (if team workflow)
+# 7. Once merged to main, Cloud Build auto-deploys
+```
+
+**3. Critical Infrastructure to Preserve**
+- ⚠️ **Don't remove or rename**: `core/allocation.py`, `services/oauth_service.py`, `middleware/rate_limiter.py`
+- ⚠️ **Don't modify without testing**: Firestore collections, Secret Manager references, environment variables
+- ⚠️ **Always test before deploying**: New code affects production immediately (auto-deploy on main)
+
+**4. Common Change Scenarios**
+
+| Scenario | What to Do |
+|----------|-----------|
+| Add new feature | Follow CI/CD workflow, add tests, ensure 65 tests still pass |
+| Update dependencies | Test thoroughly, update both `requirements.txt` and `requirements-test.txt`, verify no breaking changes |
+| Add new Firestore collection | Document in README, add helper function in `utils/firestore_helpers.py`, write tests |
+| Change API endpoint | Update HubSpot workflows that call it, test with mock payloads |
+| Update OAuth flow | Test with real Employment Hero account, verify tokens still work |
+| Add new secret | Add to Secret Manager, update `app.yaml` with reference, document in README |
+
+**5. Deployment Process**
+
+```bash
+# The deployment is automatic:
+1. Make changes locally
+2. Commit to feature branch
+3. Push to GitHub (git push origin branch-name)
+4. Create PR / merge to main
+5. Cloud Build automatically:
+   ✅ Restores pip cache
+   ✅ Installs dependencies
+   ✅ Runs all 65 tests
+   ✅ IF TESTS PASS → Deploys to App Engine
+   ✅ IF TESTS FAIL → Blocks deployment (you must fix and re-push)
+
+# Check deployment status:
+gcloud builds list --project=pivot-digital-466902 --limit=5
+```
+
+**6. Emergency Fixes**
+
+If production breaks after deployment:
+```bash
+# View current version
+gcloud app versions list --project=pivot-digital-466902
+
+# Check logs
+gcloud app logs tail -s default --project=pivot-digital-466902
+
+# Rollback to previous version
+gcloud app services set-traffic default --splits=[OLD_VERSION]=1.0 --project=pivot-digital-466902
+
+# Then fix code and re-deploy
+git revert [bad-commit]  # or fix and create new commit
+git push origin main     # Cloud Build will auto-deploy fix
+```
+
+**7. Key Contacts & Resources**
+
+| Item | Location |
+|------|----------|
+| GCP Project | `pivot-digital-466902` |
+| App URL | https://pivot-digital-466902.ts.r.appspot.com |
+| Database | Firestore (australia-southeast1) |
+| CI/CD | Cloud Build (configured in `cloudbuild.yaml`) |
+| Secrets | Secret Manager (project `307314618542`) |
+| GitHub Repo | Pivot-Wealth-Digital/adviser_allocation |
+
+**8. What NOT to Do**
+
+❌ **Don't commit secrets** - Use Secret Manager instead
+❌ **Don't skip tests** - 65 tests must pass before deploying
+❌ **Don't modify `app.yaml` region** - App Engine region is locked (australia-southeast1)
+❌ **Don't force-push to main** - It will auto-deploy broken code
+❌ **Don't delete Firestore collections** - Data loss is permanent
+
+**9. Adding Documentation**
+
+When you make changes, update:
+- **README.md** - If you change features, endpoints, or configuration
+- **OPTIMIZATION_SUMMARY.md** - If you change architecture or add modules
+- **In-code comments** - For complex logic (keep it minimal)
+
+**10. Questions or Issues?**
+
+Refer to:
+- [CI_CD_SUMMARY.md](CI_CD_SUMMARY.md) - CI/CD pipeline details
+- [DEPLOYMENT_VERIFICATION.md](DEPLOYMENT_VERIFICATION.md) - Deployment commands
+- [OPTIMIZATION_SUMMARY.md](OPTIMIZATION_SUMMARY.md) - Architecture deep-dive
+
 ## License
 
 Internal project.
