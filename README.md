@@ -1,19 +1,15 @@
 # Adviser Allocation Service
 
-A Flask app that integrates Employment Hero (HR) and HubSpot to:
+A production Flask app that allocates HubSpot deals to advisers based on capacity and availability.
 
-- Authenticate via Employment Hero OAuth and fetch employees and leave requests.
-- Store employee and leave data in Firestore for fast lookup.
-- Allocate HubSpot deals to the earliest-available adviser based on meetings, capacity, and leave.
+**Key Features:**
+- Employment Hero OAuth integration for employee and leave data
+- Firestore-backed persistence for fast lookup
+- Intelligent allocation algorithm (earliest-available adviser)
+- Rate limiting, automatic retries, TTL-based caching
+- 65 tests (100% pass rate), E2E coverage with Playwright
 
-
-## Overview
-
-- `main.py`: Flask app, Employment Hero OAuth, data sync routes, and a HubSpot webhook for allocation.
-- `allocate.py`: Core allocation logic and HubSpot queries (users, meetings, deals).
-- `services/` and `routes/`: Present but currently unused; future place for refactors.
-
-Firestore is used as the persistent store when configured. When Firestore is not configured or fails to initialize, the app degrades gracefully for OAuth token storage but will not persist employee/leave data (relevant endpoints respond with clear errors).
+**Deployment:** Live at https://pivot-digital-466902.ts.r.appspot.com (CI/CD via Cloud Build)
 
 
 ## Requirements
@@ -35,30 +31,24 @@ pip install -r requirements-test.txt
 ```
 
 
-## Environment Variables
+## Configuration
 
-- `SESSION_SECRET`: Flask session secret (any random string)
-- `USE_FIRESTORE`: `true`/`false` to enable Firestore (default `true`)
-- `EH_AUTHORIZE_URL`: Employment Hero authorize URL (default provided)
-- `EH_TOKEN_URL`: Employment Hero token URL (default provided)
-- `EH_CLIENT_ID`: Employment Hero OAuth Client ID
-- `EH_CLIENT_SECRET`: Employment Hero OAuth Client Secret
-- `EH_SCOPES`: EH scopes. Example defaults: `urn:mainapp:organisations:read urn:mainapp:employees:read urn:mainapp:leave_requests:read`
-- `REDIRECT_URI`: Public callback URL for OAuth (e.g., `https://<PROJECT-ID>.appspot.com/auth/callback` or local tunnel)
-- `HUBSPOT_TOKEN`: HubSpot Private App token (Bearer token)
-- `BOX_DEVELOPER_TOKEN`: Optional Box developer token for quick local testing (omit in production)
-- `BOX_TEMPLATE_PATH`: Box path to the client folder template (default `Team Advice/Pivot Clients/2025 Client Box Folder Template`)
-- `BOX_ACTIVE_CLIENTS_PATH`: Box path where client folders should be created (default `Team Advice/Pivot Clients/1. Active Clients`)
-- `BOX_API_BASE_URL`: Optional override for the Box API base URL (default `https://api.box.com/2.0`)
-- `BOX_REQUEST_TIMEOUT_SECONDS`: Optional HTTP timeout for Box requests (default `20`)
-- `BOX_WEBHOOK_PRIMARY_SECRET`: Secret used to validate callbacks from Box webhooks
-- `BOX_JWT_CONFIG_JSON`: JSON string containing the Box JWT configuration (recommended; point this env var at your Secret Manager value such as `projects/<project>/secrets/BOX_JWT_CONFIG_JSON/versions/latest`)
-- `BOX_JWT_CONFIG_PATH`: Optional local path to the Box JWT JSON file for development overrides (defaults to `config/box_jwt_config.json`)
-- `BOX_IMPERSONATION_USER`: Box user email/ID to impersonate so the service account sees shared folders
-- `PORT`: Optional port (default `8080`)
-- `PRESTART_WEEKS`: Weeks before an adviser's `adviser_start_date` that they can receive allocations (default `3`).
+Required environment variables (via `.env` or Secret Manager):
 
-Place them in `.env` for local dev.
+| Variable | Purpose | Example |
+|----------|---------|---------|
+| `EH_CLIENT_ID` | Employment Hero OAuth | (from EH) |
+| `EH_CLIENT_SECRET` | Employment Hero OAuth secret | (from EH) |
+| `HUBSPOT_TOKEN` | HubSpot API token | `pat-...` |
+| `REDIRECT_URI` | OAuth callback URL | `https://app.example.com/auth/callback` |
+| `BOX_JWT_CONFIG_JSON` | Box service account config | (JSON in Secret Manager) |
+| `SESSION_SECRET` | Flask session encryption | (any random string) |
+
+Optional:
+- `USE_FIRESTORE`: Enable Firestore (default `true`)
+- `BOX_IMPERSONATION_USER`: Box user email to impersonate
+- `PRESTART_WEEKS`: Adviser start buffer (default `3` weeks)
+- `PORT`: Server port (default `8080`)
 
 
 ## Running Locally
@@ -87,42 +77,21 @@ pytest --cov=. --cov-report=term-missing
 
 ## CI/CD Pipeline
 
-This project uses **Google Cloud Build** for automated testing and deployment.
+**Cloud Build** automatically tests and deploys on every push:
 
-### How It Works
+```
+Git Push → Run 65 Tests → IF PASS → Deploy to App Engine ✅
+                       → IF FAIL → Block Deployment ❌
+```
 
-- **Trigger**: Every push to `main` branch automatically starts a build
-- **Tests**: Pytest runs with coverage reporting
-- **Deployment**: If tests pass, the app deploys to Google App Engine
-- **Other branches**: Tests run but no deployment (safe for feature branches)
+- **Testing Gate**: Deployment blocked if any test fails (prevents bad code in production)
+- **Build Time**: ~1-3 minutes (with caching)
+- **Current Status**: 9/10 score (see [CI_CD_SUMMARY.md](CI_CD_SUMMARY.md) for details)
 
-### Build Steps
-
-1. Restore dependency cache (speeds up subsequent builds)
-2. Install production dependencies
-3. Install test dependencies
-4. Run tests with coverage
-5. Save cache for next build
-6. Deploy to App Engine (main branch only)
-
-**Build time**: 3-5 minutes first build, ~1-3 minutes subsequent builds (with cache)
-
-### Setup
-
-See [GITHUB_TRIGGER_SETUP.md](GITHUB_TRIGGER_SETUP.md) for complete setup instructions.
-
-Once configured, the pipeline runs automatically on push to main.
-
-### Monitoring
-
-View build status in [Cloud Build Console](https://console.cloud.google.com/cloud-build/builds?project=pivot-digital-466902):
-
+Monitor builds:
 ```bash
-# List recent builds
-gcloud builds list --project=pivot-digital-466902 --limit=10
-
-# View logs for a specific build
-gcloud builds log BUILD_ID --project=pivot-digital-466902
+gcloud builds list --limit=10
+gcloud builds log BUILD_ID --stream
 ```
 
 
@@ -193,36 +162,14 @@ Admin authentication:
   - Pulls each adviser’s recent meetings, deals that have no Clarify booked, and EH leave; then computes capacity and earliest availability.
   - Assigns the Deal to the adviser with the earliest open week (sets HubSpot owner on the Deal).
 
-### Allocation Logic (Summary)
+### Allocation Algorithm
 
-- Weeks are keyed by Monday ordinal and printed as `YYYY-Www` (ISO week) for clarity.
-- Earliest week never occurs within 2 weeks of “now” (buffer enforced).
-- Future starters can receive allocations up to `PRESTART_WEEKS` before their start date.
-- Capacity projection covers at least 52 weeks ahead to avoid premature cutoffs.
-- Deals without a Clarify are allocated before picking the earliest week:
-  - Initialize backlog with all such deals prior to the baseline week.
-  - Walk forward in non-overlapping fortnights. For each 2-week block:
-    - Add new deals from the block to the backlog.
-    - Compute spare capacity = fortnight target − clarifies(block).
-    - Consume the backlog by the spare (no double counting).
-  - The earliest available week is the first block where backlog falls to zero (clamped to the 2‑week buffer).
-- Fortnight target is derived from `client_limit_monthly / 2` (new advisers or solo pods may have a lower limit).
+Finds the earliest week an adviser can take the deal by:
+1. Checking capacity constraints (meetings, leave, deal backlog)
+2. Respecting a 2-week buffer before allocating
+3. Projecting 52 weeks ahead to avoid bottlenecks
 
-This approach prevents double counting and keeps allocations within target per fortnight.
-
-Example cURL (replace placeholders):
-
-```bash
-curl -X POST http://localhost:8080/post/allocate \
-  -H "Content-Type: application/json" \
-  -d '{
-        "object": {"objectType": "deal"},
-        "fields": {
-          "service_package": "<SERVICE_PACKAGE>",
-          "hs_deal_record_id": "<DEAL_ID>"
-        }
-      }'
-```
+See [OPTIMIZATION_SUMMARY.md](OPTIMIZATION_SUMMARY.md) for technical details.
 
 
 ## Other Useful Routes
@@ -238,10 +185,9 @@ curl -X POST http://localhost:8080/post/allocate \
 
 ## Box Integration
 
-- The allocation webhook (`POST /post/allocate`) no longer provisions Box folders; trigger `POST /post/create_box_folder` separately from workflows that need the folder.
-- A standalone webhook (`POST /post/create_box_folder`) is available for HubSpot or manual triggers that only need the folder provisioning step.
-- Local development: you can still copy your Box JWT app JSON into `config/box_jwt_config.json` (git-ignored) or set `BOX_JWT_CONFIG_PATH` to an alternate location. Ensure the impersonated Box user (`BOX_IMPERSONATION_USER`) has access to both the template and destination folders.
-- Production: prefer storing the JSON in Secret Manager (e.g. `BOX_JWT_CONFIG_JSON`) and wiring `BOX_JWT_CONFIG_JSON` in `app.yaml` to that secret. Also provide `BOX_WEBHOOK_PRIMARY_SECRET` and any other Box env vars via app.yaml or your deployment pipeline.
+- `POST /post/create_box_folder` provisions client folders (from HubSpot workflows)
+- Credentials stored in Secret Manager (`BOX_JWT_CONFIG_JSON`), not in code
+- Local dev: Set `BOX_JWT_CONFIG_PATH` to `config/box_jwt_config.json` (git-ignored)
 
 
 ## Scheduling (Recommended)
@@ -267,29 +213,36 @@ cron:
 
 ## Troubleshooting
 
-- Missing HUBSPOT token: Many HubSpot calls will raise "HUBSPOT_TOKEN is not configured".
-- Firestore not configured: Data sync/lookup endpoints that persist/read will error clearly. Use `USE_FIRESTORE=false` for local-only OAuth testing.
-- OAuth state mismatch: Clear cookies or restart flow from `/auth/start`.
-- Employment Hero: Ensure `REDIRECT_URI` exactly matches your app’s registered URI.
-
-Logs to watch:
-- Allocation steps (per adviser) and capacity table output in the server logs.
-- Firestore init warnings (fall back to session when Firestore isn’t available).
-
-Common allocation questions:
-- “Earliest week is too soon”: The 2‑week buffer clamps earliest possible week; ensure system time and timezone are correct.
-- “Earliest week is far in the future”: Usually reflects backlog vs. target. Verify deals-without-clarify volume and adviser target; the system projects at least 52 weeks ahead and consumes backlog per fortnight target.
-- “All advisers show the same week”: Ensure inputs differ (meetings, leaves, deals). The search starts from the first capacity key on/after the buffered week, not index 0.
+| Issue | Solution |
+|-------|----------|
+| OAuth fails | Verify `REDIRECT_URI` matches EH config exactly |
+| Firestore errors | Set `USE_FIRESTORE=false` for local OAuth testing only |
+| Allocation too early/late | Check system time, timezone, and adviser meeting data |
+| Test failures | Run `pytest --verbose` to see full output; check Cloud Build logs for CI issues |
 
 
-## Notes And Future Work
+## Architecture
 
-- Firestore helpers are duplicated in `main.py` and `allocate.py`. Consider moving them to `services/firestore_service.py` and importing from there.
-- Consider adding retry/backoff on HubSpot API calls.
-- `services/` and `routes/` scaffolds are empty and can be used for a cleaner structure.
-- Add tests for date helpers (`get_monday_from_weeks_ago`, `classify_leave_weeks`) and capacity computations.
+**Core Modules:**
+- `core/allocation.py` - Deal allocation algorithm (capacity, availability)
+- `services/oauth_service.py` - OAuth token lifecycle management
+- `utils/http_client.py` - HTTP requests with auto-retry (3x, exponential backoff)
+- `utils/cache_utils.py` - TTL-based caching (replaces indefinite @lru_cache)
+- `middleware/rate_limiter.py` - Rate limiting (50 req/hour default)
+- `utils/firestore_helpers.py` - Firestore CRUD operations
 
+**Infrastructure:**
+- **Database**: Firestore (employees, leaves, closures, capacity overrides)
+- **APIs**: Employment Hero, HubSpot, Box (with automatic retries)
+- **Testing**: 65 tests (unit + E2E with Playwright), 100% pass rate
+- **Deployment**: Google App Engine with Cloud Build CI/CD
+
+## Documentation
+
+- [OPTIMIZATION_SUMMARY.md](OPTIMIZATION_SUMMARY.md) - Full optimization details and refactoring history
+- [CI_CD_SUMMARY.md](CI_CD_SUMMARY.md) - CI/CD pipeline explanation (9/10 score)
+- [DEPLOYMENT_VERIFICATION.md](DEPLOYMENT_VERIFICATION.md) - How to verify deployment and monitor health
 
 ## License
 
-Internal project. No license specified.
+Internal project.
