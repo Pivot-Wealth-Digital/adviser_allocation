@@ -19,7 +19,7 @@ A production Flask app that allocates HubSpot deals to advisers based on capacit
 | **GCP Project** | `pivot-digital-466902` (Project ID) |
 | **Deployed At** | https://pivot-digital-466902.ts.r.appspot.com |
 | **Platform** | Google App Engine Standard (Python 3.12) |
-| **Region** | us-central1 |
+| **Region** | australia-southeast1 |
 | **Service Name** | `default` (App Engine service) |
 | **Current Version** | `main` (active version - 100% traffic) |
 | **Database** | Google Cloud Firestore (multi-document ACID transactions) |
@@ -217,7 +217,7 @@ Optional:
 
 | Service | Resource | Purpose |
 |---------|----------|---------|
-| **App Engine** | Project: `pivot-digital-466902`, Service: `default`, Region: `us-central1` | Hosts Flask application (Python 3.12 runtime) |
+| **App Engine** | Project: `pivot-digital-466902`, Service: `default`, Region: `australia-southeast1` | Hosts Flask application (Python 3.12 runtime) |
 | **Firestore** | Database in `pivot-digital-466902` project | Primary data store (NoSQL) |
 | **Secret Manager** | Project ID: `307314618542` (Cross-project secrets) | Stores credentials (EH, HubSpot, Box, admin passwords) |
 | **Cloud Logging** | Logs for App Engine service `default` | Application logging and monitoring |
