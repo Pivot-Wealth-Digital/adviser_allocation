@@ -11,6 +11,7 @@ from boxsdk import JWTAuth, Client
 from boxsdk.exception import BoxAPIException
 
 from utils.secrets import get_secret
+from utils.common import get_firestore_client
 
 DEFAULT_BOX_API_BASE_URL = "https://api.box.com/2.0"
 FORBIDDEN_CHARS = set('\\/:*?"<>|')
