@@ -743,7 +743,7 @@ class BoxFolderService:
 
 BOX_API_BASE_URL = os.environ.get("BOX_API_BASE_URL", DEFAULT_BOX_API_BASE_URL)
 BOX_TEMPLATE_PATH = os.environ.get(
-    "BOX_TEMPLATE_PATH", "Team Advice/Pivot Clients/2025 Client Box Folder Template"
+    "BOX_TEMPLATE_PATH", "Team Advice/Pivot Clients/2026 Client Box Folder Template"
 )
 # Note: "1. Active Clients" folder ID is 89432789614
 BOX_ACTIVE_CLIENTS_PATH = os.environ.get(
