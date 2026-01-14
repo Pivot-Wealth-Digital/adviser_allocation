@@ -742,9 +742,61 @@ class BoxFolderService:
 
 
 BOX_API_BASE_URL = os.environ.get("BOX_API_BASE_URL", DEFAULT_BOX_API_BASE_URL)
-BOX_TEMPLATE_PATH = os.environ.get(
-    "BOX_TEMPLATE_PATH", "Team Advice/Pivot Clients/2026 Client Box Folder Template"
-)
+
+# Cache for Box template path (refreshed every 5 minutes or on settings update)
+_BOX_TEMPLATE_PATH_CACHE: Optional[str] = None
+_BOX_TEMPLATE_PATH_CACHE_TIME: float = 0
+BOX_TEMPLATE_PATH_CACHE_TTL: float = 300  # 5 minutes
+
+
+def get_box_template_path_from_settings() -> str:
+    """Get Box template path from Firestore settings, with fallback to env var.
+
+    First checks Firestore `system_settings/box_config` document for `template_folder_path`.
+    Falls back to `BOX_TEMPLATE_PATH` environment variable if not found or unavailable.
+    Uses 5-minute cache to avoid excessive Firestore reads.
+    """
+    global _BOX_TEMPLATE_PATH_CACHE, _BOX_TEMPLATE_PATH_CACHE_TIME
+
+    now = time.time()
+    if _BOX_TEMPLATE_PATH_CACHE and (now - _BOX_TEMPLATE_PATH_CACHE_TIME) < BOX_TEMPLATE_PATH_CACHE_TTL:
+        return _BOX_TEMPLATE_PATH_CACHE
+
+    try:
+        db = get_firestore_client()
+        if db:
+            doc = db.collection("system_settings").document("box_config").get()
+            if doc.exists:
+                data = doc.to_dict() or {}
+                path = (data.get("template_folder_path") or "").strip()
+                if path:
+                    logger.info("Using Box template path from Firestore: %s", path)
+                    _BOX_TEMPLATE_PATH_CACHE = path
+                    _BOX_TEMPLATE_PATH_CACHE_TIME = now
+                    return path
+    except Exception as exc:
+        logger.warning("Failed to load Box template path from Firestore: %s", exc)
+
+    # Fallback to environment variable
+    fallback = os.environ.get(
+        "BOX_TEMPLATE_PATH",
+        "Team Advice/Pivot Clients/2026 Client Box Folder Template"
+    )
+    logger.info("Using Box template path from environment variable: %s", fallback)
+    _BOX_TEMPLATE_PATH_CACHE = fallback
+    _BOX_TEMPLATE_PATH_CACHE_TIME = now
+    return fallback
+
+
+def refresh_box_template_path_cache() -> None:
+    """Clear cached Box template path (call after updating settings in Firestore)."""
+    global _BOX_TEMPLATE_PATH_CACHE, _BOX_TEMPLATE_PATH_CACHE_TIME
+    _BOX_TEMPLATE_PATH_CACHE = None
+    _BOX_TEMPLATE_PATH_CACHE_TIME = 0
+    logger.info("Cleared Box template path cache")
+
+
+BOX_TEMPLATE_PATH = get_box_template_path_from_settings()
 # Note: "1. Active Clients" folder ID is 89432789614
 BOX_ACTIVE_CLIENTS_PATH = os.environ.get(
     "BOX_ACTIVE_CLIENTS_PATH", "Team Advice/Pivot Clients/1. Active Clients"

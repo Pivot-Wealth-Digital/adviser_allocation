@@ -1,0 +1,73 @@
+{% extends 'layout.html' %}
+{% set title = 'Box Settings' %}
+
+{% block content %}
+<div class="topbar">
+  <div>
+    <a href="/">← Home</a>
+    <h2>Box Configuration</h2>
+  </div>
+  <div class="datebox">
+    <span>Today:</span>
+    <input type="date" value="{{ today }}" readonly />
+  </div>
+  <div id="toast-ok" class="msg ok" style="display:none"></div>
+  <div id="toast-err" class="msg err" style="display:none"></div>
+</div>
+
+<div class="card">
+  <h3>Box Template Folder Path</h3>
+  <p style="color:#666;margin-bottom:16px">
+    Configure the Box folder used as a template when creating new client folders.
+    This path should point to your yearly template (e.g., "2026 Client Box Folder Template").
+  </p>
+
+  <div class="row" style="margin-bottom:12px">
+    <div style="flex:1">
+      <label for="template-path">Template Folder Path</label>
+      <input
+        id="template-path"
+        type="text"
+        value="{{ settings.template_folder_path }}"
+        placeholder="Team Advice/Pivot Clients/2026 Client Box Folder Template"
+        style="width:100%"
+      />
+      <div style="font-size:0.85em;color:#888;margin-top:4px">
+        Current: <code>{{ settings.template_folder_path }}</code>
+      </div>
+    </div>
+  </div>
+
+  <div class="row" style="margin-bottom:12px">
+    <div style="flex:1">
+      <label for="notes">Notes (optional)</label>
+      <input
+        id="notes"
+        type="text"
+        placeholder="e.g., Updated for 2026 template"
+        style="width:100%"
+      />
+    </div>
+  </div>
+
+  <div class="row" style="gap:8px">
+    <button id="test-path" style="background:#666">Test Path</button>
+    <button id="save-settings" style="background:#0a7">Save Settings</button>
+  </div>
+
+  <div id="test-result" style="margin-top:12px;padding:12px;border-radius:4px;display:none"></div>
+
+  {% if settings.updated_at %}
+  <div style="margin-top:20px;padding:12px;background:#f5f5f5;border-radius:4px;font-size:0.9em">
+    <strong>Last Updated:</strong> {{ settings.updated_at }}<br>
+    {% if settings.notes %}
+    <strong>Notes:</strong> {{ settings.notes }}
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/box_settings.js') }}"></script>
+{% endblock %}

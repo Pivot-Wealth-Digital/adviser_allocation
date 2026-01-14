@@ -897,6 +897,144 @@ def capacity_overrides_ui():
     )
 
 
+@app.route("/settings/box", methods=["GET"])
+def get_box_settings():
+    """Get current Box configuration from Firestore or environment."""
+    if not db:
+        return jsonify({"error": "Firestore not configured"}), 400
+
+    try:
+        doc = db.collection("system_settings").document("box_config").get()
+        if doc.exists:
+            data = doc.to_dict() or {}
+            return jsonify({
+                "template_folder_path": data.get("template_folder_path", ""),
+                "updated_at": data.get("updated_at"),
+                "updated_by": data.get("updated_by"),
+                "notes": data.get("notes", ""),
+            }), 200
+        else:
+            # Return environment variable default
+            from services.box_folder_service import BOX_TEMPLATE_PATH
+            return jsonify({
+                "template_folder_path": BOX_TEMPLATE_PATH,
+                "updated_at": None,
+                "updated_by": None,
+                "notes": "Using default from environment variable",
+            }), 200
+    except Exception as exc:
+        logger.error("Failed to load Box settings: %s", exc)
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/settings/box", methods=["PUT"])
+def update_box_settings():
+    """Update Box configuration (admin only)."""
+    if not db:
+        return jsonify({"error": "Firestore not configured"}), 400
+    if not is_authenticated():
+        return jsonify({"error": "Unauthorized"}), 401
+    if not request.is_json:
+        return jsonify({"error": "Expected application/json"}), 415
+
+    payload = request.get_json() or {}
+    template_path = (payload.get("template_folder_path") or "").strip()
+    notes = (payload.get("notes") or "").strip()
+
+    if not template_path:
+        return jsonify({"error": "template_folder_path is required"}), 400
+
+    try:
+        doc_data = {
+            "template_folder_path": template_path,
+            "updated_at": sydney_now().isoformat(),
+            "updated_by": session.get("username", "admin"),
+            "notes": notes,
+        }
+        db.collection("system_settings").document("box_config").set(doc_data)
+
+        # Clear cache so new path is used immediately
+        from services.box_folder_service import refresh_box_template_path_cache
+        refresh_box_template_path_cache()
+
+        logger.info("Updated Box template path to: %s", template_path)
+        return jsonify(doc_data), 200
+    except Exception as exc:
+        logger.error("Failed to update Box settings: %s", exc)
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/settings/box/test", methods=["POST"])
+def test_box_path():
+    """Test if a Box folder path is valid."""
+    if not is_authenticated():
+        return jsonify({"error": "Unauthorized"}), 401
+    if not request.is_json:
+        return jsonify({"error": "Expected application/json"}), 415
+
+    payload = request.get_json() or {}
+    test_path = (payload.get("path") or "").strip()
+
+    if not test_path:
+        return jsonify({"error": "path is required"}), 400
+
+    try:
+        from services.box_folder_service import ensure_box_service
+        service = ensure_box_service()
+        if not service:
+            return jsonify({"error": "Box service not configured"}), 500
+
+        # Try to resolve the path to get folder ID
+        folder_id = service._resolve_path(test_path)
+        folder_info = service._get_folder_details(folder_id)
+
+        return jsonify({
+            "valid": True,
+            "folder_id": folder_id,
+            "folder_name": folder_info.get("name"),
+            "message": f"✅ Path is valid (Folder ID: {folder_id})",
+        }), 200
+    except Exception as exc:
+        logger.warning("Box path test failed for '%s': %s", test_path, exc)
+        return jsonify({
+            "valid": False,
+            "error": str(exc),
+            "message": f"❌ Path not found: {exc}",
+        }), 400
+
+
+@app.route("/settings/box/ui")
+def box_settings_ui():
+    """UI for managing Box configuration."""
+    if not db:
+        return (
+            "<html><body><p>Firestore is not configured; cannot manage Box settings.</p></body></html>",
+            400,
+            {"Content-Type": "text/html; charset=utf-8"},
+        )
+
+    try:
+        doc = db.collection("system_settings").document("box_config").get()
+        if doc.exists:
+            settings = doc.to_dict() or {}
+        else:
+            from services.box_folder_service import BOX_TEMPLATE_PATH
+            settings = {
+                "template_folder_path": BOX_TEMPLATE_PATH,
+                "updated_at": None,
+                "notes": "Using default from environment variable",
+            }
+    except Exception as exc:
+        logger.warning("Failed to load Box settings for UI: %s", exc)
+        settings = {"template_folder_path": "", "updated_at": None, "notes": ""}
+
+    return render_template(
+        "box_settings_ui.html",
+        settings=settings,
+        today=sydney_today().isoformat(),
+    )
+
+
 @app.route("/closures/ui")
 def closures_ui():
     """Simple UI to create and list global office closures (holidays)."""
