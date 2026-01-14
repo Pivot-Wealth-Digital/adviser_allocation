@@ -74,7 +74,7 @@ th, td{white-space:normal;}
 .faq-card{margin-top:16px}
 .faq-accordion{display:flex;flex-direction:column;gap:10px}
 .faq-item{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:#fff}
-.faq-question{width:100%;text-align:left;padding:12px 14px;background:none;border:none;display:flex;align-items:center;justify-content:space-between;gap:10px;font-weight:600;font-size:1em;cursor:pointer}
+.faq-question{width:100%;text-align:left;padding:12px 14px;background:none;border:none;display:flex;align-items:center;justify-content:space-between;gap:10px;font-weight:600;font-size:1em;cursor:pointer;color:var(--text)}
 .faq-question:hover{background:#f7f9fc}
 .faq-question:focus-visible{outline:2px solid var(--brand);outline-offset:3px}
 .faq-answer{padding:0 14px 14px 14px;line-height:1.5;color:var(--text)}
