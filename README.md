@@ -562,24 +562,36 @@ See [OPTIMIZATION_SUMMARY.md](OPTIMIZATION_SUMMARY.md) for technical details.
 - Local dev: Set `BOX_JWT_CONFIG_PATH` to `config/box_jwt_config.json` (git-ignored)
 
 
-## Scheduling (Recommended)
+## Scheduling (Active in Cloud Scheduler)
 
-Run these on a schedule to keep Firestore fresh:
+Cloud Scheduler keeps Firestore fresh with automated syncs. **Currently active jobs:**
 
-- Every 6–12 hours: `POST /sync/employees`
-- Every 30–60 minutes (business hours): `POST /sync/leave_requests`
+### Employment Hero Sync Jobs
 
-Example App Engine `cron.yaml` (if deployed on GAE):
+| Job | Schedule | Frequency | Endpoint | Target | Last Run |
+|-----|----------|-----------|----------|--------|----------|
+| `eh-employees-sync-daily` | `0 0 * * 1` (Australia/Sydney) | Weekly (Mondays @ 1:00 PM AEDT) | `GET /sync/employees` | App Engine | Recent |
+| `eh-leave-requests-sync-daily` | `0 0 * * 1-5` (Australia/Sydney) | Weekdays @ 1:00 PM AEDT | `GET /sync/leave_requests` | App Engine | Recent |
 
-```yaml
-cron:
-- description: sync employees
-  url: /sync/employees
-  schedule: every 12 hours
+**Retry Policy:** Max 1 retry with 5s–1hr exponential backoff
 
-- description: sync leave requests
-  url: /sync/leave_requests
-  schedule: every 1 hours
+### HubSpot Sync Jobs
+
+| Job | Schedule | Frequency | Endpoint | Target |
+|-----|----------|-----------|----------|--------|
+| `hubspot-sync-users-daily` | `0 0 * * *` | Daily @ 1:00 PM AEDT | `/hubspot/incremental` | Cloud Run |
+| `hubspot-sync-deals-daily` | `30 0 * * *` | Daily @ 1:30 PM AEDT | `/hubspot/incremental` | Cloud Run |
+| `hubspot-sync-meetings-daily` | `0 1 * * *` | Daily @ 2:00 PM AEDT | `/hubspot/incremental` | Cloud Run |
+| `hubspot-sync-contacts-daily` | `15 0 * * *` | Daily @ 1:15 PM AEDT | `/hubspot/incremental` | Cloud Run |
+| `hubspot-sync-companies-daily` | `45 0 * * *` | Daily @ 1:45 PM AEDT | `/hubspot/incremental` | Cloud Run |
+
+**Retry Policy:** Max 5 retries with 5s–1hr exponential backoff, 180s attempt deadline
+
+### View Active Jobs
+
+```bash
+gcloud scheduler jobs list --project=pivot-digital-466902 --location=australia-southeast1
+gcloud scheduler jobs describe eh-employees-sync-daily --project=pivot-digital-466902 --location=australia-southeast1
 ```
 
 
