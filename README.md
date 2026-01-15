@@ -12,6 +12,19 @@ A production Flask app that allocates HubSpot deals to advisers based on capacit
 **Deployment:** Live at https://pivot-digital-466902.ts.r.appspot.com (CI/CD via Cloud Build)
 
 
+## Features at a Glance
+
+This system automates adviser allocation and client onboarding workflows with four core capabilities:
+
+1. **[Adviser Allocation Automation](#allocation-system)** - Automatically assigns HubSpot deals to advisers based on capacity and availability
+2. **[Box Folder Management](#box-document-management)** - Creates and tags client folders from deal creation webhooks
+3. **[Availability Dashboards](#availability-management)** - Real-time visibility into adviser schedules, meetings, and capacity
+4. **[Admin Configuration Tools](#admin--configuration)** - Manage office closures, capacity overrides, and allocation history
+5. **[HR Integration](#hr-integration-employment-hero)** - Syncs employee data and leave requests from Employment Hero
+
+→ [Jump to Architecture](#architecture)
+
+
 ## Quick Facts
 
 | What | Details |
@@ -49,6 +62,27 @@ A production Flask app that allocates HubSpot deals to advisers based on capacit
 
 **Deployment:** Cloud Run via App Engine Standard, Python 3.12 runtime
 
+**Workflow Diagram:**
+
+```mermaid
+sequenceDiagram
+    participant HS as HubSpot
+    participant Webhook as /post/allocate
+    participant Algo as Allocation Algorithm
+    participant FS as Firestore
+    participant GC as Google Chat
+
+    HS->>Webhook: Deal Created Event
+    Webhook->>Algo: Process Deal (service_package, household_type)
+    Algo->>FS: Fetch leave requests, closures, overrides
+    Algo->>HS: Fetch meetings, adviser profiles
+    Algo->>Algo: Calculate earliest availability (26-52 weeks)
+    Algo->>HS: Update deal owner field
+    Algo->>FS: Store allocation record
+    Algo->>GC: Send notification
+    Webhook-->>HS: Success response
+```
+
 ### 👥 HR Integration (Employment Hero)
 **What it does:** Syncs employee data and leave requests from Employment Hero HR system
 
@@ -61,6 +95,34 @@ A production Flask app that allocates HubSpot deals to advisers based on capacit
 **Sync Endpoints:**
 - `/sync/employees` - Fetches all employees from Employment Hero
 - `/sync/leave_requests` - Fetches future approved leave requests
+
+**Workflow Diagram:**
+
+```mermaid
+sequenceDiagram
+    participant CS as Cloud Scheduler
+    participant App as Flask App
+    participant EH as Employment Hero API
+    participant FS as Firestore
+    participant Alloc as Allocation Algorithm
+
+    Note over CS,App: Scheduled Sync (every 6-12 hours)
+    CS->>App: Trigger /sync/employees
+    App->>EH: GET /api/v1/.../employees
+    EH-->>App: Employee List
+    App->>FS: Store in employees collection
+
+    Note over CS,App: Scheduled Sync (every 30-60 min)
+    CS->>App: Trigger /sync/leave_requests
+    App->>EH: GET /api/v1/.../leave_requests
+    EH-->>App: Approved Future Leave
+    App->>FS: Store in employees/{id}/leave_requests
+
+    Note over Alloc,FS: During Allocation
+    Alloc->>FS: Query leave requests
+    FS-->>Alloc: Return OOO dates
+    Alloc->>Alloc: Exclude unavailable weeks
+```
 
 **UI Views:**
 - `/employees/ui` - Employee directory with search (Firestore-backed)
@@ -88,6 +150,31 @@ A production Flask app that allocates HubSpot deals to advisers based on capacit
 - `/availability/schedule?email=X&compute=1` - Weekly schedule for specific adviser
 - `/availability/meetings?email=X` - Meeting list for specific adviser
 
+**Workflow Diagram:**
+
+```mermaid
+graph LR
+    A[Availability System] --> B[/availability/earliest]
+    A --> C[/availability/schedule]
+    A --> D[/availability/meetings]
+
+    B --> E[Show Earliest Week per Adviser]
+    C --> F[Weekly Schedule Breakdown]
+    D --> G[Meeting Details List]
+
+    E --> H[(Data Sources)]
+    F --> H
+    G --> H
+
+    H --> I[HubSpot: Meetings, Deals, Users]
+    H --> J[Firestore: Leave, Closures, Overrides]
+    H --> K[Employment Hero: OOO Status]
+
+    style B fill:#e1f5ff
+    style C fill:#e1f5ff
+    style D fill:#e1f5ff
+```
+
 **Deployment:** Runs on App Engine, queries Firestore and HubSpot API
 
 ### 📁 Box Document Management
@@ -108,6 +195,32 @@ A production Flask app that allocates HubSpot deals to advisers based on capacit
 - Mismatch detection and repair
 - Collaborator management
 
+**Workflow Diagram:**
+
+```mermaid
+flowchart TD
+    A[HubSpot Deal Created] --> B{Which Webhook?}
+    B -->|1. Create Folder| C[/box/folder/create]
+    B -->|2. Apply Metadata| D[/box/folder/tag/auto]
+
+    C --> E[Copy Box Template Folder]
+    E --> F[Generate Client Folder Name]
+    F --> G{Name Conflict?}
+    G -->|Yes| H[Add suffix: 2, 3, ...]
+    G -->|No| I[Create Folder]
+    H --> I
+    I --> J[Return Folder ID & URL]
+
+    D --> K[Fetch Deal from HubSpot]
+    K --> L[Build Metadata Dictionary]
+    L --> M{All Required Fields?}
+    M -->|No| N[Search HubSpot Contacts]
+    M -->|Yes| O[Apply Metadata Template]
+    N --> O
+    O --> P[Update HubSpot Deal Property]
+    P --> Q[Share Folder with Client]
+```
+
 **Deployment:** App Engine triggers Box API calls, integrates with Secret Manager for credentials
 
 ### 🔐 Admin & Configuration
@@ -123,6 +236,36 @@ A production Flask app that allocates HubSpot deals to advisers based on capacit
 - Firestore `office_closures` collection
 - Firestore `adviser_capacity_overrides` collection
 - Firestore `allocation_requests` collection (read-only view)
+
+**Configuration Diagram:**
+
+```mermaid
+graph TD
+    A[Admin UI] --> B[Office Closures]
+    A --> C[Capacity Overrides]
+    A --> D[Allocation History]
+    A --> E[Box Settings]
+
+    B --> F[(/closures/ui)]
+    C --> G[(/capacity_overrides/ui)]
+    D --> H[(/allocations/history)]
+    E --> I[(/settings/box/ui)]
+
+    F --> J[(Firestore: office_closures)]
+    G --> K[(Firestore: adviser_capacity_overrides)]
+    H --> L[(Firestore: allocation_requests)]
+    I --> M[(Firestore: system_settings)]
+
+    J --> N[Affects All Advisers]
+    K --> O[Adviser-Specific Limits]
+    L --> P[Analytics & Audit Trail]
+    M --> Q[Box Template Path]
+
+    style F fill:#fff4e6
+    style G fill:#fff4e6
+    style H fill:#fff4e6
+    style I fill:#fff4e6
+```
 
 **Deployment:** App Engine Standard, Flask-based admin UIs, Firestore-backed
 
@@ -587,6 +730,13 @@ Refer to:
 - [CI_CD_SUMMARY.md](CI_CD_SUMMARY.md) - CI/CD pipeline details
 - [DEPLOYMENT_VERIFICATION.md](DEPLOYMENT_VERIFICATION.md) - Deployment commands
 - [OPTIMIZATION_SUMMARY.md](OPTIMIZATION_SUMMARY.md) - Architecture deep-dive
+
+## Diagrams
+
+All workflow diagrams use [Mermaid](https://mermaid.js.org/) syntax and render automatically in GitHub, GitLab, and most markdown viewers. To edit:
+- Use the [Mermaid Live Editor](https://mermaid.live/)
+- Test changes before committing
+- Keep diagrams simple (max 15 nodes for readability)
 
 ## License
 
