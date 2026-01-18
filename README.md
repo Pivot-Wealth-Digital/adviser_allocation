@@ -37,7 +37,7 @@ See [Configuration Guide](docs/CONFIGURATION.md) for environment variable setup.
 
 | Feature | Purpose | Documentation |
 |---------|---------|---------------|
-| **Adviser Allocation** | Automatically assign HubSpot deals to advisers based on earliest availability | [Architecture](ARCHITECTURE.md) |
+| **Adviser Allocation** | Automatically assign HubSpot deals to advisers based on earliest availability | [Architecture](ARCHITECTURE.md#allocation-algorithm) |
 | **Availability Dashboard** | Real-time view of adviser schedules, capacity, and meetings | [User Guide](docs/user-guide.md) |
 | **Box Folder Management** | Create and tag client folders from HubSpot deals | [User Guide](docs/user-guide.md) |
 | **Admin Tools** | Manage office closures, capacity overrides, Box settings | [User Guide](docs/user-guide.md) |
