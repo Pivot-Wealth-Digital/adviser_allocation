@@ -62,13 +62,115 @@ Use **View Adviser Schedule** to inspect weekly capacity for a single adviser an
 
 ---
 
-## 4. Manage Closures
+## 4. Admin Tools
 
-Closures affect both availability and scheduling.
+### 4.1 Manage Closures
 
-- Add single- or multi-day leave blocks for advisers or global holidays.
-- Specify tags such as “Public Holiday” or “Office Maintenance” for reporting.
-- All scheduling views respect closures automatically; one-day leave zeros that specific day, while multi-day leave wipes the full week.
+Closures affect both availability and scheduling calculations for advisers.
+
+#### Adding Office Closures
+
+1. Open **Manage Closures** (`/closures/ui`)
+2. Click **Add New Closure**
+3. Fill in the following:
+   - **Start Date** – First day of closure (required)
+   - **End Date** – Last day of closure (required; can be same day for single-day closures)
+   - **Description** – Brief explanation (e.g., "Public Holiday - Australia Day")
+   - **Tags** – Comma-separated labels for reporting (e.g., "Public Holiday", "Office Maintenance", "Training")
+   - **Scope** – Choose one:
+     - **Global** – Affects all advisers (office-wide closures)
+     - **Adviser Email** – Affects specific adviser only (personal leave, sick leave, training)
+
+4. Click **Save**
+
+#### How Closures Affect Scheduling
+
+- **One-day closure** – Zeroes capacity for that specific day within the week
+- **Multi-day closure** – Marks entire week as unavailable (reduces weekly capacity)
+- **Global vs Personal** – Global closures apply to all advisers; personal closures only affect that adviser
+- **Availability calculation** – The earliest-available algorithm automatically skips weeks with closures
+
+#### Common Closure Types
+
+| Type | Scope | Example |
+|------|-------|---------|
+| Public Holiday | Global | Australia Day (Jan 26), Christmas (Dec 25) |
+| Office Closure | Global | Office renovations, building maintenance |
+| Annual Leave | Adviser | Holidays, vacation (multi-day) |
+| Sick Leave | Adviser | Medical appointments, illness |
+| Training | Adviser or Global | Team training days, upskilling |
+
+#### Viewing & Editing Closures
+
+- **List view** shows all closures sorted by date
+- **Filter** by scope (Global/Adviser), date range, or tags
+- **Edit** any closure by clicking the row (updates take effect immediately)
+- **Delete** to remove a closure (only available for future dates)
+
+### 4.2 Adviser Capacity Overrides
+
+Fine-tune adviser capacity limits without changing global settings.
+
+#### Setting Capacity Overrides
+
+1. Open **Capacity Overrides** (`/capacity_overrides/ui`)
+2. Click **Add Override**
+3. Configure:
+   - **Adviser Email** – Select from dropdown (required)
+   - **Effective Date** – When override takes effect (required)
+   - **Client Limit** – Maximum clients for fortnight target (replaces global setting)
+   - **Reason** – Optional note (e.g., "Temporary reduction due to training", "Promotion to team lead")
+
+4. Click **Save**
+
+#### Use Cases
+
+- **Temporary reduction** – Adviser taking on training duties, mentoring, or project work
+- **Temporary increase** – Adviser available for extra capacity during slow periods
+- **Long-term adjustment** – Promotion, role change, or sabbatical preparation
+- **Ramp-up** – New adviser starting at lower capacity, gradually increasing
+
+#### How Overrides Work
+
+- **Effective Date** – Override applies from specified date forward until explicitly ended
+- **Priority** – Capacity override takes precedence over global settings
+- **Immediate effect** – Changes reflected instantly in availability calculations
+- **Removing overrides** – Click **Delete** to remove and revert to global settings
+
+#### Monitoring Overrides
+
+- View all active overrides with their effective dates
+- See which advisers have temporary adjustments
+- Review historical overrides to identify patterns
+
+### 4.3 System Settings (Box Configuration)
+
+Manage Box integration settings for client folder provisioning.
+
+#### Box Template Folder
+
+1. Open **Box Settings** (`/settings/box/ui`)
+2. Enter **Template Folder Path** (e.g., `/Templates/ClientTemplate`)
+   - This folder is copied when creating new client folders
+   - Should contain standard documents and subfolder structure for new clients
+3. Click **Save**
+
+#### What the Template Contains
+
+- **Subfolder structure** – Recreated for each client (e.g., `/Documents`, `/Agreements`, `/Correspondence`)
+- **Template documents** – Example files and worksheets for clients to use
+- **Naming consistency** – Ensures all client folders follow same structure
+
+#### Metadata Fields Applied
+
+When a Box folder is created, the following metadata is automatically applied:
+- `household_type` – Single or Couple
+- `service_package` – Series A, Series B, Seed, etc.
+- `primary_contact_id` – HubSpot contact ID
+- `spouse_contact_id` – Spouse HubSpot contact ID (if applicable)
+- `client_name` – Full name
+- `client_email` – Email address
+- `phone` – Phone number
 
 ---
 

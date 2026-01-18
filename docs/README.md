@@ -1,8 +1,127 @@
-# Documentation Overview
+# Documentation Index
 
-This folder centralizes the project guides. Start with the documents below:
+This folder contains all detailed project documentation. Start below based on your role.
 
-- `docs/adviser_allocation_explanation.md` – end-to-end walkthrough of the adviser allocation system, data sources, and business impact.
-- `docs/REFACTORING_NOTES.md` – historical engineering notes and ongoing refactoring follow-ups.
+---
 
-See `docs/CHANGELOG.md` for a dated history of feature updates and fixes.
+## For End Users (Operators)
+
+### [User Guide](USER_GUIDE.md)
+How to use the adviser allocation platform, including:
+- Checking adviser availability and schedules
+- Managing allocations
+- Creating Box folders
+- Admin tools (office closures, capacity overrides, Box settings)
+
+### [Box Folder Workflow](box-folder-workflow.md)
+Detailed walkthrough of the Box folder provisioning process.
+
+---
+
+## For Developers
+
+### [Architecture](../ARCHITECTURE.md)
+System design and core algorithms:
+- Allocation algorithm details
+- Core modules and patterns
+- Database schema design
+- Caching strategy
+- Rate limiting and retries
+
+### [API Reference](API_REFERENCE.md)
+All endpoints and webhooks:
+- Production webhooks (HubSpot integration)
+- Availability endpoints
+- Data sync endpoints
+- Admin endpoints
+- Authentication endpoints
+- Error responses and rate limiting
+
+### [Configuration](CONFIGURATION.md)
+Environment setup and secrets:
+- 12 required environment variables
+- Local development setup
+- Google Secret Manager configuration
+- OAuth setup for all integrations
+- Firestore database setup
+
+### [Operations](OPERATIONS.md)
+Deployment, monitoring, and troubleshooting:
+- Cloud Scheduler jobs and management
+- Cloud Build status monitoring
+- App Engine logs and metrics
+- Firestore monitoring
+- Troubleshooting guide
+- Emergency fixes and rollbacks
+- Debug checklist
+
+### [Integrations](INTEGRATIONS.md)
+Integration details and troubleshooting:
+- **HubSpot CRM** - Portal ID, webhooks, data synced
+- **Employment Hero** - OAuth flow, leave request syncing
+- **Box** - JWT authentication, folder creation, metadata
+- **Google Chat** - Webhook notifications
+- Integration flow diagrams
+- Troubleshooting for each service
+
+### [Infrastructure](INFRASTRUCTURE.md)
+GCP services and infrastructure:
+- GCP services overview (App Engine, Firestore, Secrets, Build, Scheduler)
+- App Engine configuration and management
+- Firestore collections and queries
+- Google Cloud Logging
+- External APIs and rate limits
+- Secret management
+- Disaster recovery strategies
+
+### [Contributing](CONTRIBUTING.md)
+Development workflow and guidelines:
+- Feature branch workflow
+- Testing requirements (65 tests)
+- Commit message format
+- Common change scenarios (new feature, bug fix, dependencies, etc.)
+- Deployment process
+- Emergency fixes
+- Code style guide (Python PEP 8, type hints, docstrings)
+- What NOT to do (critical practices)
+
+---
+
+## Reference
+
+### [CI/CD Summary](../CI_CD_SUMMARY.md)
+Build pipeline configuration and details.
+
+### [Deployment Verification](../DEPLOYMENT_VERIFICATION.md)
+Post-deployment verification checklist.
+
+### [Skills Framework](SKILLS_FRAMEWORK.md)
+Custom skills system for the application.
+
+### [Changelog](CHANGELOG.md)
+Version history and release notes.
+
+---
+
+## Quick Navigation
+
+**I need to...** | **Go to...**
+---|---
+Check adviser availability | [User Guide - Adviser Schedule](USER_GUIDE.md#adviser-schedule)
+Create a Box folder | [User Guide - Box Folder Provisioning](USER_GUIDE.md#box-folder-provisioning)
+Manage office closures | [User Guide - Admin Tools](USER_GUIDE.md#admin-tools)
+Set up a new integration | [Configuration](CONFIGURATION.md)
+Understand the system | [Architecture](../ARCHITECTURE.md)
+Find an API endpoint | [API Reference](API_REFERENCE.md)
+Fix a production issue | [Operations - Troubleshooting](OPERATIONS.md#troubleshooting)
+Deploy to production | [Contributing - Deployment](CONTRIBUTING.md#deployment-process)
+Monitor the system | [Operations - Monitoring](OPERATIONS.md#monitoring)
+Configure HubSpot | [Configuration - HubSpot](CONFIGURATION.md#hubspot-configuration)
+Set up Employment Hero | [Configuration - Employment Hero](CONFIGURATION.md#employment-hero-oauth-setup)
+Configure Box | [Configuration - Box](CONFIGURATION.md#box-configuration)
+
+---
+
+## Main README
+
+For a quick overview, see [README.md](../README.md).
