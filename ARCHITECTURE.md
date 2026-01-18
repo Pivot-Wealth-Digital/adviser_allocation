@@ -1,7 +1,229 @@
-# Code Optimization Summary
+# Architecture Guide
 
-## Overview
-This document summarizes the optimizations applied to the adviser_allocation codebase to improve maintainability, reliability, performance, and test coverage.
+This document describes the system architecture, core algorithms, and design patterns of the Adviser Allocation Service.
+
+---
+
+## System Architecture
+
+The Adviser Allocation Service is a Flask-based microservice deployed on Google App Engine that automates the allocation of HubSpot deals to financial advisers. The system integrates with multiple external services (HubSpot, Employment Hero, Box, Google Chat) and uses Firestore as the primary data store.
+
+### High-Level Components
+
+1. **Flask API Server** - REST endpoints for webhooks, dashboards, and admin tools
+2. **Allocation Algorithm** - Core logic that calculates earliest available adviser
+3. **Integration Handlers** - Services that sync data from HubSpot, Employment Hero, Box
+4. **Firestore Database** - NoSQL datastore for advisers, leave requests, closures, overrides
+5. **Cloud Scheduler** - Automated jobs for data synchronization
+6. **OAuth Service** - Employment Hero authentication and token management
+7. **Rate Limiter & HTTP Client** - Resilient HTTP utilities with retries and timeouts
+
+### Data Flow
+
+**Allocation Workflow:**
+```
+HubSpot Deal Created (webhook)
+  ↓
+/post/allocate endpoint
+  ↓
+Fetch deal metadata from HubSpot
+Fetch adviser profiles from HubSpot
+Fetch leave requests from Firestore
+Fetch office closures from Firestore
+Fetch capacity overrides from Firestore
+  ↓
+Run allocation algorithm
+  ↓
+Update HubSpot deal owner
+Store allocation record in Firestore
+Send notification to Google Chat
+  ↓
+Return success response
+```
+
+**Data Synchronization:**
+```
+Cloud Scheduler (automated)
+  ↓
+Trigger /sync/employees or /sync/leave_requests
+  ↓
+Call Employment Hero API with OAuth token
+  ↓
+Transform data
+  ↓
+Store in Firestore (employees collection)
+```
+
+---
+
+## Allocation Algorithm
+
+The allocation algorithm is the core logic that determines which adviser should be assigned a new deal. It considers multiple factors to ensure fair distribution and reasonable workload.
+
+### Input Data
+
+The algorithm uses data from multiple sources:
+
+1. **Adviser Information (HubSpot)**
+   - Available advisers with their supported service packages and household types
+   - Current meetings (Clarify and Kick Off) in the next 52 weeks
+
+2. **Adviser Availability (Firestore)**
+   - Leave requests (from Employment Hero sync)
+   - Office closures (global and adviser-specific)
+   - Capacity overrides (temporary adjustments)
+
+3. **Deal Information (HubSpot)**
+   - Service package (Series A, Series B, Seed, etc.)
+   - Household type (Single, Couple)
+   - Agreement start date
+
+### Algorithm Steps
+
+1. **Filter Advisers**
+   - Remove advisers not supporting the required service package
+   - Remove advisers not supporting the required household type
+   - Remove advisers marked as "not taking clients"
+
+2. **Calculate Weekly Capacity**
+   - For each week in the next 52 weeks:
+     - Get base capacity target (from adviser profile or override)
+     - Subtract meetings already scheduled (Clarify/Kick Off counts)
+     - Subtract leave/closures (weeks with 0 available days)
+     - Carry forward excess from previous weeks
+
+3. **Find Earliest Available Week**
+   - Iterate through weeks starting from agreement start date + 2-week buffer
+   - Find first week where adviser has capacity available
+   - Skip weeks where adviser is out of office (leave, closures)
+   - Respect 52-week maximum projection window
+
+4. **Select Adviser**
+   - Among advisers with same earliest available week, select by:
+     - Lowest utilization first (fairness)
+     - Alphabetical order (tie-breaker)
+
+### Key Constraints
+
+- **2-week buffer**: No allocations in the first 2 weeks (buffer for setup)
+- **52-week horizon**: Only look 52 weeks into the future
+- **Service package matching**: Must match adviser's supported packages
+- **Household type matching**: Must match adviser's supported types
+- **Leave respect**: Completely skip weeks where adviser is on leave
+- **Capacity limits**: Respect global targets and temporary overrides
+
+### Example Calculation
+
+```
+Deal: Series A, Single household, start date Feb 3, 2025
+
+Adviser Jane:
+- Service packages: Series A, Series B
+- Household types: Single, Couple
+- Base capacity: 5 clients per fortnight
+
+Week of Feb 3: 2 clarifies (3 slots left) → Available
+  But within 2-week buffer, so skip
+
+Week of Feb 10: 3 meetings (2 slots left) → Available ✓
+  Assignment: Jane gets allocated to week of Feb 10
+```
+
+---
+
+## System Diagrams
+
+### Allocation System Workflow
+
+```mermaid
+sequenceDiagram
+    participant HS as HubSpot
+    participant Webhook as /post/allocate
+    participant Algo as Allocation Algorithm
+    participant FS as Firestore
+    participant GC as Google Chat
+
+    HS->>Webhook: Deal Created Event
+    Webhook->>Algo: Process Deal (service_package, household_type)
+    Algo->>FS: Fetch leave requests, closures, overrides
+    Algo->>HS: Fetch meetings, adviser profiles
+    Algo->>Algo: Calculate earliest availability (26-52 weeks)
+    Algo->>HS: Update deal owner field
+    Algo->>FS: Store allocation record
+    Algo->>GC: Send notification
+    Webhook-->>HS: Success response
+```
+
+### HR Data Synchronization
+
+```mermaid
+sequenceDiagram
+    participant CS as Cloud Scheduler
+    participant App as Flask App
+    participant EH as Employment Hero API
+    participant FS as Firestore
+
+    Note over CS,App: Scheduled Sync
+    CS->>App: Trigger /sync/employees
+    App->>EH: OAuth request
+    EH-->>App: Employee List + Leave Requests
+    App->>FS: Store in employees collection
+```
+
+### Availability Dashboard System
+
+```mermaid
+graph LR
+    A[Availability System] --> B[/availability/earliest]
+    A --> C[/availability/schedule]
+    A --> D[/availability/meetings]
+
+    B --> E[Earliest Week per Adviser]
+    C --> F[Weekly Schedule Details]
+    D --> G[Meeting List]
+
+    E --> H[(Data Sources)]
+    F --> H
+    G --> H
+
+    H --> I[HubSpot: Meetings, Deals]
+    H --> J[Firestore: Leave, Closures]
+    H --> K[Employment Hero: OOO Status]
+
+    style B fill:#e1f5ff
+    style C fill:#e1f5ff
+    style D fill:#e1f5ff
+```
+
+### Box Folder Provisioning Workflow
+
+```mermaid
+flowchart TD
+    A[HubSpot Deal Created] -->|Webhook| B[/post/create_box_folder]
+    B -->|Copy Template| C[Create Folder in Box]
+    C -->|Apply Metadata| D[Tag with Deal Info]
+    D -->|Share| E[Grant Client Access]
+    E -->|Update HubSpot| F[Store Box URL in Deal]
+    F --> G[Google Chat Notification]
+```
+
+### Admin Configuration System
+
+```mermaid
+graph TD
+    A[Admin Dashboard] --> B[Office Closures]
+    A --> C[Capacity Overrides]
+    A --> D[Box Settings]
+
+    B -->|Global/Adviser| E[Affects Availability]
+    C -->|Per Adviser| E
+    D -->|Template Path| F[Folder Creation]
+
+    E -->|Updates| G[Firestore]
+    F --> G
+```
+
+---
 
 ## Optimization Phases Completed
 
