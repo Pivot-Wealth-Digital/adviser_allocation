@@ -6,7 +6,7 @@ import time
 from dataclasses import dataclass
 from typing import List, Optional
 
-from skills.registry import SkillRegistry
+from adviser_allocation.skills.registry import SkillRegistry
 
 
 @dataclass

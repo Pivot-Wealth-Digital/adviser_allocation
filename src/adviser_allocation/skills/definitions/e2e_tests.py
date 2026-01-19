@@ -1,6 +1,6 @@
 """E2E and system test skill definitions."""
 
-from skills.decorator import register_test_skill
+from adviser_allocation.skills.decorator import register_test_skill
 
 
 @register_test_skill(

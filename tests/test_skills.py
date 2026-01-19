@@ -2,10 +2,10 @@
 
 import pytest
 
-from skills.decorator import register_test_skill
-from skills.executor import SkillExecutor, SkillResult
-from skills.registry import SkillRegistry
-from skills.skill import Skill
+from adviser_allocation.skills.decorator import register_test_skill
+from adviser_allocation.skills.executor import SkillExecutor, SkillResult
+from adviser_allocation.skills.registry import SkillRegistry
+from adviser_allocation.skills.skill import Skill
 
 
 class TestSkillDataclass:

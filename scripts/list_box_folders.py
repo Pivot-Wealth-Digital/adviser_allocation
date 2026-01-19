@@ -8,7 +8,8 @@ from pathlib import Path
 from boxsdk import JWTAuth, Client
 
 # Configuration
-BOX_JWT_CONFIG_PATH = "/Users/noeljeffreypinton/projects/git/adviser_allocation/config/box_jwt_config.json"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+BOX_JWT_CONFIG_PATH = PROJECT_ROOT / "config" / "box_jwt_config.json"
 
 # Validate JWT config file exists
 if not Path(BOX_JWT_CONFIG_PATH).exists():

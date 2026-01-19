@@ -8,9 +8,9 @@ from zoneinfo import ZoneInfo
 from functools import lru_cache
 from typing import Optional, Dict, List
 
-from utils.common import sydney_now, sydney_today, sydney_datetime_from_date, SYDNEY_TZ
-from utils.secrets import get_secret
-from utils.firestore_helpers import (
+from adviser_allocation.utils.common import sydney_now, sydney_today, sydney_datetime_from_date, SYDNEY_TZ
+from adviser_allocation.utils.secrets import get_secret
+from adviser_allocation.utils.firestore_helpers import (
     get_employee_leaves as get_employee_leaves_from_firestore,
     get_employee_id as get_employee_id_from_firestore,
     get_global_closures as get_global_closures_from_firestore,

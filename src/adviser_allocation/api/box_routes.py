@@ -11,16 +11,16 @@ from pprint import pformat
 import requests
 from flask import Blueprint, jsonify, redirect, render_template, request, session
 
-from services.box_folder_service import (
+from adviser_allocation.services.box_folder_service import (
     BoxAutomationError,
     provision_box_folder,
     ensure_box_service,
     CLIENT_SHARING_SUBFOLDER,
     CLIENT_SHARING_ROLE,
 )
-from services import box_folder_service as box_service
-from utils.secrets import get_secret
-from utils.common import (
+from adviser_allocation.services import box_folder_service as box_service
+from adviser_allocation.utils.secrets import get_secret
+from adviser_allocation.utils.common import (
     get_firestore_client,
     USE_FIRESTORE,
     sydney_today,

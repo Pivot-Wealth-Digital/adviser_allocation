@@ -8,9 +8,9 @@ from urllib.parse import urlencode
 from flask import session
 import requests
 
-from utils.common import USE_FIRESTORE
-from utils.secrets import get_secret
-from utils.http_client import post_with_retries, LONG_TIMEOUT
+from adviser_allocation.utils.common import USE_FIRESTORE
+from adviser_allocation.utils.secrets import get_secret
+from adviser_allocation.utils.http_client import post_with_retries, LONG_TIMEOUT
 
 logger = logging.getLogger(__name__)
 

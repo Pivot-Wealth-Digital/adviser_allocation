@@ -2,8 +2,8 @@
 
 from flask import Blueprint, jsonify, request
 
-from skills.executor import SkillExecutor
-from skills.registry import SkillRegistry
+from adviser_allocation.skills.executor import SkillExecutor
+from adviser_allocation.skills.registry import SkillRegistry
 
 skills_bp = Blueprint('skills', __name__, url_prefix='/api/skills')
 

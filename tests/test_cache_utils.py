@@ -2,7 +2,7 @@
 
 import unittest
 import time
-from utils.cache_utils import TTLCache, CacheEntry, cached_with_ttl
+from adviser_allocation.utils.cache_utils import TTLCache, CacheEntry, cached_with_ttl
 
 
 class CacheUtilsTests(unittest.TestCase):

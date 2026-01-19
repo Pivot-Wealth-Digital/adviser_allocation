@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch, MagicMock
 import requests
 
-from utils.http_client import (
+from adviser_allocation.utils.http_client import (
     create_session_with_retries,
     get_with_retries,
     post_with_retries,

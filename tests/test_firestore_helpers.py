@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch, MagicMock
 from typing import Dict, List, Any
 
-from utils.firestore_helpers import (
+from adviser_allocation.utils.firestore_helpers import (
     get_employee_leaves,
     get_employee_id,
     get_global_closures,

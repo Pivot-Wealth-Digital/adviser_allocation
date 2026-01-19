@@ -3,7 +3,7 @@
 import threading
 from typing import Dict, List, Optional
 
-from skills.skill import Skill
+from adviser_allocation.skills.skill import Skill
 
 
 class SkillRegistry:

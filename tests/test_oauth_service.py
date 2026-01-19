@@ -7,7 +7,7 @@ import time
 
 from flask import Flask
 
-from services.oauth_service import (
+from adviser_allocation.services.oauth_service import (
     init_oauth_service,
     token_key,
     save_tokens,

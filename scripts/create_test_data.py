@@ -281,7 +281,8 @@ def main():
     # Configuration
     HUBSPOT_TOKEN = os.getenv("HUBSPOT_TOKEN", "your-token-here")
     HUBSPOT_PORTAL_ID = "47011873"
-    BOX_JWT_CONFIG_PATH = "/Users/noeljeffreypinton/projects/git/adviser_allocation/config/box_jwt_config.json"
+    PROJECT_ROOT = Path(__file__).resolve().parent.parent
+    BOX_JWT_CONFIG_PATH = PROJECT_ROOT / "config" / "box_jwt_config.json"
     BOX_IMPERSONATION_USER = "noel.pinton@pivotwealth.com.au"
     BOX_ACTIVE_CLIENTS_PATH = "Team Advice/Pivot Clients/1. Active Clients"
 

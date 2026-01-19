@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
-from utils.common import get_firestore_client
+from adviser_allocation.utils.common import get_firestore_client
 
 logger = logging.getLogger(__name__)
 

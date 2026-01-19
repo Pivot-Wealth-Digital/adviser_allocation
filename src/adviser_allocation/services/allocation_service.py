@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 
-from utils.common import sydney_now
+from adviser_allocation.utils.common import sydney_now
 
 
 logger = logging.getLogger(__name__)

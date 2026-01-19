@@ -8,11 +8,11 @@ from typing import Optional
 import requests
 from flask import Blueprint, jsonify, request
 
-from core.allocation import get_adviser
-from services.allocation_service import store_allocation_record
-from utils.common import SYDNEY_TZ, sydney_now
-from utils.secrets import get_secret
-from utils.http_client import post_with_retries, get_with_retries, patch_with_retries, DEFAULT_TIMEOUT
+from adviser_allocation.core.allocation import get_adviser
+from adviser_allocation.services.allocation_service import store_allocation_record
+from adviser_allocation.utils.common import SYDNEY_TZ, sydney_now
+from adviser_allocation.utils.secrets import get_secret
+from adviser_allocation.utils.http_client import post_with_retries, get_with_retries, patch_with_retries, DEFAULT_TIMEOUT
 
 allocation_bp = Blueprint("allocation_api", __name__)
 logger = logging.getLogger(__name__)

@@ -8,8 +8,8 @@ from urllib.parse import urlencode
 from flask import Flask, redirect, request, session, jsonify, render_template, render_template_string, url_for, send_from_directory
 import requests
 
-from utils.common import sydney_now, sydney_today, SYDNEY_TZ, USE_FIRESTORE, get_firestore_client
-from core.allocation import (
+from adviser_allocation.utils.common import sydney_now, sydney_today, SYDNEY_TZ, USE_FIRESTORE, get_firestore_client
+from adviser_allocation.core.allocation import (
     get_adviser,
     get_users_earliest_availability,
     get_users_taking_on_clients,
@@ -21,26 +21,26 @@ from core.allocation import (
     get_user_meeting_details,
     get_monday_from_weeks_ago,
 )
-from utils.firestore_helpers import (
+from adviser_allocation.utils.firestore_helpers import (
     get_employee_leaves as get_employee_leaves_from_firestore,
     get_employee_id as get_employee_id_from_firestore,
 )
-from services.allocation_service import store_allocation_record
-import api.box_routes as box_routes_module
-from api.box_routes import box_bp
-from api.allocation_routes import init_allocation_routes
-from api.skills_routes import skills_bp
+from adviser_allocation.services.allocation_service import store_allocation_record
+import adviser_allocation.api.box_routes as box_routes_module
+from adviser_allocation.api.box_routes import box_bp
+from adviser_allocation.api.allocation_routes import init_allocation_routes
+from adviser_allocation.api.skills_routes import skills_bp
 
 from dotenv import load_dotenv
 
 # Import skill definitions to register all skills in the system
-import skills.definitions
+import adviser_allocation.skills.definitions
 
 # Load variables from .env into environment
 load_dotenv()
 box_routes_module.refresh_hubspot_portal_id_cache()
 
-from utils.secrets import get_secret
+from adviser_allocation.utils.secrets import get_secret
 
 LOG_LEVEL_NAME = (os.environ.get("LOG_LEVEL") or "INFO").upper()
 LOG_LEVEL = getattr(logging, LOG_LEVEL_NAME, logging.INFO)
