@@ -20,6 +20,8 @@ env_variables:
   ADMIN_PASSWORD: projects/pivot-digital-466902/secrets/ADMIN_PASSWORD/versions/latest
   BOX_IMPERSONATION_USER: projects/pivot-digital-466902/secrets/BOX_IMPERSONATION_USER/versions/latest
   BOX_JWT_CONFIG_JSON: projects/pivot-digital-466902/secrets/BOX_JWT_CONFIG_JSON/versions/latest
+  # Google Chat webhook for allocation alerts
+  CHAT_WEBHOOK_URL: projects/pivot-digital-466902/secrets/CHAT_WEBHOOK_URL/versions/latest
   # Non-secret environment variables
   USE_FIRESTORE: "true"
   EH_SCOPES: "urn:mainapp:leave_requests:read"
