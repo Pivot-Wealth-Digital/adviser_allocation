@@ -1,5 +1,7 @@
 runtime: python312
 
+entrypoint: gunicorn -b :$PORT adviser_allocation.main:app
+
 instance_class: F1
 
 automatic_scaling:
@@ -7,6 +9,8 @@ automatic_scaling:
   max_instances: 10
 
 env_variables:
+  # Python path for src/ layout
+  PYTHONPATH: src
   # Secret Manager references (App Engine will fetch these automatically)
   HUBSPOT_TOKEN: projects/pivot-digital-466902/secrets/HUBSPOT_TOKEN/versions/latest
   EH_CLIENT_ID: projects/pivot-digital-466902/secrets/EH_CLIENT_ID/versions/latest
