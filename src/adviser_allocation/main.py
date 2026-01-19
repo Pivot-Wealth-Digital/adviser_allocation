@@ -95,8 +95,8 @@ main_bp = Blueprint('main', __name__)
 def require_login():
     # List of endpoints that don't require authentication
     public_endpoints = [
-        'login', 
-        'logout',
+        'main.login',
+        'main.logout',
         'static',  # Static files (CSS, JS, images)
     ]
     
@@ -2077,7 +2077,14 @@ CHAT_WEBHOOK_URL = (
     or os.environ.get("CHAT_WEBHOOK_URL")
 )
 
-app = Flask(__name__, template_folder="templates", static_folder="static")
+# Calculate paths to templates and static (at project root, 3 levels up from main.py)
+from pathlib import Path as _Path
+_main_dir = _Path(__file__).parent.parent.parent
+app = Flask(
+    __name__,
+    template_folder=str(_main_dir / "templates"),
+    static_folder=str(_main_dir / "static")
+)
 app.secret_key = get_secret("SESSION_SECRET") or "change-me-please"
 
 app.register_blueprint(main_bp)
