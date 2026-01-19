@@ -63,23 +63,6 @@ except (ImportError, Exception):
 # Initialize Firestore
 db = get_firestore_client()
 
-# Create main blueprint for routes (app factory pattern)
-main_bp = Blueprint('main', __name__)
-
-# Legacy app creation for backward compatibility and direct module usage
-app = Flask(__name__)
-app.secret_key = get_secret("SESSION_SECRET") or "change-me-please"  # set in app.yaml or .env
-
-app.register_blueprint(main_bp)
-app.register_blueprint(box_bp)
-app.register_blueprint(init_allocation_routes(db))
-app.register_blueprint(skills_bp)
-
-CHAT_WEBHOOK_URL = (
-    get_secret("PIVOT-DIGITAL-CHAT-WEBHOOK-URL-ADVISER-ALGO")
-    or os.environ.get("CHAT_WEBHOOK_URL")
-)
-
 # Application metadata
 APP_VERSION = os.environ.get("APP_VERSION", "1.0.0")
 
@@ -103,7 +86,11 @@ def login_required(view_func):
         return view_func(*args, **kwargs)
     return wrapper
 
+# Create main blueprint for routes (app factory pattern)
+main_bp = Blueprint('main', __name__)
+
 # Global before_request handler to protect all routes
+# MUST be defined before blueprint is registered to app
 @main_bp.before_request
 def require_login():
     # List of endpoints that don't require authentication
@@ -2080,3 +2067,20 @@ if __name__ == "__main__":
     # Load variables from .env into environment
     load_dotenv()
     app.run(host="0.0.0.0", debug=True, port=int(os.environ.get("PORT", "8080")))
+
+
+# ===== APP INITIALIZATION =====
+# Create Flask app and register blueprints
+# This MUST happen after all blueprint handlers and routes are defined
+CHAT_WEBHOOK_URL = (
+    get_secret("PIVOT-DIGITAL-CHAT-WEBHOOK-URL-ADVISER-ALGO")
+    or os.environ.get("CHAT_WEBHOOK_URL")
+)
+
+app = Flask(__name__, template_folder="templates", static_folder="static")
+app.secret_key = get_secret("SESSION_SECRET") or "change-me-please"
+
+app.register_blueprint(main_bp)
+app.register_blueprint(box_bp)
+app.register_blueprint(init_allocation_routes(db))
+app.register_blueprint(skills_bp)

@@ -6,9 +6,9 @@ with App Engine's default entrypoint expectation (main:app).
 The actual application code lives in src/adviser_allocation/.
 """
 
-from adviser_allocation.app import create_app
-
-app = create_app()
+# Import the pre-configured app from the main module
+# This preserves all initialization and blueprint registration from src/adviser_allocation/main.py
+from adviser_allocation.main import app
 
 __all__ = ['app']
 
