@@ -5,7 +5,7 @@ from collections import Counter
 from functools import lru_cache
 
 from urllib.parse import urlencode
-from flask import Flask, redirect, request, session, jsonify, render_template, render_template_string, url_for, send_from_directory
+from flask import Flask, Blueprint, redirect, request, session, jsonify, render_template, render_template_string, url_for, send_from_directory
 import requests
 
 from adviser_allocation.utils.common import sydney_now, sydney_today, SYDNEY_TZ, USE_FIRESTORE, get_firestore_client
@@ -63,9 +63,14 @@ except (ImportError, Exception):
 # Initialize Firestore
 db = get_firestore_client()
 
+# Create main blueprint for routes (app factory pattern)
+main_bp = Blueprint('main', __name__)
+
+# Legacy app creation for backward compatibility and direct module usage
 app = Flask(__name__)
 app.secret_key = get_secret("SESSION_SECRET") or "change-me-please"  # set in app.yaml or .env
 
+app.register_blueprint(main_bp)
 app.register_blueprint(box_bp)
 app.register_blueprint(init_allocation_routes(db))
 app.register_blueprint(skills_bp)
@@ -99,7 +104,7 @@ def login_required(view_func):
     return wrapper
 
 # Global before_request handler to protect all routes
-@app.before_request
+@main_bp.before_request
 def require_login():
     # List of endpoints that don't require authentication
     public_endpoints = [
@@ -240,7 +245,7 @@ def update_tokens(tokens: dict):
     save_tokens(tokens)  # same logic
 
 # ---- OAuth flow ----
-@app.route("/")
+@main_bp.route("/")
 def index():
     """Homepage with navigation to all available features."""
     return render_template(
@@ -253,7 +258,7 @@ def index():
     )
 
 
-@app.route("/workflows")
+@main_bp.route("/workflows")
 def workflows():
     """Show curated workflow documentation links."""
     return render_template(
@@ -262,7 +267,7 @@ def workflows():
         app_version=APP_VERSION,
     )
 
-@app.route("/workflows/box-details")
+@main_bp.route("/workflows/box-details")
 def workflows_box_details():
     return render_template(
         "workflows_box_details.html",
@@ -271,7 +276,7 @@ def workflows_box_details():
     )
 
 
-@app.route("/workflows/adviser-allocation")
+@main_bp.route("/workflows/adviser-allocation")
 def workflows_adviser_allocation():
     return render_template(
         "workflows_adviser_allocation.html",
@@ -280,12 +285,12 @@ def workflows_adviser_allocation():
     )
 
 
-@app.route("/docs/<path:filename>")
+@main_bp.route("/docs/<path:filename>")
 def serve_docs(filename: str):
     """Serve workflow documentation assets."""
     return send_from_directory("docs", filename)
 
-@app.route("/auth/start")
+@main_bp.route("/auth/start")
 def auth_start():
     """Initiate Employment Hero OAuth and redirect to the authorize URL."""
     ensure_eh_config()
@@ -305,7 +310,7 @@ def auth_start():
     logging.info("Redirecting to Employment Hero authorize URL: %s", authorize_url)
     return redirect(authorize_url)
 
-@app.route("/auth/callback")
+@main_bp.route("/auth/callback")
 def auth_callback():
     """Handle OAuth callback and exchange authorization code for tokens.
 
@@ -390,7 +395,7 @@ def get_org_id(headers):
             raise RuntimeError(f"Refresh failed: {r.status_code} {r.text}")
     return r.json()['data']['items'][0]['id']
 
-@app.route("/get/employees")
+@main_bp.route("/get/employees")
 def get_employees():
     """Fetch employees for the organisation and persist to Firestore.
 
@@ -425,7 +430,7 @@ def get_employees():
     return (employees, r_emps.status_code, {"Content-Type": "application/json"})
 
 
-@app.route("/get/employee_id")
+@main_bp.route("/get/employee_id")
 def get_employee_id():
     """HTTP endpoint to retrieve an employee ID by email.
 
@@ -448,7 +453,7 @@ def get_employee_id():
         return {"error": "Employee not found"}, 404
 
 
-@app.route("/get/leave_requests")
+@main_bp.route("/get/leave_requests")
 def get_leave_requests():
     """Fetch future approved leave requests and persist under each employee.
 
@@ -501,7 +506,7 @@ def get_leave_requests():
     return (leave_requests, e.status_code, {"Content-Type": "application/json"})
 
 
-@app.route("/get/employee_leave_requests")
+@main_bp.route("/get/employee_leave_requests")
 def get_employee_leave_requests():
     """HTTP endpoint to list leave requests by employee ID from Firestore.
 
@@ -522,7 +527,7 @@ def get_employee_leave_requests():
     return {"leave_requests": leaves}, 200
 
 
-@app.route("/get/leave_requests_by_email")
+@main_bp.route("/get/leave_requests_by_email")
 def get_leave_requests_by_email():
     """HTTP endpoint to list leave requests by employee email.
 
@@ -542,7 +547,7 @@ def get_leave_requests_by_email():
 
 
 # Lightweight sync endpoints to be triggered by a scheduler
-@app.route("/sync/employees", methods=["POST", "GET"])
+@main_bp.route("/sync/employees", methods=["POST", "GET"])
 def sync_employees():
     """Trigger an on-demand employee sync (suitable for schedulers)."""
     try:
@@ -553,7 +558,7 @@ def sync_employees():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/sync/leave_requests", methods=["POST", "GET"])
+@main_bp.route("/sync/leave_requests", methods=["POST", "GET"])
 def sync_leave_requests():
     """Trigger an on-demand leave requests sync (suitable for schedulers)."""
     try:
@@ -565,7 +570,7 @@ def sync_leave_requests():
 
 
 # ---- Global Closures (Holidays) ----
-@app.route("/closures", methods=["GET", "POST"])
+@main_bp.route("/closures", methods=["GET", "POST"])
 def closures():
     """Manage global office closures/holidays.
 
@@ -624,7 +629,7 @@ def closures():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/closures/<closure_id>", methods=["PUT", "DELETE"])
+@main_bp.route("/closures/<closure_id>", methods=["PUT", "DELETE"])
 def closures_item(closure_id):
     """Update or delete a specific closure document (admin only)."""
     if not db:
@@ -683,7 +688,7 @@ def closures_item(closure_id):
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/capacity_overrides", methods=["GET", "POST"])
+@main_bp.route("/capacity_overrides", methods=["GET", "POST"])
 def capacity_overrides():
     """Manage adviser capacity overrides stored in Firestore."""
     if not db:
@@ -753,7 +758,7 @@ def capacity_overrides():
         return jsonify({"error": str(exc)}), 500
 
 
-@app.route("/capacity_overrides/<override_id>", methods=["PUT", "DELETE"])
+@main_bp.route("/capacity_overrides/<override_id>", methods=["PUT", "DELETE"])
 def capacity_overrides_item(override_id: str):
     """Update or delete a specific adviser capacity override document."""
     if not db:
@@ -825,7 +830,7 @@ def capacity_overrides_item(override_id: str):
         return jsonify({"error": str(exc)}), 500
 
 
-@app.route("/capacity_overrides/ui")
+@main_bp.route("/capacity_overrides/ui")
 def capacity_overrides_ui():
     """UI for managing adviser capacity overrides."""
     if not db:
@@ -902,7 +907,7 @@ def capacity_overrides_ui():
     )
 
 
-@app.route("/settings/box", methods=["GET"])
+@main_bp.route("/settings/box", methods=["GET"])
 def get_box_settings():
     """Get current Box configuration from Firestore or environment."""
     if not db:
@@ -932,7 +937,7 @@ def get_box_settings():
         return jsonify({"error": str(exc)}), 500
 
 
-@app.route("/settings/box", methods=["PUT"])
+@main_bp.route("/settings/box", methods=["PUT"])
 def update_box_settings():
     """Update Box configuration (admin only)."""
     if not db:
@@ -969,7 +974,7 @@ def update_box_settings():
         return jsonify({"error": str(exc)}), 500
 
 
-@app.route("/settings/box/test", methods=["POST"])
+@main_bp.route("/settings/box/test", methods=["POST"])
 def test_box_path():
     """Test if a Box folder path is valid."""
     if not is_authenticated():
@@ -1008,7 +1013,7 @@ def test_box_path():
         }), 400
 
 
-@app.route("/settings/box/ui")
+@main_bp.route("/settings/box/ui")
 def box_settings_ui():
     """UI for managing Box configuration."""
     if not db:
@@ -1040,7 +1045,7 @@ def box_settings_ui():
     )
 
 
-@app.route("/closures/ui")
+@main_bp.route("/closures/ui")
 def closures_ui():
     """Simple UI to create and list global office closures (holidays)."""
     if not db:
@@ -1119,7 +1124,7 @@ def closures_ui():
     return render_template('closures_ui.html', closures=closures_data, today=sydney_today().isoformat(), closures_for_js=closures_for_js)
 
 
-@app.route("/login", methods=["GET", "POST"])
+@main_bp.route("/login", methods=["GET", "POST"])
 def login():
     """Site-wide login for all access."""
     # If already logged in, go to home or 'next'
@@ -1215,13 +1220,13 @@ def format_agreement_start(agreement_value):
         return ""
 
 
-@app.route("/logout")
+@main_bp.route("/logout")
 def logout():
     session.pop("is_authenticated", None)
     return redirect("/login")
 
 # ---- Example API call ----
-@app.route("/test/organisations")
+@main_bp.route("/test/organisations")
 def list_orgs():
     """List Employment Hero organisations for the connected account."""
     access_token = get_access_token()
@@ -1229,7 +1234,7 @@ def list_orgs():
     r = requests.get(f"{API_BASE}/api/v1/organisations", headers=headers, timeout=30)
     return (r.text, r.status_code, {"Content-Type": "application/json"})
 
-@app.route("/get/leave_requests_list")
+@main_bp.route("/get/leave_requests_list")
 def list_leave_requests():
     """List raw Employment Hero leave requests for the account."""
     access_token = get_access_token()
@@ -1237,7 +1242,7 @@ def list_leave_requests():
     r = requests.get(f"{API_BASE}/api/v1/leave_requests", headers=headers, timeout=30)
     return (r.json(), r.status_code, {"Content-Type": "application/json"})
 
-@app.route("/employees/ui")
+@main_bp.route("/employees/ui")
 def employees_ui():
     """UI to view employees from Firestore with consistent styling."""
     try:
@@ -1275,7 +1280,7 @@ def employees_ui():
             </div>
         """), 500
 
-@app.route("/leave_requests/ui")
+@main_bp.route("/leave_requests/ui")
 def leave_requests_ui():
     """UI to view leave requests from Firestore with filtering and calendar view."""
     try:
@@ -1387,7 +1392,7 @@ def leave_requests_ui():
             </div>
         """), 500
 
-@app.route("/webhook/allocation", methods=["POST"])
+@main_bp.route("/webhook/allocation", methods=["POST"])
 def allocation_webhook():
     """Webhook endpoint to receive and store allocation requests."""
     try:
@@ -1417,7 +1422,7 @@ def allocation_webhook():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route("/allocations/history")
+@main_bp.route("/allocations/history")
 @login_required
 def allocation_history_ui():
     """Dashboard view of allocation history with pagination."""
@@ -1576,7 +1581,7 @@ def allocation_history_ui():
 
 
 # ---- Availability ----
-@app.route("/availability/earliest")
+@main_bp.route("/availability/earliest")
 def availability_earliest():
     """Uniform templated view of earliest availability with tags and topbar."""
     try:
@@ -1727,7 +1732,7 @@ def availability_earliest():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/availability/schedule")
+@main_bp.route("/availability/schedule")
 def availability_schedule():
     """UI to view an adviser's weekly schedule with shared layout/topbar."""
     try:
@@ -1844,7 +1849,7 @@ def availability_schedule():
     )
 
 
-@app.route("/availability/meetings")
+@main_bp.route("/availability/meetings")
 def availability_meetings():
     """UI to view an adviser's individual Clarify/Kick Off meetings."""
     try:
@@ -1972,7 +1977,7 @@ def availability_meetings():
     )
 
 
-@app.route("/availability/matrix")
+@main_bp.route("/availability/matrix")
 def availability_matrix():
     try:
         services, households, matrix = build_service_household_matrix()
@@ -2015,7 +2020,7 @@ def availability_matrix():
         ), 500
 
 
-@app.route("/meeting/owner", methods=["POST"])
+@main_bp.route("/meeting/owner", methods=["POST"])
 def update_meeting_owner():
     """Change the HubSpot owner of a meeting (Clarify/Kick Off)."""
     if not HUBSPOT_TOKEN:
@@ -2064,7 +2069,7 @@ def update_meeting_owner():
         return jsonify({"error": str(e)}), 500
 
 # Healthcheck
-@app.route("/_ah/warmup")
+@main_bp.route("/_ah/warmup")
 def warmup():
     """Healthcheck endpoint for platform warmup probes."""
     return ("", 200)
