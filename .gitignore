@@ -52,5 +52,8 @@ target/
 # Logs
 *.log
 
+# Generated test data
+test_data_output.json
+
 # # client secrets and tokens
 app.yaml

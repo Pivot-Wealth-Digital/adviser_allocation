@@ -21,18 +21,24 @@
 
   <form id="manual-tag-form" class="manual-tag-form">
     <label>
-      Box folder ID
-      <span class="tooltip-icon" data-tooltip="Open the folder in Box and copy the ID from the URL (e.g., box.com/folder/12345)" tabindex="0">?</span>
+      <div class="label-text">
+        Box folder ID
+        <span class="tooltip-icon" data-tooltip="Open the folder in Box and copy the ID from the URL (e.g., box.com/folder/12345)" tabindex="0">?</span>
+      </div>
       <input type="text" name="folder_id" required placeholder="e.g. 148851810344" autocomplete="off" />
     </label>
     <label>
-      HubSpot contact ID
-      <span class="tooltip-icon" data-tooltip="Open the contact in HubSpot and copy the ID from the URL" tabindex="0">?</span>
+      <div class="label-text">
+        HubSpot contact ID
+        <span class="tooltip-icon" data-tooltip="Open the contact in HubSpot and copy the ID from the URL" tabindex="0">?</span>
+      </div>
       <input type="text" name="contact_id" required placeholder="e.g. 81428472235" autocomplete="off" />
     </label>
     <label>
-      HubSpot deal ID (optional)
-      <span class="tooltip-icon" data-tooltip="Open the deal in HubSpot and copy the ID from the URL. Leave blank to use contact data only." tabindex="0">?</span>
+      <div class="label-text">
+        HubSpot deal ID (optional)
+        <span class="tooltip-icon" data-tooltip="Open the deal in HubSpot and copy the ID from the URL. Leave blank to use contact data only." tabindex="0">?</span>
+      </div>
       <input type="text" name="deal_id" placeholder="e.g. 32347298416" autocomplete="off" />
     </label>
     <button type="submit" class="secondary" id="manual-tag-submit" data-default="Preview metadata">
@@ -159,11 +165,51 @@
   }
 
   .manual-tag-form label {
-    display: flex;
-    flex-direction: column;
+    display: block;
     font-size: 0.9em;
     color: #475467;
-    gap: 4px;
+    margin-bottom: 4px;
+  }
+
+  .label-text {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+  }
+
+  .tooltip-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    background: #e5e7eb;
+    border-radius: 50%;
+    font-size: 0.75em;
+    font-weight: 600;
+    color: #6b7280;
+    cursor: help;
+    flex-shrink: 0;
+    position: relative;
+  }
+
+  .tooltip-icon:hover::after,
+  .tooltip-icon:focus::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 125%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1f2937;
+    color: white;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 0.85em;
+    white-space: nowrap;
+    z-index: 10;
+    pointer-events: none;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   }
 
   .manual-tag-form input {

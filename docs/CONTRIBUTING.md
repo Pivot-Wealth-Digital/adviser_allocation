@@ -324,6 +324,33 @@ Before pushing, ensure:
 
 ---
 
+## Project Organization
+
+### Scripts vs Tools
+
+The project distinguishes between two types of utilities:
+
+**`scripts/` - One-off Utilities**
+- Standalone executables for manual tasks
+- Not imported by other modules
+- Examples: data migration, test data generation, folder listing
+- Run directly: `python scripts/create_test_data.py`
+- Location: `/scripts/`
+
+**`tools/` - Reusable Library**
+- Importable package (`__init__.py` present)
+- Shared functionality used by other modules
+- Examples: Box API helpers, metadata templates
+- Imported in code: `from tools.box_collaborators import ...`
+- Location: `/tools/`
+
+**Guidelines:**
+- Add new utilities to `scripts/` by default (simpler)
+- Move to `tools/` only if code is reused by multiple modules
+- Keep `scripts/` minimal and focused on one task each
+
+---
+
 ## Code Style Guide
 
 ### Python
@@ -342,12 +369,12 @@ def calculate_adviser_capacity(
     include_overrides: bool = True
 ) -> int:
     """Calculate available capacity for adviser in given week.
-    
+
     Args:
         adviser_email: Email of adviser
         week_start: Start date of week
         include_overrides: Whether to apply capacity overrides
-        
+
     Returns:
         Available client slots for week
     """

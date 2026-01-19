@@ -29,8 +29,12 @@ from services.allocation_service import store_allocation_record
 import api.box_routes as box_routes_module
 from api.box_routes import box_bp
 from api.allocation_routes import init_allocation_routes
+from api.skills_routes import skills_bp
 
 from dotenv import load_dotenv
+
+# Import skill definitions to register all skills in the system
+import skills.definitions
 
 # Load variables from .env into environment
 load_dotenv()
@@ -64,6 +68,7 @@ app.secret_key = get_secret("SESSION_SECRET") or "change-me-please"  # set in ap
 
 app.register_blueprint(box_bp)
 app.register_blueprint(init_allocation_routes(db))
+app.register_blueprint(skills_bp)
 
 CHAT_WEBHOOK_URL = (
     get_secret("PIVOT-DIGITAL-CHAT-WEBHOOK-URL-ADVISER-ALGO")

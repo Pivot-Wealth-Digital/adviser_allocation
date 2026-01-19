@@ -14,6 +14,18 @@
 
 ## App Engine
 
+### Initial Setup
+
+**Before first deployment**, create `app.yaml` from the template:
+
+```bash
+cp app.yaml.example app.yaml
+```
+
+The `app.yaml` file is git-ignored to keep sensitive configuration local. The template `app.yaml.example` uses Secret Manager references for all credentials, so no secrets are committed to git. After copying, `app.yaml` will auto-load secrets at deploy time from GCP Secret Manager.
+
+**Note:** New contributors should follow this step before running any deployment commands.
+
 ### Deployment Details
 
 **Current Configuration:**
