@@ -22,11 +22,21 @@ steps:
     args: ['install', '-r', 'requirements-test.txt', '--user', '--cache-dir', '.cache/pip']
     waitFor: ['install-deps']
 
-  # Step 4: Run tests with coverage reporting
+  # Step 4: Run tests with coverage reporting and parallel execution
   - name: 'python:3.12'
     id: 'run-tests'
     entrypoint: 'python'
-    args: ['-m', 'pytest', '--verbose', '--cov=.', '--cov-report=term-missing', '--cov-report=xml']
+    args: [
+      '-m', 'pytest',
+      '--verbose',
+      '--cov=src/adviser_allocation',
+      '--cov-report=term-missing',
+      '--cov-report=xml:coverage.xml',
+      '--cov-report=html:htmlcov',
+      '--junitxml=junit.xml',
+      '-n', 'auto',
+      '--timeout=60',
+    ]
     env:
       - 'USE_FIRESTORE=false'
     waitFor: ['install-test-deps']

@@ -28,7 +28,19 @@ pythonpath = ["src"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = ["-v", "--tb=short"]
+addopts = [
+    "-v",
+    "--tb=short",
+    "--strict-markers",
+]
+markers = [
+    "unit: Unit tests for utilities and core functions",
+    "integration: Integration tests for APIs, database, external services",
+    "security: Security tests covering OWASP Top 10",
+    "e2e: End-to-end workflow tests",
+    "performance: Performance and load testing",
+    "slow: Tests that take longer than 5 seconds",
+]
 filterwarnings = ["ignore::DeprecationWarning"]
 
 [tool.coverage.run]
@@ -36,6 +48,9 @@ source = ["src/adviser_allocation"]
 omit = ["*/tests/*", "*/.venv/*"]
 
 [tool.coverage.report]
+fail_under = 85
+show_missing = true
+precision = 2
 exclude_lines = [
     "pragma: no cover",
     "if TYPE_CHECKING:",
