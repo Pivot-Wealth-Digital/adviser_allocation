@@ -60,6 +60,9 @@ except (ImportError, Exception):
     logging.basicConfig(level=LOG_LEVEL, format=LOG_FORMAT)
     logging.getLogger().setLevel(LOG_LEVEL)
 
+# Initialize logger
+logger = logging.getLogger(__name__)
+
 # Initialize Firestore
 db = get_firestore_client()
 
@@ -1155,11 +1158,17 @@ def _format_display_name(email: str) -> str:
     return " ".join(part.capitalize() for part in parts if part) or (email or "")
 
 
-def _format_tag_list(raw: str) -> list[str]:
-    parts = [p.strip() for p in re.split(r"[;,/|]+", raw or "") if p.strip()]
+def _format_tag_list(raw) -> list[str]:
+    """Format a tag list from various input types (str, list, etc.)."""
+    if isinstance(raw, list):
+        parts = raw
+    else:
+        parts = [p.strip() for p in re.split(r"[;,/|]+", str(raw or "")) if p.strip()]
     formatted = []
     for part in parts:
-        formatted.append(part.upper() if part.upper() == "IPO" else part.title())
+        part_str = str(part).strip()
+        if part_str:
+            formatted.append(part_str.upper() if part_str.upper() == "IPO" else part_str.title())
     return formatted
 
 
@@ -1557,6 +1566,7 @@ def allocation_history_ui():
         return render_template("allocation_history_ui.html", **context)
 
     except Exception as e:
+        logger.error("Error in allocation_history_ui: %s", e, exc_info=True)
         return render_template_string(
             f"""
             <div style=\"padding: 20px; text-align: center;\">

@@ -20,10 +20,10 @@
       <p class="muted">Detailed diagrams covering allocation, capacity, and Box automation.</p>
     </header>
     <div class="actions">
-      <a class="primary" href="{{ url_for('allocation_history_ui') }}">
+      <a class="primary" href="{{ url_for('main.allocation_history_ui') }}">
         View Allocation Dashboard
       </a>
-      <a class="secondary" href="{{ url_for('serve_docs', filename='adviser_allocation_explanation.md') }}">
+      <a class="secondary" href="{{ url_for('main.serve_docs', filename='adviser_allocation_explanation.md') }}">
         Read Allocation Guide
       </a>
     </div>
@@ -80,10 +80,10 @@ flowchart TD
       </div>
     </div>
   <div class="actions" style="margin-top:12px;">
-    <a class="secondary" href="{{ url_for('workflows_box_details') }}">
+    <a class="secondary" href="{{ url_for('main.workflows_box_details') }}">
       Box Workflow Custom-Code Guide →
     </a>
-    <a class="secondary" href="{{ url_for('workflows_adviser_allocation') }}">
+    <a class="secondary" href="{{ url_for('main.workflows_adviser_allocation') }}">
       Adviser Allocation Automation Guide →
     </a>
     <a class="secondary" href="{{ url_for('box_api.box_folder_collaborators_page') }}">

@@ -281,7 +281,11 @@
         {% endif %}
       </td>
       <td>
-        {% set svc_values = (allocation.service_package or '').split(',') %}
+        {% if allocation.service_package is string %}
+          {% set svc_values = (allocation.service_package or '').split(',') %}
+        {% else %}
+          {% set svc_values = allocation.service_package or [] %}
+        {% endif %}
         {% if svc_values %}
           <div class="taglist">
             {% for token in svc_values %}
@@ -295,7 +299,11 @@
         {% endif %}
       </td>
       <td>
-        {% set hh_values = (allocation.household_type or '').split(',') %}
+        {% if allocation.household_type is string %}
+          {% set hh_values = (allocation.household_type or '').split(',') %}
+        {% else %}
+          {% set hh_values = allocation.household_type or [] %}
+        {% endif %}
         {% if hh_values %}
           <div class="taglist">
             {% for token in hh_values %}
