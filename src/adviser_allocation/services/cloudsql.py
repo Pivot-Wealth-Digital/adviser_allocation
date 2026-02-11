@@ -8,6 +8,8 @@ import logging
 from typing import Optional, List
 from datetime import datetime
 
+from adviser_allocation.utils.secrets import get_secret
+
 logger = logging.getLogger(__name__)
 
 # Lazy imports to avoid startup errors if deps not installed
@@ -20,9 +22,9 @@ def _get_engine():
     if _engine is not None:
         return _engine
 
-    # Check if CloudSQL is configured
-    instance_conn_str = os.getenv("CLOUD_SQL_CONNECTION_STRING")
-    db_password = os.getenv("CLOUD_SQL_PASSWORD")
+    # Check if CloudSQL is configured (using get_secret for Secret Manager support)
+    instance_conn_str = get_secret("CLOUD_SQL_CONNECTION_STRING")
+    db_password = get_secret("CLOUD_SQL_PASSWORD")
 
     if not instance_conn_str and not db_password:
         logger.debug("CloudSQL not configured, skipping sync")
@@ -35,8 +37,8 @@ def _get_engine():
         logger.warning("sqlalchemy not installed, CloudSQL sync disabled")
         return None
 
-    db_name = os.getenv("CLOUD_SQL_DATABASE", "client_pipeline")
-    db_user = os.getenv("CLOUD_SQL_USER", "postgres")
+    db_name = get_secret("CLOUD_SQL_DATABASE") or "client_pipeline"
+    db_user = get_secret("CLOUD_SQL_USER") or "postgres"
 
     # Check for proxy mode (local dev)
     use_proxy = os.getenv("CLOUD_SQL_USE_PROXY", "").lower() in ("true", "1", "yes")
