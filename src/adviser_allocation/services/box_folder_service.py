@@ -12,6 +12,7 @@ from boxsdk.exception import BoxAPIException
 
 from adviser_allocation.utils.secrets import get_secret
 from adviser_allocation.utils.common import get_firestore_client
+from adviser_allocation.services.cloudsql import sync_box_folder_to_cloudsql
 
 DEFAULT_BOX_API_BASE_URL = "https://api.box.com/2.0"
 FORBIDDEN_CHARS = set('\\/:*?"<>|')
@@ -1343,6 +1344,16 @@ def create_box_folder_for_deal(
             logger.info('Using folder name %s under %s', folder_name, BOX_ACTIVE_CLIENTS_PATH)
         folder = service.ensure_client_folder(folder_name)
         logger.info('Created Box folder for deal %s (id=%s)', deal_id, folder.get('id'))
+
+        # Sync newly created folder to CloudSQL for real-time availability
+        if folder and folder.get('id'):
+            contact_ids = [str(c.get('id')) for c in contacts if c.get('id')]
+            sync_box_folder_to_cloudsql(
+                folder_id=folder.get('id'),
+                folder_name=folder_name,
+                contact_ids=contact_ids,
+                deal_id=deal_id,
+            )
 
     folder_id = folder.get('id') if folder else None
     if template_metadata and folder_id:
