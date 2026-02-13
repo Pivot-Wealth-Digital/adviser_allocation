@@ -418,7 +418,7 @@ def handle_allocation():
             "----- /post/allocate end %s -----",
             sydney_now().isoformat(),
         )
-        return jsonify({"message": "Webhook received successfully", "box_folder": box_creation_result}), 200
+        return jsonify({"message": "Webhook received successfully"}), 200
 
     except Exception as exc:  # pragma: no cover
         logger.error("Failed to process webhook: %s", exc)
