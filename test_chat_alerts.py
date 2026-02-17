@@ -51,7 +51,7 @@ async def test_chat_alerts():
 
                 os.environ.update(env_vars)
 
-                from adviser_allocation.api.allocation_routes import CHAT_WEBHOOK_URL
+                from adviser_allocation.api.webhooks import CHAT_WEBHOOK_URL
 
                 if CHAT_WEBHOOK_URL:
                     print(f"  CHAT_WEBHOOK_URL: {CHAT_WEBHOOK_URL[:80]}...")
@@ -88,7 +88,7 @@ async def test_chat_alerts():
             tests_total += 1
             print("Test 3: send_chat_alert function")
             try:
-                from adviser_allocation.api.allocation_routes import send_chat_alert
+                from adviser_allocation.api.webhooks import send_chat_alert
 
                 print(f"  send_chat_alert function: found")
                 print(f"  Result: ✅ PASS\n")

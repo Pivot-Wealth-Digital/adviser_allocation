@@ -1,3 +1,5 @@
+"""Webhook endpoints for external integrations (HubSpot, etc.)."""
+
 import os
 import re
 import json
@@ -12,9 +14,14 @@ from adviser_allocation.core.allocation import get_adviser
 from adviser_allocation.services.allocation_service import store_allocation_record
 from adviser_allocation.utils.common import SYDNEY_TZ, sydney_now
 from adviser_allocation.utils.secrets import get_secret
-from adviser_allocation.utils.http_client import post_with_retries, get_with_retries, patch_with_retries, DEFAULT_TIMEOUT
+from adviser_allocation.utils.http_client import (
+    post_with_retries,
+    get_with_retries,
+    patch_with_retries,
+    DEFAULT_TIMEOUT,
+)
 
-allocation_bp = Blueprint("allocation_api", __name__)
+webhooks_bp = Blueprint("webhooks_api", __name__)
 logger = logging.getLogger(__name__)
 
 HUBSPOT_TOKEN = get_secret("HUBSPOT_TOKEN") or os.environ.get("HUBSPOT_TOKEN")
@@ -22,25 +29,27 @@ HUBSPOT_HEADERS = {
     "Authorization": f"Bearer {HUBSPOT_TOKEN}" if HUBSPOT_TOKEN else None,
     "Content-Type": "application/json",
 }
-# Google Chat webhook for allocation alerts (from environment/secrets)
 CHAT_WEBHOOK_URL = get_secret("CHAT_WEBHOOK_URL") or os.environ.get("CHAT_WEBHOOK_URL")
 
 _db = None
 
 
-def init_allocation_routes(db):
+def init_webhooks(db):
+    """Initialize webhooks blueprint with database connection."""
     global _db
     _db = db
-    return allocation_bp
+    return webhooks_bp
 
 
 def _format_display_name(email: str) -> str:
+    """Format email address into display name."""
     local = (email or "").split("@")[0]
     parts = re.split(r"[._-]+", local)
     return " ".join(part.capitalize() for part in parts if part) or (email or "")
 
 
 def _format_tag_list(raw: str) -> list[str]:
+    """Format raw tag string into list of formatted tags."""
     parts = [p.strip() for p in re.split(r"[;,/|]+", raw or "") if p.strip()]
     formatted = []
     for part in parts:
@@ -49,6 +58,7 @@ def _format_tag_list(raw: str) -> list[str]:
 
 
 def send_chat_alert(payload: dict):
+    """Send alert to Google Chat webhook."""
     if not CHAT_WEBHOOK_URL:
         logger.info("CHAT_WEBHOOK_URL not configured; skipping chat alert")
         return
@@ -63,6 +73,7 @@ def send_chat_alert(payload: dict):
 
 
 def build_chat_card_payload(title: str, sections: list[dict]) -> dict:
+    """Build Google Chat card payload."""
     card_sections = []
     for section in sections:
         card_sections.append(
@@ -78,6 +89,7 @@ def build_chat_card_payload(title: str, sections: list[dict]) -> dict:
 
 
 def format_agreement_start(agreement_value):
+    """Format agreement start date for display."""
     if not agreement_value:
         return ""
     try:
@@ -98,6 +110,7 @@ def format_agreement_start(agreement_value):
 
 
 def _hubspot_headers() -> dict:
+    """Return HubSpot API headers, raising if token not configured."""
     if not HUBSPOT_HEADERS.get("Authorization"):
         raise RuntimeError("HUBSPOT_TOKEN is not configured")
     return HUBSPOT_HEADERS
@@ -149,8 +162,9 @@ def _fetch_deal_metadata(deal_id: str) -> Optional[dict]:
         return None
 
 
-@allocation_bp.route("/post/allocate", methods=["POST", "GET"])
+@webhooks_bp.route("/post/allocate", methods=["POST", "GET"])
 def handle_allocation():
+    """Handle HubSpot allocation webhook requests."""
     if request.method == "GET":
         return {"message": "Hi, please use POST request."}, 200
 
@@ -425,4 +439,4 @@ def handle_allocation():
         return jsonify({"message": "Internal Server Error"}), 500
 
 
-__all__ = ["allocation_bp", "init_allocation_routes"]
+__all__ = ["webhooks_bp", "init_webhooks"]

@@ -28,7 +28,7 @@ from adviser_allocation.utils.firestore_helpers import (
 from adviser_allocation.services.allocation_service import store_allocation_record
 import adviser_allocation.api.box_routes as box_routes_module
 from adviser_allocation.api.box_routes import box_bp
-from adviser_allocation.api.allocation_routes import init_allocation_routes
+from adviser_allocation.api.webhooks import init_webhooks
 from adviser_allocation.api.skills_routes import skills_bp
 
 from dotenv import load_dotenv
@@ -2099,5 +2099,5 @@ app.secret_key = get_secret("SESSION_SECRET") or "change-me-please"
 
 app.register_blueprint(main_bp)
 app.register_blueprint(box_bp)
-app.register_blueprint(init_allocation_routes(db))
+app.register_blueprint(init_webhooks(db))
 app.register_blueprint(skills_bp)
