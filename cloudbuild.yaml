@@ -1,66 +1,61 @@
 steps:
-  # Step 1: Restore cache from previous builds
-  - name: 'gcr.io/cloud-builders/gsutil'
-    id: 'restore-cache'
-    entrypoint: 'bash'
+  # Step 1: Build Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'build'
     args:
-      - '-c'
-      - |
-        gsutil -m rsync -r -d gs://${PROJECT_ID}_cloudbuild_cache/pip-cache .cache/pip || echo "No cache found, starting fresh"
+      - 'build'
+      - '-t'
+      - 'australia-southeast1-docker.pkg.dev/${PROJECT_ID}/adviser-allocation/adviser-allocation:${SHORT_SHA}'
+      - '-t'
+      - 'australia-southeast1-docker.pkg.dev/${PROJECT_ID}/adviser-allocation/adviser-allocation:latest'
+      - '.'
 
-  # Step 2: Install production dependencies with caching
-  - name: 'python:3.12'
-    id: 'install-deps'
-    entrypoint: 'pip'
-    args: ['install', '-r', 'requirements.txt', '--user', '--cache-dir', '.cache/pip']
-    waitFor: ['restore-cache']
+  # Step 2: Push image to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'push'
+    args:
+      - 'push'
+      - '--all-tags'
+      - 'australia-southeast1-docker.pkg.dev/${PROJECT_ID}/adviser-allocation/adviser-allocation'
+    waitFor: ['build']
 
-  # Step 3: Install test dependencies with caching
-  - name: 'python:3.12'
-    id: 'install-test-deps'
-    entrypoint: 'pip'
-    args: ['install', '-r', 'requirements-test.txt', '--user', '--cache-dir', '.cache/pip']
-    waitFor: ['install-deps']
-
-  # Step 4: Run tests with coverage reporting and parallel execution
-  - name: 'python:3.12'
-    id: 'run-tests'
+  # Step 3: Run tests inside container
+  - name: 'australia-southeast1-docker.pkg.dev/${PROJECT_ID}/adviser-allocation/adviser-allocation:${SHORT_SHA}'
+    id: 'test'
     entrypoint: 'python'
-    args: [
-      '-m', 'pytest',
-      '--verbose',
-      '--cov=src/adviser_allocation',
-      '--cov-report=term-missing',
-      '--cov-report=xml:coverage.xml',
-      '--cov-report=html:htmlcov',
-      '--junitxml=junit.xml',
-      '-n', 'auto',
-      '--timeout=60',
-    ]
+    args:
+      - '-m'
+      - 'pytest'
+      - '--verbose'
+      - '--cov=adviser_allocation'
+      - '--cov-report=term-missing'
+      - '--timeout=60'
     env:
       - 'USE_FIRESTORE=false'
-    waitFor: ['install-test-deps']
+      - 'PYTHONPATH=src'
+    waitFor: ['push']
 
-  # Step 5: Save cache for next build (optimization)
-  - name: 'gcr.io/cloud-builders/gsutil'
-    id: 'save-cache'
-    entrypoint: 'bash'
-    args:
-      - '-c'
-      - |
-        gsutil -m rsync -r -d .cache/pip gs://${PROJECT_ID}_cloudbuild_cache/pip-cache || echo "Cache save failed, continuing with deployment"
-    waitFor: ['run-tests']
-
-  # Step 6: Deploy to App Engine (automatic on main branch)
+  # Step 4: Deploy to Cloud Run (canary, no traffic)
   - name: 'gcr.io/cloud-builders/gcloud'
     id: 'deploy'
-    args: ['app', 'deploy', '--quiet', '--version=${SHORT_SHA}']
-    timeout: '1600s'
-    waitFor: ['run-tests']
+    args:
+      - 'run'
+      - 'deploy'
+      - 'adviser-allocation'
+      - '--image=australia-southeast1-docker.pkg.dev/${PROJECT_ID}/adviser-allocation/adviser-allocation:${SHORT_SHA}'
+      - '--region=australia-southeast1'
+      - '--platform=managed'
+      - '--tag=canary'
+      - '--no-traffic'
+    timeout: '600s'
+    waitFor: ['test']
 
-# Build options
 options:
   machineType: 'E2_HIGHCPU_8'
   logging: CLOUD_LOGGING_ONLY
 
-timeout: '2000s'
+images:
+  - 'australia-southeast1-docker.pkg.dev/${PROJECT_ID}/adviser-allocation/adviser-allocation:${SHORT_SHA}'
+  - 'australia-southeast1-docker.pkg.dev/${PROJECT_ID}/adviser-allocation/adviser-allocation:latest'
+
+timeout: '1800s'

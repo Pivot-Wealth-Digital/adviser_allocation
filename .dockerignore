@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+.git/
+.venv/
+tests/
+docs/
+*.md
+test_*.py
+.coverage
+.pytest_cache/
+.mypy_cache/
+.env
+.DS_Store
+htmlcov/
+coverage.xml
+junit.xml
+.cache/

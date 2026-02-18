@@ -113,6 +113,8 @@ def require_login():
         '/box/folder/tag',
         '/box/folder/tag/auto',
         '/box/folder/share',
+        '/sync/employees',        # Cloud Scheduler sync
+        '/sync/leave_requests',   # Cloud Scheduler sync
     ]
     
     # Check if current route is public
