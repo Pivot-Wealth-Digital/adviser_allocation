@@ -1,18 +1,18 @@
 """HTTP client utilities with retry logic, timeouts, and circuit breaking."""
 
 import logging
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
 import requests
 from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 from tenacity import (
     retry,
-    stop_after_attempt,
-    wait_exponential,
     retry_if_exception_type,
     retry_if_result,
+    stop_after_attempt,
+    wait_exponential,
 )
+from urllib3.util.retry import Retry
 
 logger = logging.getLogger(__name__)
 

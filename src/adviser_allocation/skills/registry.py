@@ -13,11 +13,11 @@ class SkillRegistry:
     Uses registry pattern to enable system-wide test discovery.
     """
 
-    _instance: Optional['SkillRegistry'] = None
+    _instance: Optional["SkillRegistry"] = None
     _lock = threading.Lock()
     _skills: Dict[str, Skill] = {}
 
-    def __new__(cls) -> 'SkillRegistry':
+    def __new__(cls) -> "SkillRegistry":
         """Implement thread-safe singleton pattern."""
         if cls._instance is None:
             with cls._lock:

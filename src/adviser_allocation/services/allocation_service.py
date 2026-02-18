@@ -7,7 +7,6 @@ from typing import Any, Dict, Optional
 
 from adviser_allocation.utils.common import sydney_now
 
-
 logger = logging.getLogger(__name__)
 
 

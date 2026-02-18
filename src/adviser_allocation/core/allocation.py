@@ -1,21 +1,35 @@
-import os, time, logging
-from datetime import datetime, timedelta, date
+import logging
+import os
 import re
+import time
+from datetime import date, datetime, timedelta
+from functools import lru_cache
+from typing import Dict, List, Optional
+from zoneinfo import ZoneInfo
+
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-from zoneinfo import ZoneInfo
-from functools import lru_cache
-from typing import Optional, Dict, List
 
-from adviser_allocation.utils.common import sydney_now, sydney_today, sydney_datetime_from_date, SYDNEY_TZ
-from adviser_allocation.utils.secrets import get_secret
+from adviser_allocation.utils.common import (
+    SYDNEY_TZ,
+    sydney_datetime_from_date,
+    sydney_now,
+    sydney_today,
+)
 from adviser_allocation.utils.firestore_helpers import (
-    get_employee_leaves as get_employee_leaves_from_firestore,
-    get_employee_id as get_employee_id_from_firestore,
-    get_global_closures as get_global_closures_from_firestore,
     get_capacity_overrides as get_capacity_overrides_from_firestore,
 )
+from adviser_allocation.utils.firestore_helpers import (
+    get_employee_id as get_employee_id_from_firestore,
+)
+from adviser_allocation.utils.firestore_helpers import (
+    get_employee_leaves as get_employee_leaves_from_firestore,
+)
+from adviser_allocation.utils.firestore_helpers import (
+    get_global_closures as get_global_closures_from_firestore,
+)
+from adviser_allocation.utils.secrets import get_secret
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +88,9 @@ def _capacity_override_cache() -> Dict[str, List[Dict]]:
             continue
         # Overrides take effect from the first Monday on/after the supplied date
         days_until_monday = (7 - eff_date.weekday()) % 7
-        effective_start = eff_date if days_until_monday == 0 else eff_date + timedelta(days=days_until_monday)
+        effective_start = (
+            eff_date if days_until_monday == 0 else eff_date + timedelta(days=days_until_monday)
+        )
         effective_week = week_monday_ordinal(effective_start)
         overrides_map.setdefault(email, []).append(
             {
@@ -165,21 +181,29 @@ def weekly_capacity_target(user: dict, week_ordinal: int) -> int:
 def create_requests_session():
     """Create a requests session with retry logic for network issues."""
     session = requests.Session()
-    
+
     # Define retry strategy
     retry_strategy = Retry(
         total=3,  # Total number of retries
         status_forcelist=[429, 500, 502, 503, 504],  # HTTP status codes to retry on
-        allowed_methods=["HEAD", "GET", "POST", "PUT", "DELETE", "OPTIONS", "TRACE"],  # Updated parameter name
+        allowed_methods=[
+            "HEAD",
+            "GET",
+            "POST",
+            "PUT",
+            "DELETE",
+            "OPTIONS",
+            "TRACE",
+        ],  # Updated parameter name
         backoff_factor=1,  # Wait time between retries (1, 2, 4 seconds)
-        raise_on_status=False
+        raise_on_status=False,
     )
-    
+
     # Mount the adapter to both HTTP and HTTPS
     adapter = HTTPAdapter(max_retries=retry_strategy)
     session.mount("http://", adapter)
     session.mount("https://", adapter)
-    
+
     return session
 
 
@@ -193,7 +217,8 @@ DIFFERENCE_COL = 6
 
 # Days in a fortnight (used when stepping weeks by ordinals)
 FORTNIGHT_DAYS = 14
-WEEKLY_HARD_LIMIT = 2 # maximum number of clarifies that can be allocated in a single week
+WEEKLY_HARD_LIMIT = 2  # maximum number of clarifies that can be allocated in a single week
+
 
 def _prev_week(week_key: int) -> int:
     """Return the Monday ordinal of the previous week for a given week key."""
@@ -234,12 +259,12 @@ def _find_next_non_full_ooo_week(data, sorted_weeks, start_week: int) -> int:
     start_idx = _first_index_at_or_after(sorted_weeks, start_week)
     if start_idx is None:
         return start_week
-    
+
     for i in range(start_idx, len(sorted_weeks)):
         week = sorted_weeks[i]
         if not _is_full_ooo_week(data, week):
             return week
-    
+
     # If all remaining weeks are Full OOO, return the last week + 7 days
     return sorted_weeks[-1] + 7 if sorted_weeks else start_week
 
@@ -252,16 +277,16 @@ def _find_prev_non_full_ooo_week(data, sorted_weeks, start_week: int) -> int:
         if week >= start_week:
             start_idx = i
             break
-    
+
     if start_idx is None:
         start_idx = len(sorted_weeks)
-    
+
     # Look backwards from start_idx
     for i in range(start_idx - 1, -1, -1):
         week = sorted_weeks[i]
         if not _is_full_ooo_week(data, week):
             return week
-    
+
     # If no previous non-Full OOO week found, return the first week - 7 days
     return sorted_weeks[0] - 7 if sorted_weeks else start_week - 7
 
@@ -300,9 +325,7 @@ def get_first_monday_current_month(input_date=None, tz_name=None) -> int:
     # Get the week number and convert the date to epoch milliseconds
     week_number = first_monday.isocalendar()[1]
     epoch_ms = int(
-        datetime(
-            first_monday.year, first_monday.month, first_monday.day, tzinfo=tz
-        ).timestamp()
+        datetime(first_monday.year, first_monday.month, first_monday.day, tzinfo=tz).timestamp()
         * 1000
     )
 
@@ -392,7 +415,7 @@ def get_user_meeting_details(user, timestamp_milliseconds):
     }
     if not HUBSPOT_TOKEN:
         raise RuntimeError("HUBSPOT_TOKEN is not configured")
-    
+
     session = create_requests_session()
     try:
         result = session.post(url, headers=HEADERS, json=payload, timeout=30)
@@ -430,23 +453,17 @@ def get_meeting_count(user_meetings, display_table=False):
 
         # Check if the activity type is 'Kick Off' and increment its specific count
         if meeting["properties"]["hs_activity_type"] == "Kick Off":
-            weekly_kickoff_counts[week_number] = (
-                weekly_kickoff_counts.get(week_number, 0) + 1
-            )
+            weekly_kickoff_counts[week_number] = weekly_kickoff_counts.get(week_number, 0) + 1
 
         # Check if the activity type is 'Clarify' and increment its specific count
         if meeting["properties"]["hs_activity_type"] == "Clarify":
-            weekly_clarify_counts[week_number] = (
-                weekly_clarify_counts.get(week_number, 0) + 1
-            )
+            weekly_clarify_counts[week_number] = weekly_clarify_counts.get(week_number, 0) + 1
 
         # print(week_number, meeting['properties']['hs_meeting_start_time'], meeting['properties']['hs_activity_type'], meeting['properties']['hs_meeting_title'])
 
     # Prepare data for the table
     # Get all unique week numbers from both dictionaries
-    all_weeks = sorted(
-        list(set(weekly_clarify_counts.keys()).union(weekly_kickoff_counts.keys()))
-    )
+    all_weeks = sorted(list(set(weekly_clarify_counts.keys()).union(weekly_kickoff_counts.keys())))
 
     table_data = [["Week", "Clarify Meetings", "Kick Off Meetings"]]
     for week in all_weeks:
@@ -466,8 +483,7 @@ def get_meeting_count(user_meetings, display_table=False):
         logger.debug("Meeting count table:\n%s", "\n".join(lines))
 
     return {
-        w: [weekly_clarify_counts.get(w, 0), weekly_kickoff_counts.get(w, 0)]
-        for w in all_weeks
+        w: [weekly_clarify_counts.get(w, 0), weekly_kickoff_counts.get(w, 0)] for w in all_weeks
     }
 
 
@@ -669,7 +685,7 @@ def get_deals_no_clarify(user_email):
                     {
                         "propertyName": "dealstage",
                         "operator": "IN",
-                        "values": ["257144337", "257144338", "257144339"]
+                        "values": ["257144337", "257144338", "257144339"],
                     },
                     # {
                     #     "propertyName": "agreement_start_date",
@@ -708,7 +724,7 @@ def get_deals_no_clarify(user_email):
 
     if not HUBSPOT_TOKEN:
         raise RuntimeError("HUBSPOT_TOKEN is not configured")
-    
+
     session = create_requests_session()
     try:
         response = session.post(url, headers=HEADERS, json=data, timeout=30)
@@ -803,7 +819,9 @@ def compute_capacity(user, min_week):
         elif partial_days is not None:
             current_value_capacity = half_capacity if partial_days in (3, 4) else target_capacity
         else:
-            current_value_capacity = half_capacity if (curr_has_high or curr_has_low) else target_capacity
+            current_value_capacity = (
+                half_capacity if (curr_has_high or curr_has_low) else target_capacity
+            )
 
         complete_data_dict[week].append(int(current_value_capacity))
 
@@ -823,9 +841,7 @@ def compute_capacity(user, min_week):
                 prev_week -= 7
 
             if prev_week in complete_data_dict:
-                cumulative_sum_count = (
-                    value_from_first_column + complete_data_dict[prev_week][0]
-                )
+                cumulative_sum_count = value_from_first_column + complete_data_dict[prev_week][0]
             else:
                 cumulative_sum_count = value_from_first_column
 
@@ -848,24 +864,24 @@ def find_earliest_week(user, min_week, agreement_start_date=None):
     capacity overuse. Weekly spare (target - clarifies(prev+curr)) services
     slack_debt first, then reduces backlog. Requires two consecutive negative
     differences before confirming the earliest week.
-    
+
     Args:
         user: User object with capacity data
         min_week: Baseline week for capacity calculations
         agreement_start_date: Optional datetime for minimum agreement start constraint
     """
-    user_name = user['properties']['hs_email'].split('@')[0].replace('.', ' ').title()
+    user_name = user["properties"]["hs_email"].split("@")[0].replace(".", " ").title()
     logger.info("Finding earliest week for %s", user_name)
     now_week = week_monday_ordinal(sydney_today())
     min_allowed_week = now_week + FORTNIGHT_DAYS  # must be at least 2 weeks out
-    
+
     # Consider agreement start date as additional constraint
     agreement_start_week = None
     agreement_allocation_week = None
     if agreement_start_date:
         if isinstance(agreement_start_date, datetime):
             agreement_start_week = week_monday_ordinal(agreement_start_date.date())
-        elif hasattr(agreement_start_date, 'date'):
+        elif hasattr(agreement_start_date, "date"):
             agreement_start_week = week_monday_ordinal(agreement_start_date.date())
         if agreement_start_week is not None:
             agreement_allocation_week = agreement_start_week + 7
@@ -876,7 +892,7 @@ def find_earliest_week(user, min_week, agreement_start_date=None):
                 week_label_from_ordinal(agreement_start_week),
                 allocation_label,
             )
-    
+
     # Always start searching at or after the minimum allowed week and agreement start week
     starting_week = max(min_week, min_allowed_week)
     if agreement_allocation_week:
@@ -885,7 +901,9 @@ def find_earliest_week(user, min_week, agreement_start_date=None):
     data = user["capacity"]
     sorted_weeks = sorted(data.keys())
 
-    deal_no_clarify_delay = FORTNIGHT_DAYS  # shift deal start by a fortnight before counting towards backlog
+    deal_no_clarify_delay = (
+        FORTNIGHT_DAYS  # shift deal start by a fortnight before counting towards backlog
+    )
 
     # Choose the first week >= starting_week to begin evaluation
     starting_index = _first_index_at_or_after(sorted_weeks, starting_week)
@@ -906,16 +924,28 @@ def find_earliest_week(user, min_week, agreement_start_date=None):
 
     # Backlog before baseline: deals without clarify from weeks before the baseline week
     remaining_backlog = sum(
-        v[DEALS_NO_CLARIFY_COL] for k, v in data.items() if k < baseline_week - deal_no_clarify_delay
+        v[DEALS_NO_CLARIFY_COL]
+        for k, v in data.items()
+        if k < baseline_week - deal_no_clarify_delay
     )
 
     # Initialize overflow to 0 baseline - 14 days
     # Overflow is clarify count - target capacity / 2, we remove 1  per capacity until less than 0
-    remaining_backlog += max(_get_col(data, baseline_week - 21, CLARIFY_COL, 0) - _get_col(data, baseline_week - 21, TARGET_CAPACITY_COL, 0) / 2, 0)
+    remaining_backlog += max(
+        _get_col(data, baseline_week - 21, CLARIFY_COL, 0)
+        - _get_col(data, baseline_week - 21, TARGET_CAPACITY_COL, 0) / 2,
+        0,
+    )
     # overflow for baseline week - 14 days
-    remaining_backlog += _get_col(data, baseline_week - 14, CLARIFY_COL, 0) - _get_col(data, baseline_week - 14, TARGET_CAPACITY_COL, 0) / 2
+    remaining_backlog += (
+        _get_col(data, baseline_week - 14, CLARIFY_COL, 0)
+        - _get_col(data, baseline_week - 14, TARGET_CAPACITY_COL, 0) / 2
+    )
     # overflow for baseline week - 7 days
-    remaining_backlog += _get_col(data, baseline_week - 7, CLARIFY_COL, 0) - _get_col(data, baseline_week - 7, TARGET_CAPACITY_COL, 0) / 2
+    remaining_backlog += (
+        _get_col(data, baseline_week - 7, CLARIFY_COL, 0)
+        - _get_col(data, baseline_week - 7, TARGET_CAPACITY_COL, 0) / 2
+    )
 
     logger.debug(
         "Baseline week for %s: %s (initial backlog %.2f)",
@@ -932,12 +962,8 @@ def find_earliest_week(user, min_week, agreement_start_date=None):
     backlog_assigned_curr = 0
     backlog_assigned_prev = 0
 
-    clarify_accum = sum(
-        v[CLARIFY_COL] for k, v in data.items() if k < baseline_week
-    )
-    target_accum = sum(
-        v[TARGET_CAPACITY_COL] for k, v in data.items() if k <  baseline_week
-    ) / 2
+    clarify_accum = sum(v[CLARIFY_COL] for k, v in data.items() if k < baseline_week)
+    target_accum = sum(v[TARGET_CAPACITY_COL] for k, v in data.items() if k < baseline_week) / 2
 
     logger.debug(
         "Starting accumulators for %s -> clarify %.2f target %.2f",
@@ -948,9 +974,11 @@ def find_earliest_week(user, min_week, agreement_start_date=None):
     for idx, wk in enumerate(sorted_weeks[starting_index:]):
         # Check if this week has Full OOO status - skip entirely if so
         if _is_full_ooo_week(data, wk):
-            logger.debug("Week %s skipped for %s (Full OOO)", week_label_from_ordinal(wk), user_name)
+            logger.debug(
+                "Week %s skipped for %s (Full OOO)", week_label_from_ordinal(wk), user_name
+            )
             continue
-        
+
         # starts at baseline_week current + 14 days
         # Add new deals for this week into the pending fortnight block
         new_deals = _get_col(data, wk - deal_no_clarify_delay, DEALS_NO_CLARIFY_COL, 0)
@@ -962,11 +990,10 @@ def find_earliest_week(user, min_week, agreement_start_date=None):
         clarify_curr = _get_col(data, wk, CLARIFY_COL, 0)
         clarify_prev = _get_col(data, prev_wk, CLARIFY_COL, 0)
 
-
         # Use the current week's target as the fortnight target reference (matches how 'difference' is computed)
         block_target = _get_col(data, wk, TARGET_CAPACITY_COL, weekly_capacity_target(user, wk))
         capacity_this_week = block_target - clarify_prev - clarify_curr - backlog_assigned_prev
-        
+
         # Find the next non-Full OOO week for capacity calculation
         next_available_week = _find_next_non_full_ooo_week(data, sorted_weeks, wk + 7)
         capacity_next_week = -_get_col(data, next_available_week, DIFFERENCE_COL, 0)
@@ -977,10 +1004,16 @@ def find_earliest_week(user, min_week, agreement_start_date=None):
         diff_curr = _get_col(data, wk, DIFFERENCE_COL, 0)
         diff_next = _get_col(data, next_available_week, DIFFERENCE_COL, 0)
         diff_prev = _get_col(data, prev_wk, DIFFERENCE_COL, 0)
-    
-        backlog_assigned_curr = max(min(min(max(min(actual_capacity_this_week, week_limit), 0), remaining_backlog), max(-diff_prev, -diff_next)), 0)
-        
-        remaining_backlog -= backlog_assigned_curr 
+
+        backlog_assigned_curr = max(
+            min(
+                min(max(min(actual_capacity_this_week, week_limit), 0), remaining_backlog),
+                max(-diff_prev, -diff_next),
+            ),
+            0,
+        )
+
+        remaining_backlog -= backlog_assigned_curr
         backlog_assigned_prev = backlog_assigned_curr
 
         final_capacity_curr = actual_capacity_this_week - backlog_assigned_curr
@@ -1013,7 +1046,7 @@ def find_earliest_week(user, min_week, agreement_start_date=None):
             candidate = max(wk, min_allowed_week)
             if agreement_allocation_week:
                 candidate = max(candidate, agreement_allocation_week)
-            
+
             user["earliest_open_week"] = candidate
             logger.info(
                 "Earliest week found for %s: %s (capacity %.1f)",
@@ -1022,7 +1055,6 @@ def find_earliest_week(user, min_week, agreement_start_date=None):
                 final_capacity_curr,
             )
             return user
-            
 
     # If backlog still remains after projected weeks, include any pending block deals
     last_week = sorted_weeks[-1]
@@ -1030,7 +1062,7 @@ def find_earliest_week(user, min_week, agreement_start_date=None):
     final_week = max(last_week + FORTNIGHT_DAYS * fortnights_needed, min_allowed_week)
     if agreement_allocation_week:
         final_week = max(final_week, agreement_allocation_week)
-    
+
     # Try to find the first 2-week pair with negative differences at/after final_week
     sorted_weeks = sorted(data.keys())
     start_idx = _first_index_at_or_after(sorted_weeks, final_week)
@@ -1044,7 +1076,7 @@ def find_earliest_week(user, min_week, agreement_start_date=None):
             if diff_prev < 0 and diff_curr < 0:
                 chosen = wk
                 break
-    
+
     result = chosen if chosen else final_week
     if agreement_allocation_week:
         result = max(result, agreement_allocation_week)
@@ -1052,7 +1084,7 @@ def find_earliest_week(user, min_week, agreement_start_date=None):
     logger.info(
         "Final earliest week for %s: %s",
         user_name,
-        week_label_from_ordinal(user['earliest_open_week']),
+        week_label_from_ordinal(user["earliest_open_week"]),
     )
     return user
 
@@ -1082,9 +1114,7 @@ def display_data(data):
                 column_widths[i] = len(item)
 
     lines = []
-    header_row = " | ".join(
-        header.ljust(width) for header, width in zip(headers, column_widths)
-    )
+    header_row = " | ".join(header.ljust(width) for header, width in zip(headers, column_widths))
     lines.append(header_row)
 
     separator = "-|-".join("-" * width for width in column_widths)
@@ -1092,9 +1122,7 @@ def display_data(data):
 
     for week in sorted_weeks:
         row_data = [week_label_from_ordinal(week)] + [str(item) for item in data[week]]
-        data_row = " | ".join(
-            item.ljust(width) for item, width in zip(row_data, column_widths)
-        )
+        data_row = " | ".join(item.ljust(width) for item, width in zip(row_data, column_widths))
         lines.append(data_row)
 
     logger.debug("Capacity table:\n%s", "\n".join(lines))
@@ -1108,9 +1136,9 @@ def get_user_ids_adviser():
     )
     if not HUBSPOT_TOKEN:
         raise RuntimeError("HUBSPOT_TOKEN is not configured")
-    
+
     session = create_requests_session()
-    
+
     try:
         logger.info("Loading HubSpot users")
         response = session.get(url, headers=HEADERS, timeout=30)
@@ -1118,32 +1146,32 @@ def get_user_ids_adviser():
         users = response.json().get("results", [])
         logger.info("Loaded %d HubSpot users", len(users))
         return users
-        
+
     except requests.exceptions.ConnectionError as e:
         error_msg = f"Failed to connect to HubSpot API. Please check your internet connection and try again. Details: {str(e)}"
         logger.error("HubSpot connection error: %s", error_msg)
         raise RuntimeError(error_msg)
-        
+
     except requests.exceptions.Timeout as e:
         error_msg = f"HubSpot API request timed out. Please try again. Details: {str(e)}"
         logger.error("HubSpot timeout: %s", error_msg)
         raise RuntimeError(error_msg)
-        
+
     except requests.exceptions.HTTPError as e:
         error_msg = f"HubSpot API returned an error: {e.response.status_code} - {e.response.text}"
         logger.error("HubSpot HTTP error: %s", error_msg)
         raise RuntimeError(error_msg)
-        
+
     except requests.exceptions.RequestException as e:
         error_msg = f"An error occurred while connecting to HubSpot API: {str(e)}"
         logger.error("HubSpot request error: %s", error_msg)
         raise RuntimeError(error_msg)
-        
+
     except Exception as e:
         error_msg = f"An unexpected error occurred: {str(e)}"
         logger.error("HubSpot unexpected error: %s", error_msg)
         raise RuntimeError(error_msg)
-    
+
     finally:
         session.close()
 
@@ -1151,7 +1179,9 @@ def get_user_ids_adviser():
 def get_adviser(service_package, agreement_start_date=None, household_type=None):
     logger.info("Adviser allocation started for service package %s", service_package)
     if agreement_start_date:
-        agreement_date = datetime.fromtimestamp(int(agreement_start_date) / 1000, tz=SYDNEY_TZ).date()
+        agreement_date = datetime.fromtimestamp(
+            int(agreement_start_date) / 1000, tz=SYDNEY_TZ
+        ).date()
         logger.info("Agreement start date provided: %s", agreement_date.isoformat())
     else:
         logger.info("Agreement start date not provided")
@@ -1184,7 +1214,12 @@ def get_adviser(service_package, agreement_start_date=None, household_type=None)
 
         users_list.append(user)
 
-    logger.info("Advisers eligible for %s (household=%s): %d", service_package, household_lower or "<any>", len(users_list))
+    logger.info(
+        "Advisers eligible for %s (household=%s): %d",
+        service_package,
+        household_lower or "<any>",
+        len(users_list),
+    )
 
     # Load global closures once
     global_closures = classify_leave_weeks(get_global_closures_from_firestore())
@@ -1206,7 +1241,7 @@ def get_adviser(service_package, agreement_start_date=None, household_type=None)
 
     for i, user in enumerate(users_list):
         user_email = user["properties"]["hs_email"]
-        user_name = user_email.split('@')[0].replace('.', ' ').title()
+        user_name = user_email.split("@")[0].replace(".", " ").title()
         logger.info("Processing adviser %d/%d: %s", i + 1, len(users_list), user_email)
 
         # get user approved leave requests from EH
@@ -1255,7 +1290,7 @@ def get_adviser(service_package, agreement_start_date=None, household_type=None)
         logger.info(
             "%s monthly client limit: %s",
             user_email,
-            user['properties']['client_limit_monthly'],
+            user["properties"]["client_limit_monthly"],
         )
         if availability_week:
             availability_date = date.fromordinal(availability_week)
@@ -1275,12 +1310,14 @@ def get_adviser(service_package, agreement_start_date=None, household_type=None)
         user = compute_capacity(user, effective_min_week)
 
         display_data(user["capacity"])
-        
+
         # Convert agreement_start_date to datetime for find_earliest_week
         agreement_start_datetime = None
         if agreement_start_date:
-            agreement_start_datetime = datetime.fromtimestamp(int(agreement_start_date) / 1000, tz=SYDNEY_TZ)
-        
+            agreement_start_datetime = datetime.fromtimestamp(
+                int(agreement_start_date) / 1000, tz=SYDNEY_TZ
+            )
+
         user = find_earliest_week(user, effective_min_week, agreement_start_datetime)
 
         users_list[i] = user
@@ -1294,10 +1331,12 @@ def get_adviser(service_package, agreement_start_date=None, household_type=None)
     # Show all advisers and their earliest weeks
     logger.debug("All adviser availability:")
     for user in users_list:
-        user_name = user["properties"]["hs_email"].split('@')[0].replace('.', ' ').title()
-        wk = user.get('earliest_open_week')
+        user_name = user["properties"]["hs_email"].split("@")[0].replace(".", " ").title()
+        wk = user.get("earliest_open_week")
         wk_label = week_label_from_ordinal(wk) if isinstance(wk, int) else str(wk)
-        earliest_date = date.fromordinal(wk).strftime('%B %d, %Y') if isinstance(wk, int) else "Unknown"
+        earliest_date = (
+            date.fromordinal(wk).strftime("%B %d, %Y") if isinstance(wk, int) else "Unknown"
+        )
         logger.debug("  %s -> %s (%s)", user_name, wk_label, earliest_date)
 
     # Filter advisers whose earliest_open_week is later than or equal to the first allocation week
@@ -1308,19 +1347,25 @@ def get_adviser(service_package, agreement_start_date=None, household_type=None)
         )
         eligible_users = []
         for user in users_list:
-            earliest_week = user.get("earliest_open_week", float('inf'))
+            earliest_week = user.get("earliest_open_week", float("inf"))
             if isinstance(earliest_week, int) and earliest_week >= agreement_allocation_week:
                 eligible_users.append(user)
 
         if not eligible_users:
-            raise RuntimeError("No advisers available starting the week after the agreement start date")
+            raise RuntimeError(
+                "No advisers available starting the week after the agreement start date"
+            )
 
         logger.info("%d advisers meet the agreement start window", len(eligible_users))
         users_list = eligible_users
 
     # Find the earliest week among remaining advisers
-    earliest_week = min(user.get("earliest_open_week", float('inf')) for user in users_list)
-    earliest_date = date.fromordinal(earliest_week).strftime('%B %d, %Y') if isinstance(earliest_week, int) else "Unknown"
+    earliest_week = min(user.get("earliest_open_week", float("inf")) for user in users_list)
+    earliest_date = (
+        date.fromordinal(earliest_week).strftime("%B %d, %Y")
+        if isinstance(earliest_week, int)
+        else "Unknown"
+    )
 
     # Get all advisers tied for the earliest week
     tied_advisers = [user for user in users_list if user.get("earliest_open_week") == earliest_week]
@@ -1334,7 +1379,7 @@ def get_adviser(service_package, agreement_start_date=None, household_type=None)
 
     if len(tied_advisers) == 1:
         final_agent = tied_advisers[0]
-        agent_name = final_agent["properties"]["hs_email"].split('@')[0].replace('.', ' ').title()
+        agent_name = final_agent["properties"]["hs_email"].split("@")[0].replace(".", " ").title()
         logger.info("Single adviser available: %s", agent_name)
     else:
         logger.info("Applying workload ratio tiebreaker")
@@ -1352,33 +1397,48 @@ def get_adviser(service_package, agreement_start_date=None, household_type=None)
             for week_key, week_data in capacity.items():
                 if week_key <= earliest_week:
                     total_clarify += week_data[CLARIFY_COL] if len(week_data) > CLARIFY_COL else 0
-                    total_target += week_data[TARGET_CAPACITY_COL] / 2 if len(week_data) > TARGET_CAPACITY_COL else 0
+                    total_target += (
+                        week_data[TARGET_CAPACITY_COL] / 2
+                        if len(week_data) > TARGET_CAPACITY_COL
+                        else 0
+                    )
 
             # Avoid division by zero
             return total_clarify / max(total_target, 1)
 
         # Select adviser with lowest ratio (most capacity available relative to target)
         min_ratio = min(calculate_tiebreaker_ratio(user) for user in tied_advisers)
-        ratio_tied_advisers = [user for user in tied_advisers if abs(calculate_tiebreaker_ratio(user) - min_ratio) < 1e-6]
+        ratio_tied_advisers = [
+            user
+            for user in tied_advisers
+            if abs(calculate_tiebreaker_ratio(user) - min_ratio) < 1e-6
+        ]
 
         logger.debug("Workload ratios (clarify/target):")
         for user in tied_advisers:
-            user_name = user["properties"]["hs_email"].split('@')[0].replace('.', ' ').title()
+            user_name = user["properties"]["hs_email"].split("@")[0].replace(".", " ").title()
             ratio = calculate_tiebreaker_ratio(user)
             status = ""
             if user in ratio_tied_advisers:
-                status = " 🎯 (LOWEST)" if len(ratio_tied_advisers) == 1 else " 🎯 (TIED FOR LOWEST)"
+                status = (
+                    " 🎯 (LOWEST)" if len(ratio_tied_advisers) == 1 else " 🎯 (TIED FOR LOWEST)"
+                )
             logger.debug("  %s -> %.3f%s", user_name, ratio, status)
 
         if len(ratio_tied_advisers) == 1:
             final_agent = ratio_tied_advisers[0]
-            agent_name = final_agent["properties"]["hs_email"].split('@')[0].replace('.', ' ').title()
+            agent_name = (
+                final_agent["properties"]["hs_email"].split("@")[0].replace(".", " ").title()
+            )
             logger.info("Selected by workload ratio: %s", agent_name)
         else:
             # Final tiebreaker: random selection
             import random
+
             final_agent = random.choice(ratio_tied_advisers)
-            agent_name = final_agent["properties"]["hs_email"].split('@')[0].replace('.', ' ').title()
+            agent_name = (
+                final_agent["properties"]["hs_email"].split("@")[0].replace(".", " ").title()
+            )
             logger.info(
                 "Random selection resolved tie of %d advisers: %s",
                 len(ratio_tied_advisers),
@@ -1386,16 +1446,18 @@ def get_adviser(service_package, agreement_start_date=None, household_type=None)
             )
 
     logger.info("Allocation complete")
-    final_agent_name = final_agent["properties"]["hs_email"].split('@')[0].replace('.', ' ').title()
-    final_week_date = date.fromordinal(final_agent.get("earliest_open_week")).strftime('%B %d, %Y')
+    final_agent_name = final_agent["properties"]["hs_email"].split("@")[0].replace(".", " ").title()
+    final_week_date = date.fromordinal(final_agent.get("earliest_open_week")).strftime("%B %d, %Y")
     logger.info(
         "Selected adviser %s (%s) for week %s (%s)",
         final_agent_name,
-        final_agent['properties']['hs_email'],
-        week_label_from_ordinal(final_agent.get('earliest_open_week')),
+        final_agent["properties"]["hs_email"],
+        week_label_from_ordinal(final_agent.get("earliest_open_week")),
         final_week_date,
     )
-    logger.debug("Selected adviser HubSpot owner id: %s", final_agent['properties']['hubspot_owner_id'])
+    logger.debug(
+        "Selected adviser HubSpot owner id: %s", final_agent["properties"]["hubspot_owner_id"]
+    )
 
     candidates_summary = []
     for user in users_list:
@@ -1420,9 +1482,7 @@ def get_adviser(service_package, agreement_start_date=None, household_type=None)
 
     candidates_summary.sort(
         key=lambda c: (
-            c["earliest_open_week"]
-            if isinstance(c["earliest_open_week"], int)
-            else float("inf")
+            c["earliest_open_week"] if isinstance(c["earliest_open_week"], int) else float("inf")
         )
     )
 
@@ -1441,7 +1501,7 @@ def get_users_taking_on_clients():
     )
     if not HUBSPOT_TOKEN:
         raise RuntimeError("HUBSPOT_TOKEN is not configured")
-    
+
     session = create_requests_session()
     try:
         response = session.get(url, headers=HEADERS, timeout=30)
@@ -1464,7 +1524,7 @@ def get_users_taking_on_clients():
 def get_users_earliest_availability(agreement_start_date=None, include_no=True):
     """
     Compute earliest available week for all advisers taking on clients.
-    
+
     Args:
         agreement_start_date (datetime, optional): Start date for the agreement.
             If None, defaults to Sydney now time.
@@ -1482,13 +1542,13 @@ def get_users_earliest_availability(agreement_start_date=None, include_no=True):
     for user in users:
         props = user.get("properties") or {}
         taking_on_clients_raw = props.get("taking_on_clients")
-        
+
         # Skip advisers with blank/null taking_on_clients values
         if taking_on_clients_raw is None or str(taking_on_clients_raw).strip() == "":
             continue
-            
+
         taking_on_clients = str(taking_on_clients_raw).lower() == "true"
-        
+
         if include_no:
             # Include all advisers with non-blank taking_on_clients (both True and False)
             users_list.append(user)
@@ -1497,13 +1557,13 @@ def get_users_earliest_availability(agreement_start_date=None, include_no=True):
             if taking_on_clients:
                 users_list.append(user)
     logging.info("Advisers after filtering: %d", len(users_list))
-    
+
     results = []
 
     # Use provided agreement_start_date or default to Sydney now
     if agreement_start_date is None:
         agreement_start_date = sydney_now()
-    elif not hasattr(agreement_start_date, 'tzinfo') or agreement_start_date.tzinfo is None:
+    elif not hasattr(agreement_start_date, "tzinfo") or agreement_start_date.tzinfo is None:
         # If naive datetime, assume it's in Sydney timezone
         agreement_start_date = agreement_start_date.replace(tzinfo=SYDNEY_TZ)
     elif agreement_start_date.tzinfo != SYDNEY_TZ:
@@ -1576,15 +1636,18 @@ def get_users_earliest_availability(agreement_start_date=None, include_no=True):
             if chosen_override:
                 override_status = "active" if chosen_override is active_override else "upcoming"
 
-            override_limit = chosen_override.get("client_limit_monthly") if chosen_override else None
-            override_effective_week = chosen_override.get("effective_week") if chosen_override else None
+            override_limit = (
+                chosen_override.get("client_limit_monthly") if chosen_override else None
+            )
+            override_effective_week = (
+                chosen_override.get("effective_week") if chosen_override else None
+            )
             override_effective_date = None
             override_effective_label = None
             if chosen_override:
-                override_effective_date = (
-                    chosen_override.get("effective_start")
-                    or chosen_override.get("effective_date")
-                )
+                override_effective_date = chosen_override.get(
+                    "effective_start"
+                ) or chosen_override.get("effective_date")
                 if isinstance(override_effective_week, int):
                     override_effective_label = week_label_from_ordinal(override_effective_week)
 
@@ -1606,36 +1669,44 @@ def get_users_earliest_availability(agreement_start_date=None, include_no=True):
                 user_email,
                 week_label_from_ordinal(earliest_wk) if isinstance(earliest_wk, int) else "n/a",
             )
-            results.append({
-                "email": props.get("hs_email"),
-                "pod_type": props.get("pod_type"),
-                "pod_type_source": "base",
-                "service_packages": (props.get("client_types") or ""),
-                "hubspot_owner_id": props.get("hubspot_owner_id"),
-                "client_limit_monthly": display_limit,
-                "client_limit_source": limit_source,
-                "taking_on_clients": props.get("taking_on_clients"),
-                "household_type": props.get("household_type"),
-                "availability_start_week": user.get("availability_start_week"),
-                "earliest_open_week": earliest_wk,
-                "earliest_open_week_label": week_label_from_ordinal(earliest_wk) if isinstance(earliest_wk, int) else None,
-                "capacity_override_status": override_status,
-                "capacity_override_effective_week": override_effective_week,
-                "capacity_override_effective_label": override_effective_label,
-                "capacity_override_effective_date": override_effective_date,
-                "capacity_override_limit": override_limit,
-                "capacity_override_schedule": schedule,
-            })
+            results.append(
+                {
+                    "email": props.get("hs_email"),
+                    "pod_type": props.get("pod_type"),
+                    "pod_type_source": "base",
+                    "service_packages": (props.get("client_types") or ""),
+                    "hubspot_owner_id": props.get("hubspot_owner_id"),
+                    "client_limit_monthly": display_limit,
+                    "client_limit_source": limit_source,
+                    "taking_on_clients": props.get("taking_on_clients"),
+                    "household_type": props.get("household_type"),
+                    "availability_start_week": user.get("availability_start_week"),
+                    "earliest_open_week": earliest_wk,
+                    "earliest_open_week_label": (
+                        week_label_from_ordinal(earliest_wk)
+                        if isinstance(earliest_wk, int)
+                        else None
+                    ),
+                    "capacity_override_status": override_status,
+                    "capacity_override_effective_week": override_effective_week,
+                    "capacity_override_effective_label": override_effective_label,
+                    "capacity_override_effective_date": override_effective_date,
+                    "capacity_override_limit": override_limit,
+                    "capacity_override_schedule": schedule,
+                }
+            )
         except Exception as e:
             # Collect error per user but continue with others
-            results.append({
-                "email": user.get("properties", {}).get("hs_email"),
-                "service_packages": (user.get("properties", {}).get("client_types") or ""),
-                "pod_type": user.get("properties", {}).get("pod_type"),
-                "hubspot_owner_id": user.get("properties", {}).get("hubspot_owner_id"),
-                "household_type": user.get("properties", {}).get("household_type"),
-                "error": str(e),
-            })
+            results.append(
+                {
+                    "email": user.get("properties", {}).get("hs_email"),
+                    "service_packages": (user.get("properties", {}).get("client_types") or ""),
+                    "pod_type": user.get("properties", {}).get("pod_type"),
+                    "hubspot_owner_id": user.get("properties", {}).get("hubspot_owner_id"),
+                    "household_type": user.get("properties", {}).get("household_type"),
+                    "error": str(e),
+                }
+            )
 
     return results
 
@@ -1651,7 +1722,7 @@ def get_user_by_email(user_email: str):
 
 def compute_user_schedule_by_email(user_email: str, agreement_start_date=None):
     """Build and return an adviser's weekly capacity table and earliest week.
-    
+
     Args:
         user_email (str): Email of the user to compute schedule for.
         agreement_start_date (datetime, optional): Start date for the agreement.
@@ -1680,7 +1751,7 @@ def compute_user_schedule_by_email(user_email: str, agreement_start_date=None):
     # Use provided agreement_start_date or default to Sydney now
     if agreement_start_date is None:
         agreement_start_date = sydney_now()
-    elif not hasattr(agreement_start_date, 'tzinfo') or agreement_start_date.tzinfo is None:
+    elif not hasattr(agreement_start_date, "tzinfo") or agreement_start_date.tzinfo is None:
         # If naive datetime, assume it's in Sydney timezone
         agreement_start_date = agreement_start_date.replace(tzinfo=SYDNEY_TZ)
     elif agreement_start_date.tzinfo != SYDNEY_TZ:
@@ -1716,7 +1787,11 @@ def compute_user_schedule_by_email(user_email: str, agreement_start_date=None):
     logging.info(
         "Computed schedule for %s: earliest week %s",
         user_email,
-        week_label_from_ordinal(user.get("earliest_open_week")) if isinstance(user.get("earliest_open_week"), int) else "n/a",
+        (
+            week_label_from_ordinal(user.get("earliest_open_week"))
+            if isinstance(user.get("earliest_open_week"), int)
+            else "n/a"
+        ),
     )
     return {
         "capacity": user.get("capacity", {}),
@@ -1724,6 +1799,7 @@ def compute_user_schedule_by_email(user_email: str, agreement_start_date=None):
         "min_week": effective_min_week,
         "email": user_email,
     }
+
 
 def week_monday_ordinal(d: date) -> int:
     """Return the ordinal of the Monday for the week containing date ``d``.
@@ -1863,7 +1939,9 @@ def build_service_household_matrix():
             household_map.setdefault(hh, _format_household_label(hh))
 
     service_items = sorted(services_map.items(), key=lambda item: item[1].lower())
-    household_items = sorted(household_map.items(), key=lambda item: item[1].lower()) if household_map else []
+    household_items = (
+        sorted(household_map.items(), key=lambda item: item[1].lower()) if household_map else []
+    )
 
     for hh in sorted(all_households_norm):
         display = household_map.setdefault(hh, _format_household_label(hh))
@@ -1936,8 +2014,7 @@ def build_service_household_matrix():
     cache["services"] = list(services_list)
     cache["households"] = list(households_list)
     cache["matrix"] = {
-        svc: {hh: list(entries) for hh, entries in hh_map.items()}
-        for svc, hh_map in matrix.items()
+        svc: {hh: list(entries) for hh, entries in hh_map.items()} for svc, hh_map in matrix.items()
     }
 
     return services_list, households_list, matrix

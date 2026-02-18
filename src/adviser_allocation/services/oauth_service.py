@@ -1,16 +1,16 @@
 """OAuth token management and Employment Hero authentication service."""
 
-import time
 import logging
-from typing import Optional, Dict
+import time
+from typing import Dict, Optional
 from urllib.parse import urlencode
 
-from flask import session
 import requests
+from flask import session
 
 from adviser_allocation.utils.common import USE_FIRESTORE
+from adviser_allocation.utils.http_client import LONG_TIMEOUT, post_with_retries
 from adviser_allocation.utils.secrets import get_secret
-from adviser_allocation.utils.http_client import post_with_retries, LONG_TIMEOUT
 
 logger = logging.getLogger(__name__)
 

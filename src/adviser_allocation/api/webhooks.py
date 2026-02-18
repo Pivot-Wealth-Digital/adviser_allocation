@@ -1,9 +1,9 @@
 """Webhook endpoints for external integrations (HubSpot, etc.)."""
 
-import os
-import re
 import json
 import logging
+import os
+import re
 from datetime import datetime
 from typing import Optional
 
@@ -13,13 +13,13 @@ from flask import Blueprint, jsonify, request
 from adviser_allocation.core.allocation import get_adviser
 from adviser_allocation.services.allocation_service import store_allocation_record
 from adviser_allocation.utils.common import SYDNEY_TZ, sydney_now
-from adviser_allocation.utils.secrets import get_secret
 from adviser_allocation.utils.http_client import (
-    post_with_retries,
+    DEFAULT_TIMEOUT,
     get_with_retries,
     patch_with_retries,
-    DEFAULT_TIMEOUT,
+    post_with_retries,
 )
+from adviser_allocation.utils.secrets import get_secret
 
 webhooks_bp = Blueprint("webhooks_api", __name__)
 logger = logging.getLogger(__name__)
@@ -79,9 +79,7 @@ def build_chat_card_payload(title: str, sections: list[dict]) -> dict:
         card_sections.append(
             {
                 "header": section.get("header"),
-                "widgets": [
-                    {"textParagraph": {"text": text}} for text in section.get("lines", [])
-                ]
+                "widgets": [{"textParagraph": {"text": text}} for text in section.get("lines", [])]
                 or [],
             }
         )
@@ -138,7 +136,9 @@ def _fetch_deal_metadata(deal_id: str) -> Optional[dict]:
                 "deal_salutation",
             ]
         }
-        resp = get_with_retries(url, headers=_hubspot_headers(), params=params, timeout=DEFAULT_TIMEOUT)
+        resp = get_with_retries(
+            url, headers=_hubspot_headers(), params=params, timeout=DEFAULT_TIMEOUT
+        )
         if resp.status_code == 404:
             logger.warning("HubSpot deal %s not found", deal_id)
             return None
@@ -187,10 +187,14 @@ def handle_allocation():
             service_package = event["fields"]["service_package"]
             household_type = event["fields"].get("household_type", "")
             agreement_start_date = event.get("fields", {}).get("agreement_start_date", "")
-            selected_user, candidate_list = get_adviser(service_package, agreement_start_date, household_type)
-            send_chat_alert_flag = (
-                str(request.args.get("send_chat_alert", "1")).lower()
-                not in ("0", "false", "no", "off")
+            selected_user, candidate_list = get_adviser(
+                service_package, agreement_start_date, household_type
+            )
+            send_chat_alert_flag = str(request.args.get("send_chat_alert", "1")).lower() not in (
+                "0",
+                "false",
+                "no",
+                "off",
             )
             user = selected_user
             chosen_email = (user.get("properties") or {}).get("hs_email")
@@ -205,26 +209,18 @@ def handle_allocation():
 
             adviser_props = user.get("properties") or {}
             adviser_name = _format_display_name(chosen_email)
-            adviser_service_tags = _format_tag_list(
-                adviser_props.get("client_types") or ""
+            adviser_service_tags = _format_tag_list(adviser_props.get("client_types") or "")
+            adviser_household_tags = _format_tag_list(adviser_props.get("household_type") or "")
+            deal_service_display = ", ".join(_format_tag_list(service_package)) or (
+                service_package or "Unknown"
             )
-            adviser_household_tags = _format_tag_list(
-                adviser_props.get("household_type") or ""
-            )
-            deal_service_display = (
-                ", ".join(_format_tag_list(service_package))
-                or (service_package or "Unknown")
-            )
-            deal_household_display = (
-                ", ".join(_format_tag_list(household_type))
-                or (household_type or "Not provided")
+            deal_household_display = ", ".join(_format_tag_list(household_type)) or (
+                household_type or "Not provided"
             )
             agreement_start_display = format_agreement_start(agreement_start_date)
 
             try:
-                deal_update_url = (
-                    f"https://api.hubapi.com/crm/v3/objects/deals/{deal_id}"
-                )
+                deal_update_url = f"https://api.hubapi.com/crm/v3/objects/deals/{deal_id}"
                 payload = {"properties": {"advisor": hubspot_owner_id}}
 
                 response = patch_with_retries(
@@ -271,15 +267,13 @@ def handle_allocation():
 
                 candidate_lines = []
                 for cand in candidate_list:
-                    cand_services = ", ".join(
-                        _format_tag_list(cand.get("service_packages"))
-                    ) or "Not specified"
-                    cand_households = ", ".join(
-                        _format_tag_list(cand.get("household_type"))
-                    ) or "Not specified"
-                    cand_earliest = (
-                        cand.get("earliest_open_week_label") or "Unknown"
+                    cand_services = (
+                        ", ".join(_format_tag_list(cand.get("service_packages"))) or "Not specified"
                     )
+                    cand_households = (
+                        ", ".join(_format_tag_list(cand.get("household_type"))) or "Not specified"
+                    )
+                    cand_earliest = cand.get("earliest_open_week_label") or "Unknown"
                     candidate_lines.append(
                         f"<b>{cand.get('name')}</b> ({cand.get('email')})<br>"
                         f"<i>Services:</i> {cand_services}<br>"
@@ -290,23 +284,17 @@ def handle_allocation():
                     candidate_lines = ["No eligible advisers"]
 
                 selected_services = (
-                    ", ".join(adviser_service_tags)
-                    if adviser_service_tags
-                    else "Not specified"
+                    ", ".join(adviser_service_tags) if adviser_service_tags else "Not specified"
                 )
                 selected_households = (
-                    ", ".join(adviser_household_tags)
-                    if adviser_household_tags
-                    else "Not specified"
+                    ", ".join(adviser_household_tags) if adviser_household_tags else "Not specified"
                 )
                 selected_entry = next(
                     (c for c in candidate_list if c.get("email") == chosen_email),
                     None,
                 )
                 selected_earliest = (
-                    selected_entry.get("earliest_open_week_label")
-                    if selected_entry
-                    else None
+                    selected_entry.get("earliest_open_week_label") if selected_entry else None
                 ) or "Unknown"
 
                 deal_section = [
@@ -376,46 +364,44 @@ def handle_allocation():
                         "client_email": event.get("fields", {}).get("client_email", ""),
                         "adviser_email": chosen_email if chosen_email else "",
                         "adviser_name": adviser_name if "adviser_name" in locals() else "",
-                        "adviser_hubspot_id": hubspot_owner_id
-                        if "hubspot_owner_id" in locals()
-                        else "",
-                        "adviser_service_packages": adviser_service_tags
-                        if "adviser_service_tags" in locals()
-                        else [],
-                        "adviser_household_types": adviser_household_tags
-                        if "adviser_household_tags" in locals()
-                        else [],
+                        "adviser_hubspot_id": (
+                            hubspot_owner_id if "hubspot_owner_id" in locals() else ""
+                        ),
+                        "adviser_service_packages": (
+                            adviser_service_tags if "adviser_service_tags" in locals() else []
+                        ),
+                        "adviser_household_types": (
+                            adviser_household_tags if "adviser_household_tags" in locals() else []
+                        ),
                         "deal_id": deal_id if "deal_id" in locals() else "",
-                        "service_package": deal_service_display
-                        if "deal_service_display" in locals()
-                        else (
-                            service_package
-                            if "service_package" in locals()
-                            else ""
+                        "service_package": (
+                            deal_service_display
+                            if "deal_service_display" in locals()
+                            else (service_package if "service_package" in locals() else "")
                         ),
-                        "service_package_raw": service_package
-                        if "service_package" in locals()
-                        else "",
-                        "household_type": deal_household_display
-                        if "deal_household_display" in locals()
-                        else (
-                            household_type
-                            if "household_type" in locals()
-                            else ""
+                        "service_package_raw": (
+                            service_package if "service_package" in locals() else ""
                         ),
-                        "household_type_raw": household_type
-                        if "household_type" in locals()
-                        else "",
-                        "agreement_start_date": agreement_start_display
-                        if "agreement_start_display" in locals()
-                        else (
-                            format_agreement_start(agreement_start_date)
-                            if "agreement_start_date" in locals()
-                            else ""
+                        "household_type": (
+                            deal_household_display
+                            if "deal_household_display" in locals()
+                            else (household_type if "household_type" in locals() else "")
                         ),
-                        "agreement_start_raw": agreement_start_date
-                        if "agreement_start_date" in locals()
-                        else "",
+                        "household_type_raw": (
+                            household_type if "household_type" in locals() else ""
+                        ),
+                        "agreement_start_date": (
+                            agreement_start_display
+                            if "agreement_start_display" in locals()
+                            else (
+                                format_agreement_start(agreement_start_date)
+                                if "agreement_start_date" in locals()
+                                else ""
+                            )
+                        ),
+                        "agreement_start_raw": (
+                            agreement_start_date if "agreement_start_date" in locals() else ""
+                        ),
                         "allocation_result": "failed",
                         "status": "failed",
                         "error_message": str(err),

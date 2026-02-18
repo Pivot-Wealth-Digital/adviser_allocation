@@ -3,10 +3,10 @@ CloudSQL integration for adviser_allocation.
 Syncs Box folder creation to the client_pipeline database.
 """
 
-import os
 import logging
-from typing import Optional, List
+import os
 from datetime import datetime
+from typing import List, Optional
 
 from adviser_allocation.utils.secrets import get_secret
 
@@ -142,19 +142,19 @@ def sync_box_folder_to_cloudsql(
         with engine.connect() as conn:
             # Insert or update box_folders
             conn.execute(
-                text("""
+                text(
+                    """
                     INSERT INTO box_folders (folder_id, folder_name, sync_status, last_synced)
                     VALUES (:folder_id, :folder_name, 'synced', CURRENT_TIMESTAMP)
                     ON CONFLICT (folder_id) DO UPDATE SET
                         folder_name = EXCLUDED.folder_name,
                         sync_status = 'synced',
                         last_synced = CURRENT_TIMESTAMP
-                """),
+                """
+                ),
                 {"folder_id": folder_id, "folder_name": folder_name},
             )
-            logger.info(
-                "Synced box_folders: folder_id=%s, name=%s", folder_id, folder_name
-            )
+            logger.info("Synced box_folders: folder_id=%s, name=%s", folder_id, folder_name)
 
             # Insert contact associations
             if contact_ids:
@@ -162,11 +162,13 @@ def sync_box_folder_to_cloudsql(
                     if not contact_id:
                         continue
                     conn.execute(
-                        text("""
+                        text(
+                            """
                             INSERT INTO contact_box_associations (contact_id, folder_id, created_at)
                             VALUES (:contact_id, :folder_id, CURRENT_TIMESTAMP)
                             ON CONFLICT (contact_id, folder_id) DO NOTHING
-                        """),
+                        """
+                        ),
                         {"contact_id": str(contact_id), "folder_id": folder_id},
                     )
                 logger.info(

@@ -1,5 +1,5 @@
-import os
 import logging
+import os
 from typing import Optional
 
 try:
@@ -46,4 +46,3 @@ def get_secret(name: str) -> Optional[str]:
     except Exception as e:  # pragma: no cover
         logging.warning(f"get_secret fallback for {name}: {e}")
         return hint
-

@@ -1,11 +1,12 @@
 """Rate limiting middleware for Flask app."""
 
 import logging
+from functools import wraps
+
 from flask import Flask, request
 from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
 from flask_limiter.errors import RateLimitExceeded
-from functools import wraps
+from flask_limiter.util import get_remote_address
 
 logger = logging.getLogger(__name__)
 

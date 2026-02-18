@@ -2,8 +2,8 @@
 
 from typing import Callable, List, Optional
 
-from adviser_allocation.skills.skill import Skill
 from adviser_allocation.skills.registry import SkillRegistry
+from adviser_allocation.skills.skill import Skill
 
 
 def register_test_skill(

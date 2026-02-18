@@ -1,40 +1,62 @@
-import os, time, secrets, json, re
-from datetime import datetime, date, timedelta
+import json
 import logging
+import os
+import re
+import secrets
+import time
 from collections import Counter
+from datetime import date, datetime, timedelta
 from functools import lru_cache
-
 from urllib.parse import urlencode
-from flask import Flask, Blueprint, redirect, request, session, jsonify, render_template, render_template_string, url_for, send_from_directory
+
 import requests
-
-from adviser_allocation.utils.common import sydney_now, sydney_today, SYDNEY_TZ, USE_FIRESTORE, get_firestore_client
-from adviser_allocation.core.allocation import (
-    get_adviser,
-    get_users_earliest_availability,
-    get_users_taking_on_clients,
-    compute_user_schedule_by_email,
-    week_label_from_ordinal,
-    get_user_ids_adviser,
-    build_service_household_matrix,
-    refresh_capacity_override_cache,
-    get_user_meeting_details,
-    get_monday_from_weeks_ago,
-)
-from adviser_allocation.utils.firestore_helpers import (
-    get_employee_leaves as get_employee_leaves_from_firestore,
-    get_employee_id as get_employee_id_from_firestore,
-)
-from adviser_allocation.services.allocation_service import store_allocation_record
-import adviser_allocation.api.box_routes as box_routes_module
-from adviser_allocation.api.box_routes import box_bp
-from adviser_allocation.api.webhooks import init_webhooks
-from adviser_allocation.api.skills_routes import skills_bp
-
 from dotenv import load_dotenv
+from flask import (
+    Blueprint,
+    Flask,
+    jsonify,
+    redirect,
+    render_template,
+    render_template_string,
+    request,
+    send_from_directory,
+    session,
+    url_for,
+)
+
+import adviser_allocation.api.box_routes as box_routes_module
 
 # Import skill definitions to register all skills in the system
 import adviser_allocation.skills.definitions
+from adviser_allocation.api.box_routes import box_bp
+from adviser_allocation.api.skills_routes import skills_bp
+from adviser_allocation.api.webhooks import init_webhooks
+from adviser_allocation.core.allocation import (
+    build_service_household_matrix,
+    compute_user_schedule_by_email,
+    get_adviser,
+    get_monday_from_weeks_ago,
+    get_user_ids_adviser,
+    get_user_meeting_details,
+    get_users_earliest_availability,
+    get_users_taking_on_clients,
+    refresh_capacity_override_cache,
+    week_label_from_ordinal,
+)
+from adviser_allocation.services.allocation_service import store_allocation_record
+from adviser_allocation.utils.common import (
+    SYDNEY_TZ,
+    USE_FIRESTORE,
+    get_firestore_client,
+    sydney_now,
+    sydney_today,
+)
+from adviser_allocation.utils.firestore_helpers import (
+    get_employee_id as get_employee_id_from_firestore,
+)
+from adviser_allocation.utils.firestore_helpers import (
+    get_employee_leaves as get_employee_leaves_from_firestore,
+)
 
 # Load variables from .env into environment
 load_dotenv()
@@ -56,7 +78,9 @@ try:
     logging.root.setLevel(LOG_LEVEL)
 except (ImportError, Exception):
     # Fallback to standard logging if Cloud Logging not available
-    LOG_FORMAT = os.environ.get("LOG_FORMAT", "[%(asctime)s] %(levelname)s in %(module)s: %(message)s")
+    LOG_FORMAT = os.environ.get(
+        "LOG_FORMAT", "[%(asctime)s] %(levelname)s in %(module)s: %(message)s"
+    )
     logging.basicConfig(level=LOG_LEVEL, format=LOG_FORMAT)
     logging.getLogger().setLevel(LOG_LEVEL)
 
@@ -73,11 +97,14 @@ APP_VERSION = os.environ.get("APP_VERSION", "1.0.0")
 ADMIN_USERNAME = get_secret("ADMIN_USERNAME") or os.environ.get("ADMIN_USERNAME")
 ADMIN_PASSWORD = get_secret("ADMIN_PASSWORD") or os.environ.get("ADMIN_PASSWORD")
 
+
 def is_authenticated():
     return bool(session.get("is_authenticated"))
 
+
 def login_required(view_func):
     from functools import wraps
+
     @wraps(view_func)
     def wrapper(*args, **kwargs):
         if not is_authenticated():
@@ -87,10 +114,13 @@ def login_required(view_func):
                 return redirect(f"/login?next={nxt}")
             return jsonify({"error": "Unauthorized"}), 401
         return view_func(*args, **kwargs)
+
     return wrapper
 
+
 # Create main blueprint for routes (app factory pattern)
-main_bp = Blueprint('main', __name__)
+main_bp = Blueprint("main", __name__)
+
 
 # Global before_request handler to protect all routes
 # MUST be defined before blueprint is registered to app
@@ -98,31 +128,33 @@ main_bp = Blueprint('main', __name__)
 def require_login():
     # List of endpoints that don't require authentication
     public_endpoints = [
-        'main.login',
-        'main.logout',
-        'static',  # Static files (CSS, JS, images)
+        "main.login",
+        "main.logout",
+        "static",  # Static files (CSS, JS, images)
     ]
-    
+
     # List of routes that don't require authentication (by path)
     public_paths = [
-        '/webhook/allocation',  # HubSpot webhook for testing
-        '/_ah/warmup',         # App Engine warmup
-        '/post/allocate',    # Hubspot webhook
-        '/post/create_box_folder',
-        '/box/folder/create',
-        '/box/folder/tag',
-        '/box/folder/tag/auto',
-        '/box/folder/share',
-        '/sync/employees',        # Cloud Scheduler sync
-        '/sync/leave_requests',   # Cloud Scheduler sync
+        "/webhook/allocation",  # HubSpot webhook for testing
+        "/_ah/warmup",  # App Engine warmup
+        "/post/allocate",  # Hubspot webhook
+        "/post/create_box_folder",
+        "/box/folder/create",
+        "/box/folder/tag",
+        "/box/folder/tag/auto",
+        "/box/folder/share",
+        "/sync/employees",  # Cloud Scheduler sync
+        "/sync/leave_requests",  # Cloud Scheduler sync
     ]
-    
+
     # Check if current route is public
-    if (request.endpoint in public_endpoints or 
-        request.path in public_paths or
-        request.path.startswith('/static/')):
+    if (
+        request.endpoint in public_endpoints
+        or request.path in public_paths
+        or request.path.startswith("/static/")
+    ):
         return  # Allow access
-    
+
     # Require authentication for all other routes
     if not is_authenticated():
         if request.accept_mimetypes and "text/html" in request.accept_mimetypes:
@@ -130,15 +162,21 @@ def require_login():
             return redirect(f"/login?next={nxt}")
         return jsonify({"error": "Unauthorized"}), 401
 
+
 # ---- Employment Hero (HR) OAuth config ----
-EH_AUTHORIZE_URL = os.environ.get("EH_AUTHORIZE_URL", "https://oauth.employmenthero.com/oauth2/authorize")
-EH_TOKEN_URL     = os.environ.get("EH_TOKEN_URL",     "https://oauth.employmenthero.com/oauth2/token")
-EH_CLIENT_ID     = get_secret("EH_CLIENT_ID")
+EH_AUTHORIZE_URL = os.environ.get(
+    "EH_AUTHORIZE_URL", "https://oauth.employmenthero.com/oauth2/authorize"
+)
+EH_TOKEN_URL = os.environ.get("EH_TOKEN_URL", "https://oauth.employmenthero.com/oauth2/token")
+EH_CLIENT_ID = get_secret("EH_CLIENT_ID")
 EH_CLIENT_SECRET = get_secret("EH_CLIENT_SECRET")
-EH_SCOPES        = os.environ.get("EH_SCOPES", "urn:mainapp:organisations:read urn:mainapp:employees:read urn:mainapp:leave_requests:read")
+EH_SCOPES = os.environ.get(
+    "EH_SCOPES",
+    "urn:mainapp:organisations:read urn:mainapp:employees:read urn:mainapp:leave_requests:read",
+)
 
 # Your app’s public callback URL, e.g. https://<PROJECT-ID>.appspot.com/auth/callback
-REDIRECT_URI     = os.environ.get("REDIRECT_URI")
+REDIRECT_URI = os.environ.get("REDIRECT_URI")
 
 API_BASE = "https://api.employmenthero.com"  # HR API base
 # For Payroll classic (KeyPay), swap the token URL and API base accordingly.
@@ -165,6 +203,7 @@ def meeting_object_type_id() -> str:
         logging.warning("Failed to fetch meetings schema: %s", e)
         return "0-4"
 
+
 def ensure_eh_config():
     """Ensure EH OAuth config is present for current environment.
 
@@ -185,8 +224,9 @@ def ensure_eh_config():
             "Missing required Employment Hero OAuth config: "
             + ", ".join(missing)
             + ". In production, set env_variables in app.yaml (use Secret Manager resource paths for secrets). "
-              "Locally, set values in .env."
+            "Locally, set values in .env."
         )
+
 
 # ---- Simple token store: Firestore (per session); swap to your user key strategy ----
 def token_key():
@@ -201,6 +241,7 @@ def token_key():
     # Prefer a per-user/session key; fall back to a fixed dev key
     # ideally session.get("user_key") or "e268304d2ad0444c"
     return "e268304d2ad0444c"
+
 
 def save_tokens(tokens: dict):
     """Persist OAuth tokens and compute absolute expiry.
@@ -225,8 +266,12 @@ def load_tokens():
     Returns:
         dict | None: Token payload if found, else None.
     """
-    return db.collection("eh_tokens").document(token_key()).get().to_dict() if db else session.get("eh_tokens")
-    
+    return (
+        db.collection("eh_tokens").document(token_key()).get().to_dict()
+        if db
+        else session.get("eh_tokens")
+    )
+
 
 def update_tokens(tokens: dict):
     """Update stored tokens by delegating to save_tokens.
@@ -235,6 +280,7 @@ def update_tokens(tokens: dict):
         tokens (dict): New token payload to persist.
     """
     save_tokens(tokens)  # same logic
+
 
 # ---- OAuth flow ----
 @main_bp.route("/")
@@ -259,6 +305,7 @@ def workflows():
         app_version=APP_VERSION,
     )
 
+
 @main_bp.route("/workflows/box-details")
 def workflows_box_details():
     return render_template(
@@ -282,6 +329,7 @@ def serve_docs(filename: str):
     """Serve workflow documentation assets."""
     return send_from_directory("docs", filename)
 
+
 @main_bp.route("/auth/start")
 def auth_start():
     """Initiate Employment Hero OAuth and redirect to the authorize URL."""
@@ -301,6 +349,7 @@ def auth_start():
     authorize_url = f"{EH_AUTHORIZE_URL}?{urlencode(params)}"
     logging.info("Redirecting to Employment Hero authorize URL: %s", authorize_url)
     return redirect(authorize_url)
+
 
 @main_bp.route("/auth/callback")
 def auth_callback():
@@ -334,6 +383,7 @@ def auth_callback():
     tokens = resp.json()
     save_tokens(tokens)
     return jsonify({"ok": True, "message": "Employment Hero connected. Tokens saved."})
+
 
 # ---- Token helper: always return a fresh access token ----
 def get_access_token():
@@ -384,8 +434,9 @@ def get_org_id(headers):
     """
     r = requests.get(f"{API_BASE}/api/v1/organisations", headers=headers, timeout=30)
     if r.status_code != 200:
-            raise RuntimeError(f"Refresh failed: {r.status_code} {r.text}")
-    return r.json()['data']['items'][0]['id']
+        raise RuntimeError(f"Refresh failed: {r.status_code} {r.text}")
+    return r.json()["data"]["items"][0]["id"]
+
 
 @main_bp.route("/get/employees")
 def get_employees():
@@ -401,24 +452,29 @@ def get_employees():
     }
 
     org_id = get_org_id(headers)
-    r_emps = requests.get(f"{API_BASE}/api/v1/organisations/{org_id}/employees", headers=headers, params=params, timeout=30)
+    r_emps = requests.get(
+        f"{API_BASE}/api/v1/organisations/{org_id}/employees",
+        headers=headers,
+        params=params,
+        timeout=30,
+    )
     if r_emps.status_code != 200:
         raise RuntimeError(f"Refresh failed: {r_emps.status_code} {r_emps.text}")
 
     employees = []
 
-    for emp in r_emps.json()['data']['items']:
+    for emp in r_emps.json()["data"]["items"]:
         item = {
-            'id': emp.get('id'),
-            'name': emp.get('full_name'),  # Using 'full_name' for 'name'
-            'company_email': emp.get('company_email'),
-            'account_email': emp.get('account_email')
+            "id": emp.get("id"),
+            "name": emp.get("full_name"),  # Using 'full_name' for 'name'
+            "company_email": emp.get("company_email"),
+            "account_email": emp.get("account_email"),
         }
         if not db:
             raise RuntimeError("Firestore is not configured; cannot persist employees.")
-        db.collection("employees").document(item['id']).set(item)
+        db.collection("employees").document(item["id"]).set(item)
         employees.append(item)
-    
+
     return (employees, r_emps.status_code, {"Content-Type": "application/json"})
 
 
@@ -432,13 +488,13 @@ def get_employee_id():
     Returns:
         tuple: JSON payload and HTTP status code.
     """
-    search_email = request.args.get('email')
-    
+    search_email = request.args.get("email")
+
     if not search_email:
         return {"error": "Email parameter is missing"}, 400
 
     employee_id = get_employee_id_from_firestore(search_email)
-    
+
     if employee_id:
         return {"employee_id": employee_id}, 200
     else:
@@ -465,9 +521,9 @@ def get_leave_requests():
     leave_requests = []
     while page <= total_pages:
         params = {
-                "item_per_page": 100,
-                "page_index": page,
-            }
+            "item_per_page": 100,
+            "page_index": page,
+        }
         e = requests.get(
             f"{API_BASE}/api/v1/organisations/{org_id}/leave_requests",
             headers=headers,
@@ -477,23 +533,26 @@ def get_leave_requests():
         if e.status_code != 200:
             raise RuntimeError(f"Refresh failed: {e.status_code} {e.text}")
 
-        for leave_request in e.json()['data']['items']:
-            start_date_obj = datetime.fromisoformat(leave_request['start_date']).date()
-            if (leave_request['status'] == 'Approved') and (start_date_obj > now_date):
+        for leave_request in e.json()["data"]["items"]:
+            start_date_obj = datetime.fromisoformat(leave_request["start_date"]).date()
+            if (leave_request["status"] == "Approved") and (start_date_obj > now_date):
                 item = {
-                        'leave_request_id': leave_request.get('id'),
-                        'employee_id': leave_request.get('employee_id'),  # Using 'full_name' for 'name'
-                        'start_date': leave_request.get('start_date'),
-                        'end_date': leave_request.get('end_date')
-                    }
+                    "leave_request_id": leave_request.get("id"),
+                    "employee_id": leave_request.get("employee_id"),  # Using 'full_name' for 'name'
+                    "start_date": leave_request.get("start_date"),
+                    "end_date": leave_request.get("end_date"),
+                }
                 leave_requests.append(item)
                 if not db:
-                    raise RuntimeError("Firestore is not configured; cannot persist leave requests.")
-                db.collection("employees").document(item['employee_id']).collection("leave_requests").document(item['leave_request_id']).set(item)
-
+                    raise RuntimeError(
+                        "Firestore is not configured; cannot persist leave requests."
+                    )
+                db.collection("employees").document(item["employee_id"]).collection(
+                    "leave_requests"
+                ).document(item["leave_request_id"]).set(item)
 
         page += 1
-        total_pages = e.json()['data']['total_pages']
+        total_pages = e.json()["data"]["total_pages"]
 
     return (leave_requests, e.status_code, {"Content-Type": "application/json"})
 
@@ -508,13 +567,13 @@ def get_employee_leave_requests():
     Returns:
         tuple: JSON payload and HTTP status code.
     """
-    employee_id = request.args.get('employee_id')
-    
+    employee_id = request.args.get("employee_id")
+
     if not employee_id:
         return {"error": "Employee ID parameter is missing"}, 400
 
     leaves = get_employee_leaves_from_firestore(employee_id)
-    
+
     # Return the list with a 200 OK status, even if it's empty
     return {"leave_requests": leaves}, 200
 
@@ -525,7 +584,7 @@ def get_leave_requests_by_email():
 
     Uses existing Firestore data; does not trigger sync work.
     """
-    email = request.args.get('email')
+    email = request.args.get("email")
     if not email:
         return {"error": "Email parameter is missing"}, 400
 
@@ -603,7 +662,7 @@ def closures():
         if isinstance(raw_tags, list):
             tags = [str(t).strip() for t in raw_tags if str(t).strip()]
         elif isinstance(raw_tags, str):
-            tags = [t.strip() for t in raw_tags.split(',') if t.strip()]
+            tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
         if not start_date:
             return jsonify({"error": "start_date is required (YYYY-MM-DD)"}), 400
         # Basic format sanity (YYYY-MM-DD)
@@ -614,8 +673,26 @@ def closures():
             return jsonify({"error": "Invalid date format; use YYYY-MM-DD"}), 400
 
         doc_ref = db.collection("office_closures").document()
-        doc_ref.set({"start_date": start_date, "end_date": end_date, "description": description, "tags": tags})
-        return jsonify({"id": doc_ref.id, "start_date": start_date, "end_date": end_date, "description": description, "tags": tags}), 201
+        doc_ref.set(
+            {
+                "start_date": start_date,
+                "end_date": end_date,
+                "description": description,
+                "tags": tags,
+            }
+        )
+        return (
+            jsonify(
+                {
+                    "id": doc_ref.id,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "description": description,
+                    "tags": tags,
+                }
+            ),
+            201,
+        )
     except Exception as e:
         logging.error(f"Failed to create closure: {e}")
         return jsonify({"error": str(e)}), 500
@@ -655,7 +732,7 @@ def closures_item(closure_id):
             if isinstance(raw_tags, list):
                 tags = [str(t).strip() for t in raw_tags if str(t).strip()]
             elif isinstance(raw_tags, str):
-                tags = [t.strip() for t in raw_tags.split(',') if t.strip()]
+                tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
         if not start_date:
             return jsonify({"error": "start_date is required (YYYY-MM-DD)"}), 400
         try:
@@ -695,7 +772,9 @@ def capacity_overrides():
                 data = doc.to_dict() or {}
                 data["id"] = doc.id
                 items.append(data)
-            items.sort(key=lambda item: (item.get("adviser_email") or "", item.get("effective_date") or ""))
+            items.sort(
+                key=lambda item: (item.get("adviser_email") or "", item.get("effective_date") or "")
+            )
             return jsonify({"count": len(items), "overrides": items}), 200
         except Exception as exc:
             logging.error("Failed to load capacity overrides: %s", exc)
@@ -843,7 +922,12 @@ def capacity_overrides_ui():
 
     # Enrich overrides for display (sort by effective date within adviser)
     normalized = []
-    for idx, item in enumerate(sorted(overrides, key=lambda o: (o.get("adviser_email") or "", o.get("effective_date") or "")), start=1):
+    for idx, item in enumerate(
+        sorted(
+            overrides, key=lambda o: (o.get("adviser_email") or "", o.get("effective_date") or "")
+        ),
+        start=1,
+    ):
         normalized.append(
             {
                 "idx": idx,
@@ -854,7 +938,7 @@ def capacity_overrides_ui():
                 "pod_type": item.get("pod_type", ""),
                 "notes": item.get("notes", ""),
             }
-    )
+        )
 
     pod_type_options = [
         "Standard Pod",
@@ -909,21 +993,32 @@ def get_box_settings():
         doc = db.collection("system_settings").document("box_config").get()
         if doc.exists:
             data = doc.to_dict() or {}
-            return jsonify({
-                "template_folder_path": data.get("template_folder_path", ""),
-                "updated_at": data.get("updated_at"),
-                "updated_by": data.get("updated_by"),
-                "notes": data.get("notes", ""),
-            }), 200
+            return (
+                jsonify(
+                    {
+                        "template_folder_path": data.get("template_folder_path", ""),
+                        "updated_at": data.get("updated_at"),
+                        "updated_by": data.get("updated_by"),
+                        "notes": data.get("notes", ""),
+                    }
+                ),
+                200,
+            )
         else:
             # Return environment variable default
             from services.box_folder_service import BOX_TEMPLATE_PATH
-            return jsonify({
-                "template_folder_path": BOX_TEMPLATE_PATH,
-                "updated_at": None,
-                "updated_by": None,
-                "notes": "Using default from environment variable",
-            }), 200
+
+            return (
+                jsonify(
+                    {
+                        "template_folder_path": BOX_TEMPLATE_PATH,
+                        "updated_at": None,
+                        "updated_by": None,
+                        "notes": "Using default from environment variable",
+                    }
+                ),
+                200,
+            )
     except Exception as exc:
         logger.error("Failed to load Box settings: %s", exc)
         return jsonify({"error": str(exc)}), 500
@@ -957,6 +1052,7 @@ def update_box_settings():
 
         # Clear cache so new path is used immediately
         from services.box_folder_service import refresh_box_template_path_cache
+
         refresh_box_template_path_cache()
 
         logger.info("Updated Box template path to: %s", template_path)
@@ -982,6 +1078,7 @@ def test_box_path():
 
     try:
         from services.box_folder_service import ensure_box_service
+
         service = ensure_box_service()
         if not service:
             return jsonify({"error": "Box service not configured"}), 500
@@ -990,19 +1087,29 @@ def test_box_path():
         folder_id = service._resolve_path(test_path)
         folder_info = service._get_folder_details(folder_id)
 
-        return jsonify({
-            "valid": True,
-            "folder_id": folder_id,
-            "folder_name": folder_info.get("name"),
-            "message": f"✅ Path is valid (Folder ID: {folder_id})",
-        }), 200
+        return (
+            jsonify(
+                {
+                    "valid": True,
+                    "folder_id": folder_id,
+                    "folder_name": folder_info.get("name"),
+                    "message": f"✅ Path is valid (Folder ID: {folder_id})",
+                }
+            ),
+            200,
+        )
     except Exception as exc:
         logger.warning("Box path test failed for '%s': %s", test_path, exc)
-        return jsonify({
-            "valid": False,
-            "error": str(exc),
-            "message": f"❌ Path not found: {exc}",
-        }), 400
+        return (
+            jsonify(
+                {
+                    "valid": False,
+                    "error": str(exc),
+                    "message": f"❌ Path not found: {exc}",
+                }
+            ),
+            400,
+        )
 
 
 @main_bp.route("/settings/box/ui")
@@ -1021,6 +1128,7 @@ def box_settings_ui():
             settings = doc.to_dict() or {}
         else:
             from services.box_folder_service import BOX_TEMPLATE_PATH
+
             settings = {
                 "template_folder_path": BOX_TEMPLATE_PATH,
                 "updated_at": None,
@@ -1079,28 +1187,30 @@ def closures_ui():
         if isinstance(v, list):
             return [str(t).strip() for t in v if str(t).strip()]
         if isinstance(v, str):
-            return [t.strip() for t in v.split(',') if t.strip()]
+            return [t.strip() for t in v.split(",") if t.strip()]
         return []
 
     closures_data = []
     for idx, c in enumerate(closures, start=1):
-        start_val = c.get('start_date','')
-        end_val = c.get('end_date','') or start_val
-        closures_data.append({
-            'idx': idx,
-            'id': c.get('id'),
-            'start_date': start_val,
-            'end_date': end_val,
-            'description': (c.get('description') or c.get('reason') or ''),
-            'tags': normalize_tags(c.get('tags')),
-            'workdays': workdays_count(start_val, end_val),
-        })
+        start_val = c.get("start_date", "")
+        end_val = c.get("end_date", "") or start_val
+        closures_data.append(
+            {
+                "idx": idx,
+                "id": c.get("id"),
+                "start_date": start_val,
+                "end_date": end_val,
+                "description": (c.get("description") or c.get("reason") or ""),
+                "tags": normalize_tags(c.get("tags")),
+                "workdays": workdays_count(start_val, end_val),
+            }
+        )
 
     # Build color map for tags (same cycle as availability pages)
     color_cycle = ["blue", "green", "purple", "orange", "pink", "teal"]
     all_tags = []
     for c in closures_data:
-        all_tags.extend(c.get('tags') or [])
+        all_tags.extend(c.get("tags") or [])
     tag_color_map = {}
     for i, t in enumerate(list(dict.fromkeys(all_tags))):
         tag_color_map[t] = color_cycle[i % len(color_cycle)]
@@ -1108,12 +1218,19 @@ def closures_ui():
     # Attach colored tag items for template and build mini-calendar payload
     closures_for_js = []
     for c in closures_data:
-        tags = c.get('tags') or []
+        tags = c.get("tags") or []
         c["tag_items"] = [{"name": t, "cls": tag_color_map.get(t, color_cycle[0])} for t in tags]
-        color = tag_color_map.get(tags[0], 'blue') if tags else 'blue'
-        closures_for_js.append({'start_date': c['start_date'], 'end_date': c['end_date'], 'color': color})
+        color = tag_color_map.get(tags[0], "blue") if tags else "blue"
+        closures_for_js.append(
+            {"start_date": c["start_date"], "end_date": c["end_date"], "color": color}
+        )
 
-    return render_template('closures_ui.html', closures=closures_data, today=sydney_today().isoformat(), closures_for_js=closures_for_js)
+    return render_template(
+        "closures_ui.html",
+        closures=closures_data,
+        today=sydney_today().isoformat(),
+        closures_for_js=closures_for_js,
+    )
 
 
 @main_bp.route("/login", methods=["GET", "POST"])
@@ -1123,12 +1240,15 @@ def login():
     nxt = request.args.get("next") or "/"
     if is_authenticated():
         return redirect(nxt)
-        
+
     if request.method == "POST":
         username = request.form.get("username") or ""
         password = request.form.get("password") or ""
         if not ADMIN_USERNAME or not ADMIN_PASSWORD:
-            return ("<p>Login credentials not configured. Set ADMIN_USERNAME and ADMIN_PASSWORD.</p>", 500)
+            return (
+                "<p>Login credentials not configured. Set ADMIN_USERNAME and ADMIN_PASSWORD.</p>",
+                500,
+            )
         if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
             session["is_authenticated"] = True
             return redirect(nxt)
@@ -1143,15 +1263,16 @@ def login():
         "</head><body>"
         "<h3>🔐 Adviser Allocation System</h3>"
         "<p style='text-align:center;color:#666;margin-bottom:20px'>Please sign in to continue</p>"
-        f"<form class=\"f\" method=\"POST\" action=\"/login?next={nxt}\">"
-        "<div><label>Username</label><input name=\"username\" autocomplete=\"username\" required></div>"
-        "<div><label>Password</label><input name=\"password\" type=\"password\" autocomplete=\"current-password\" required></div>"
-        "<div><button type=\"submit\">Sign In</button></div>"
-        f"<div class=\"err\">{error}</div>"
+        f'<form class="f" method="POST" action="/login?next={nxt}">'
+        '<div><label>Username</label><input name="username" autocomplete="username" required></div>'
+        '<div><label>Password</label><input name="password" type="password" autocomplete="current-password" required></div>'
+        '<div><button type="submit">Sign In</button></div>'
+        f'<div class="err">{error}</div>'
         "</form>"
         "</body></html>"
     )
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
 
 # ---- Chat notification helper ----
 def _format_display_name(email: str) -> str:
@@ -1191,10 +1312,13 @@ def build_chat_card_payload(title: str, sections: list[dict]) -> dict:
     """Return Google Chat card payload."""
     card_sections = []
     for section in sections:
-        card_sections.append({
-            "header": section.get("header"),
-            "widgets": [{"textParagraph": {"text": text}} for text in section.get("lines", [])] or [],
-        })
+        card_sections.append(
+            {
+                "header": section.get("header"),
+                "widgets": [{"textParagraph": {"text": text}} for text in section.get("lines", [])]
+                or [],
+            }
+        )
     return {"cards": [{"header": {"title": title}, "sections": card_sections}]}
 
 
@@ -1223,6 +1347,7 @@ def logout():
     session.pop("is_authenticated", None)
     return redirect("/login")
 
+
 # ---- Example API call ----
 @main_bp.route("/test/organisations")
 def list_orgs():
@@ -1232,6 +1357,7 @@ def list_orgs():
     r = requests.get(f"{API_BASE}/api/v1/organisations", headers=headers, timeout=30)
     return (r.text, r.status_code, {"Content-Type": "application/json"})
 
+
 @main_bp.route("/get/leave_requests_list")
 def list_leave_requests():
     """List raw Employment Hero leave requests for the account."""
@@ -1240,136 +1366,159 @@ def list_leave_requests():
     r = requests.get(f"{API_BASE}/api/v1/leave_requests", headers=headers, timeout=30)
     return (r.json(), r.status_code, {"Content-Type": "application/json"})
 
+
 @main_bp.route("/employees/ui")
 def employees_ui():
     """UI to view employees from Firestore with consistent styling."""
     try:
         if not db:
-            return render_template_string("""
+            return (
+                render_template_string(
+                    """
                 <div style="padding: 20px; text-align: center;">
                     <h3>⚠️ Firestore Not Configured</h3>
                     <p>Database connection is not available.</p>
                 </div>
-            """), 500
-        
+            """
+                ),
+                500,
+            )
+
         # Fetch employees from Firestore
         employees = []
         for doc in db.collection("employees").stream():
             emp_data = doc.to_dict()
-            emp_data['doc_id'] = doc.id
+            emp_data["doc_id"] = doc.id
             employees.append(emp_data)
-        
+
         # Sort employees by name
-        employees.sort(key=lambda x: (x.get('name') or '').lower())
-        
+        employees.sort(key=lambda x: (x.get("name") or "").lower())
+
         return render_template(
             "employees_ui.html",
             employees=employees,
             today=sydney_today().isoformat(),
             week_num=f"{sydney_today().isocalendar()[1]:02d}",
-            total_count=len(employees)
+            total_count=len(employees),
         )
-        
+
     except Exception as e:
-        return render_template_string(f"""
+        return (
+            render_template_string(
+                f"""
             <div style="padding: 20px; text-align: center;">
                 <h3>❌ Error Loading Employees</h3>
                 <p>{str(e)}</p>
             </div>
-        """), 500
+        """
+            ),
+            500,
+        )
+
 
 @main_bp.route("/leave_requests/ui")
 def leave_requests_ui():
     """UI to view leave requests from Firestore with filtering and calendar view."""
     try:
         if not db:
-            return render_template_string("""
+            return (
+                render_template_string(
+                    """
                 <div style="padding: 20px; text-align: center;">
                     <h3>⚠️ Firestore Not Configured</h3>
                     <p>Database connection is not available.</p>
                 </div>
-            """), 500
-        
+            """
+                ),
+                500,
+            )
+
         # Get filter parameters
-        selected_employee = request.args.get('employee', '')
-        status_filter = request.args.get('status', '')
-        
+        selected_employee = request.args.get("employee", "")
+        status_filter = request.args.get("status", "")
+
         # Fetch employees first for dropdown (optimized query)
         employees = []
         employees_dict = {}
         for emp_doc in db.collection("employees").stream():
             emp_data = emp_doc.to_dict()
             emp_id = emp_doc.id
-            emp_name = emp_data.get('name', 'Unknown')
-            emp_email = emp_data.get('company_email', emp_data.get('account_email', ''))
-            
-            employees.append({
-                'id': emp_id,
-                'name': emp_name,
-                'email': emp_email
-            })
-            employees_dict[emp_id] = {'name': emp_name, 'email': emp_email}
-        
-        employees.sort(key=lambda x: x['name'].lower())
-        
+            emp_name = emp_data.get("name", "Unknown")
+            emp_email = emp_data.get("company_email", emp_data.get("account_email", ""))
+
+            employees.append({"id": emp_id, "name": emp_name, "email": emp_email})
+            employees_dict[emp_id] = {"name": emp_name, "email": emp_email}
+
+        employees.sort(key=lambda x: x["name"].lower())
+
         # Fetch leave requests (with optional filtering)
         leave_requests = []
         calendar_events = []
-        
+
         if selected_employee:
             # Fetch only for selected employee (faster)
             emp_ref = db.collection("employees").document(selected_employee)
-            emp_data = employees_dict.get(selected_employee, {'name': 'Unknown', 'email': ''})
-            
+            emp_data = employees_dict.get(selected_employee, {"name": "Unknown", "email": ""})
+
             for leave_doc in emp_ref.collection("leave_requests").stream():
                 leave_data = leave_doc.to_dict()
-                leave_data['employee_id'] = selected_employee
-                leave_data['employee_name'] = emp_data['name']
-                leave_data['employee_email'] = emp_data['email']
-                leave_data['doc_id'] = leave_doc.id
-                
+                leave_data["employee_id"] = selected_employee
+                leave_data["employee_name"] = emp_data["name"]
+                leave_data["employee_email"] = emp_data["email"]
+                leave_data["doc_id"] = leave_doc.id
+
                 # Apply status filter
-                if not status_filter or leave_data.get('status', '').lower() == status_filter.lower():
+                if (
+                    not status_filter
+                    or leave_data.get("status", "").lower() == status_filter.lower()
+                ):
                     leave_requests.append(leave_data)
-                    
+
                 # Add to calendar events if approved
-                if leave_data.get('status', '').lower() == 'approved':
-                    calendar_events.append({
-                        'title': f"{emp_data['name']} - {leave_data.get('leave_type', 'Leave')}",
-                        'start': leave_data.get('start_date', ''),
-                        'end': leave_data.get('end_date', ''),
-                        'employee': emp_data['name'],
-                        'type': leave_data.get('leave_type', 'Leave')
-                    })
+                if leave_data.get("status", "").lower() == "approved":
+                    calendar_events.append(
+                        {
+                            "title": f"{emp_data['name']} - {leave_data.get('leave_type', 'Leave')}",
+                            "start": leave_data.get("start_date", ""),
+                            "end": leave_data.get("end_date", ""),
+                            "employee": emp_data["name"],
+                            "type": leave_data.get("leave_type", "Leave"),
+                        }
+                    )
         else:
             # Fetch all leave requests (existing logic but optimized)
             for emp_id, emp_data in employees_dict.items():
                 emp_ref = db.collection("employees").document(emp_id)
-                
+
                 for leave_doc in emp_ref.collection("leave_requests").stream():
                     leave_data = leave_doc.to_dict()
-                    leave_data['employee_id'] = emp_id
-                    leave_data['employee_name'] = emp_data['name']
-                    leave_data['employee_email'] = emp_data['email']
-                    leave_data['doc_id'] = leave_doc.id
-                    
+                    leave_data["employee_id"] = emp_id
+                    leave_data["employee_name"] = emp_data["name"]
+                    leave_data["employee_email"] = emp_data["email"]
+                    leave_data["doc_id"] = leave_doc.id
+
                     # Apply status filter
-                    if not status_filter or leave_data.get('status', '').lower() == status_filter.lower():
+                    if (
+                        not status_filter
+                        or leave_data.get("status", "").lower() == status_filter.lower()
+                    ):
                         leave_requests.append(leave_data)
-                        
+
                     # Add to calendar events if approved
-                    if leave_data.get('status', '').lower() == 'approved':
-                        calendar_events.append({
-                            'title': f"{emp_data['name']} - {leave_data.get('leave_type', 'Leave')}",
-                            'start': leave_data.get('start_date', ''),
-                            'end': leave_data.get('end_date', ''),
-                            'employee': emp_data['name'],
-                            'type': leave_data.get('leave_type', 'Leave')
-                        })
-        
+                    if leave_data.get("status", "").lower() == "approved":
+                        calendar_events.append(
+                            {
+                                "title": f"{emp_data['name']} - {leave_data.get('leave_type', 'Leave')}",
+                                "start": leave_data.get("start_date", ""),
+                                "end": leave_data.get("end_date", ""),
+                                "employee": emp_data["name"],
+                                "type": leave_data.get("leave_type", "Leave"),
+                            }
+                        )
+
         # Sort by start date (most recent first)
-        leave_requests.sort(key=lambda x: x.get('start_date', ''), reverse=True)
-        
+        leave_requests.sort(key=lambda x: x.get("start_date", ""), reverse=True)
+
         return render_template(
             "leave_requests_ui.html",
             leave_requests=leave_requests,
@@ -1379,16 +1528,22 @@ def leave_requests_ui():
             status_filter=status_filter,
             today=sydney_today().isoformat(),
             week_num=f"{sydney_today().isocalendar()[1]:02d}",
-            total_count=len(leave_requests)
+            total_count=len(leave_requests),
         )
-        
+
     except Exception as e:
-        return render_template_string(f"""
+        return (
+            render_template_string(
+                f"""
             <div style="padding: 20px; text-align: center;">
                 <h3>❌ Error Loading Leave Requests</h3>
                 <p>{str(e)}</p>
             </div>
-        """), 500
+        """
+            ),
+            500,
+        )
+
 
 @main_bp.route("/webhook/allocation", methods=["POST"])
 def allocation_webhook():
@@ -1406,19 +1561,21 @@ def allocation_webhook():
             "ip_address": request.remote_addr,
             "user_agent": request.headers.get("User-Agent", ""),
         }
-        doc_id = store_allocation_record(db, data, source="webhook", raw_request=data, extra_fields=extra)
+        doc_id = store_allocation_record(
+            db, data, source="webhook", raw_request=data, extra_fields=extra
+        )
 
         if doc_id:
-            return jsonify({
-                "success": True,
-                "id": doc_id,
-                "timestamp": sydney_now().isoformat()
-            }), 201
+            return (
+                jsonify({"success": True, "id": doc_id, "timestamp": sydney_now().isoformat()}),
+                201,
+            )
         else:
             return jsonify({"error": "Failed to store allocation data"}), 500
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 @main_bp.route("/allocations/history")
 @login_required
@@ -1426,14 +1583,17 @@ def allocation_history_ui():
     """Dashboard view of allocation history with pagination."""
     try:
         if not db:
-            return render_template_string(
-                """
+            return (
+                render_template_string(
+                    """
                 <div style=\"padding: 20px; text-align: center;\">
                     <h3>⚠️ Firestore Not Configured</h3>
                     <p>Database connection is not available.</p>
                 </div>
                 """
-            ), 500
+                ),
+                500,
+            )
 
         status_filter = request.args.get("status", "")
         deal_filter = request.args.get("deal", "")
@@ -1469,10 +1629,12 @@ def allocation_history_ui():
             if deal_filter and str(row.get("deal_id") or "") != deal_filter:
                 continue
             if adviser_filter:
-                searchable = " ".join([
-                    row.get("adviser_name", ""),
-                    row.get("adviser_email", ""),
-                ]).lower()
+                searchable = " ".join(
+                    [
+                        row.get("adviser_name", ""),
+                        row.get("adviser_email", ""),
+                    ]
+                ).lower()
                 if adviser_filter.lower() not in searchable:
                     continue
 
@@ -1506,13 +1668,17 @@ def allocation_history_ui():
                     status_label = status_raw.replace("_", " ").title()
                 status_counter[status_label] += 1
 
-            for svc in _format_tag_list(row.get("service_package_raw") or row.get("service_package")):
+            for svc in _format_tag_list(
+                row.get("service_package_raw") or row.get("service_package")
+            ):
                 service_counter[svc] += 1
 
             for hh in _format_tag_list(row.get("household_type_raw") or row.get("household_type")):
                 household_counter[hh] += 1
 
-            adviser_label = row.get("adviser_name") or _format_display_name(row.get("adviser_email") or "")
+            adviser_label = row.get("adviser_name") or _format_display_name(
+                row.get("adviser_email") or ""
+            )
             if adviser_label:
                 adviser_counter[adviser_label] += 1
 
@@ -1522,8 +1688,12 @@ def allocation_history_ui():
             if row.get("client_email"):
                 client_emails.add(row["client_email"].lower())
 
-        unique_statuses = sorted({(row.get("status") or "").lower() for row in allocations if row.get("status")})
-        unique_deals = sorted({str(row.get("deal_id")) for row in allocations if row.get("deal_id")})
+        unique_statuses = sorted(
+            {(row.get("status") or "").lower() for row in allocations if row.get("status")}
+        )
+        unique_deals = sorted(
+            {str(row.get("deal_id")) for row in allocations if row.get("deal_id")}
+        )
         unique_advisers = sorted(adviser_counter.keys())
 
         dashboard_counts = {
@@ -1556,27 +1726,42 @@ def allocation_history_ui():
             "page_size": page_size,
             "start_record": start_record,
             "end_record": end_record,
-            "hubspot_portal_id": os.getenv('HUBSPOT_PORTAL_ID', '47011873'),
+            "hubspot_portal_id": os.getenv("HUBSPOT_PORTAL_ID", "47011873"),
             "dashboard_counts": dashboard_counts,
-            "status_stats": [{"label": label, "count": count} for label, count in status_counter.most_common()],
-            "service_stats": [{"label": label, "count": count} for label, count in service_counter.most_common(5)],
-            "household_stats": [{"label": label, "count": count} for label, count in household_counter.most_common(5)],
-            "adviser_stats": [{"label": label, "count": count} for label, count in adviser_counter.most_common(5)],
-            "source_stats": [{"label": label.replace('_', ' ').title(), "count": count} for label, count in source_counter.most_common()],
+            "status_stats": [
+                {"label": label, "count": count} for label, count in status_counter.most_common()
+            ],
+            "service_stats": [
+                {"label": label, "count": count} for label, count in service_counter.most_common(5)
+            ],
+            "household_stats": [
+                {"label": label, "count": count}
+                for label, count in household_counter.most_common(5)
+            ],
+            "adviser_stats": [
+                {"label": label, "count": count} for label, count in adviser_counter.most_common(5)
+            ],
+            "source_stats": [
+                {"label": label.replace("_", " ").title(), "count": count}
+                for label, count in source_counter.most_common()
+            ],
         }
 
         return render_template("allocation_history_ui.html", **context)
 
     except Exception as e:
         logger.error("Error in allocation_history_ui: %s", e, exc_info=True)
-        return render_template_string(
-            f"""
+        return (
+            render_template_string(
+                f"""
             <div style=\"padding: 20px; text-align: center;\">
                 <h3>❌ Error Loading Allocation History</h3>
                 <p>{str(e)}</p>
             </div>
             """
-        ), 500
+            ),
+            500,
+        )
 
 
 # ---- Availability ----
@@ -1591,19 +1776,24 @@ def availability_earliest():
         agreement_start_date_param = request.args.get("agreement_start_date")
         agreement_start_date = None
         default_date = sydney_today().isoformat()
-        
+
         if agreement_start_date_param:
             try:
                 # Parse date string as YYYY-MM-DD and convert to Sydney timezone datetime
                 parsed_date = datetime.strptime(agreement_start_date_param, "%Y-%m-%d").date()
-                agreement_start_date = datetime(parsed_date.year, parsed_date.month, parsed_date.day, tzinfo=SYDNEY_TZ)
+                agreement_start_date = datetime(
+                    parsed_date.year, parsed_date.month, parsed_date.day, tzinfo=SYDNEY_TZ
+                )
                 default_date = agreement_start_date_param
             except ValueError:
                 logging.warning(
                     "availability_earliest invalid agreement_start_date parameter: %s",
                     agreement_start_date_param,
                 )
-                return jsonify({"error": "Invalid agreement_start_date format. Use YYYY-MM-DD"}), 400
+                return (
+                    jsonify({"error": "Invalid agreement_start_date format. Use YYYY-MM-DD"}),
+                    400,
+                )
 
         logging.info(
             "availability_earliest request compute=%s include_no=%s agreement_start_date=%s",
@@ -1615,30 +1805,40 @@ def availability_earliest():
         # Only compute if requested
         rows = []
         if compute:
-            results = get_users_earliest_availability(agreement_start_date=agreement_start_date, include_no=include_no)
-            results = sorted(results, key=lambda r: (r.get("email") or "").lower())
-            logging.debug(
-                "availability_earliest retrieved %d adviser rows", len(results)
+            results = get_users_earliest_availability(
+                agreement_start_date=agreement_start_date, include_no=include_no
             )
+            results = sorted(results, key=lambda r: (r.get("email") or "").lower())
+            logging.debug("availability_earliest retrieved %d adviser rows", len(results))
 
             # Build rows for template
             for item in results:
                 earliest_wk_ordinal = item.get("earliest_open_week")
-                monday_str = date.fromordinal(earliest_wk_ordinal).isoformat() if isinstance(earliest_wk_ordinal, int) else ""
-                svc_raw = (item.get("service_packages") or "")
+                monday_str = (
+                    date.fromordinal(earliest_wk_ordinal).isoformat()
+                    if isinstance(earliest_wk_ordinal, int)
+                    else ""
+                )
+                svc_raw = item.get("service_packages") or ""
                 # Split into clean tags by common delimiters and preserve order without duplicates
-                parts = [p.strip() for p in re.split(r"[;,/|]+", svc_raw) if p.strip()] if svc_raw else []
+                parts = (
+                    [p.strip() for p in re.split(r"[;,/|]+", svc_raw) if p.strip()]
+                    if svc_raw
+                    else []
+                )
                 seen = set()
                 tags = []
                 for p in parts:
                     if p not in seen:
                         seen.add(p)
                         tags.append(p)
+
                 # Canonicalize to title case for consistency across rows, preserving special acronyms
                 def format_tag(tag):
                     if tag.upper() == "IPO":
                         return "IPO"
                     return tag.title()
+
                 tags = [format_tag(t) for t in tags]
                 toc_raw = item.get("taking_on_clients")
                 # Normalize taking_on_clients to a boolean-like value and label
@@ -1647,7 +1847,9 @@ def availability_earliest():
                 limit_value = item.get("client_limit_monthly")
                 limit_label = str(limit_value) if limit_value not in (None, "") else ""
                 override_status = item.get("capacity_override_status")
-                override_effective = item.get("capacity_override_effective_label") or item.get("capacity_override_effective_date")
+                override_effective = item.get("capacity_override_effective_label") or item.get(
+                    "capacity_override_effective_date"
+                )
                 status_text = None
                 if override_status == "active":
                     status_text = "Active override"
@@ -1658,28 +1860,41 @@ def availability_earliest():
                     limit_hint = status_text
                     if override_effective:
                         limit_hint = f"{status_text} ({override_effective})"
-                rows.append({
-                    "email": item.get("email") or "",
-                    "name": _format_display_name(item.get("email") or ""),
-                    "tags": tags,
-                    "pod": item.get("pod_type") or "",
-                    "household_type": item.get("household_type") or "",
-                    "limit": limit_label,
-                    "limit_hint": limit_hint,
-                    "wk_label": item.get("earliest_open_week_label") or (item.get("error") or ""),
-                    "monday": monday_str,
-                    "taking_on_clients": toc_label,
-                    "taking_on_clients_sort": 1 if toc_bool else 0,
-                })
+                rows.append(
+                    {
+                        "email": item.get("email") or "",
+                        "name": _format_display_name(item.get("email") or ""),
+                        "tags": tags,
+                        "pod": item.get("pod_type") or "",
+                        "household_type": item.get("household_type") or "",
+                        "limit": limit_label,
+                        "limit_hint": limit_hint,
+                        "wk_label": item.get("earliest_open_week_label")
+                        or (item.get("error") or ""),
+                        "monday": monday_str,
+                        "taking_on_clients": toc_label,
+                        "taking_on_clients_sort": 1 if toc_bool else 0,
+                    }
+                )
 
             # Enforce a consistent tag order across all rows
             preferred_order = [
-                "Seed", "Series A", "Series B", "Series C", "Series D", "Series E", "Series F", "Series G", "IPO"
+                "Seed",
+                "Series A",
+                "Series B",
+                "Series C",
+                "Series D",
+                "Series E",
+                "Series F",
+                "Series G",
+                "IPO",
             ]
             order_index = {name.lower(): i for i, name in enumerate(preferred_order)}
+
             def tag_sort_key(t: str):
                 tl = t.lower()
                 return (0, order_index[tl]) if tl in order_index else (1, tl)
+
             for r in rows:
                 r["tags"] = sorted((r.get("tags") or []), key=tag_sort_key)
 
@@ -1688,7 +1903,7 @@ def availability_earliest():
             tag_color_map = {}
             next_idx = 0
             for r in rows:
-                for t in (r.get("tags") or []):
+                for t in r.get("tags") or []:
                     if t not in tag_color_map:
                         tag_color_map[t] = color_cycle[next_idx % len(color_cycle)]
                         next_idx += 1
@@ -1698,14 +1913,19 @@ def availability_earliest():
             household_color_map = {}
             household_idx = 0
             for r in rows:
-                r["tag_items"] = [{"name": t, "cls": tag_color_map.get(t, color_cycle[0])} for t in (r.get("tags") or [])]
+                r["tag_items"] = [
+                    {"name": t, "cls": tag_color_map.get(t, color_cycle[0])}
+                    for t in (r.get("tags") or [])
+                ]
                 household_raw = r.get("household_type") or ""
                 household_parts = [p.strip() for p in re.split(r"[;]+", household_raw) if p.strip()]
                 items = []
                 for part in household_parts:
                     key = part.lower()
                     if key not in household_color_map:
-                        household_color_map[key] = household_cycle[household_idx % len(household_cycle)]
+                        household_color_map[key] = household_cycle[
+                            household_idx % len(household_cycle)
+                        ]
                         household_idx += 1
                     items.append({"name": part, "cls": household_color_map[key]})
                 r["household_items"] = items
@@ -1737,36 +1957,41 @@ def availability_schedule():
     try:
         # Check if computation is requested
         compute = request.args.get("compute") == "1"
-        
+
         # For schedule endpoint, include all advisers (taking and not taking on clients)
         include_no = True
-        
+
         # Parse agreement_start_date parameter (default to Sydney now if not provided)
         agreement_start_date_param = request.args.get("agreement_start_date")
         agreement_start_date = None
         default_date = sydney_today().isoformat()
-        
+
         if agreement_start_date_param:
             try:
                 # Parse date string as YYYY-MM-DD and convert to Sydney timezone datetime
                 parsed_date = datetime.strptime(agreement_start_date_param, "%Y-%m-%d").date()
-                agreement_start_date = datetime(parsed_date.year, parsed_date.month, parsed_date.day, tzinfo=SYDNEY_TZ)
+                agreement_start_date = datetime(
+                    parsed_date.year, parsed_date.month, parsed_date.day, tzinfo=SYDNEY_TZ
+                )
                 default_date = agreement_start_date_param
             except ValueError:
-                return jsonify({"error": "Invalid agreement_start_date format. Use YYYY-MM-DD"}), 400
+                return (
+                    jsonify({"error": "Invalid agreement_start_date format. Use YYYY-MM-DD"}),
+                    400,
+                )
 
         users = get_user_ids_adviser()
         advisers = []
         for user in users:
             props = user.get("properties") or {}
             taking_on_clients_value = props.get("taking_on_clients")
-            
+
             # Skip users with blank/None taking_on_clients
             if taking_on_clients_value is None or str(taking_on_clients_value).strip() == "":
                 continue
-                
+
             taking_on_clients = str(taking_on_clients_value).lower() == "true"
-            
+
             if include_no:
                 # Include advisers with taking_on_clients = true OR false (but not blank)
                 advisers.append(user)
@@ -1776,11 +2001,20 @@ def availability_schedule():
                     advisers.append(user)
 
     except Exception as e:
-        return (f"<p>Failed to load advisers: {e}</p>", 500, {"Content-Type": "text/html; charset=utf-8"})
+        return (
+            f"<p>Failed to load advisers: {e}</p>",
+            500,
+            {"Content-Type": "text/html; charset=utf-8"},
+        )
 
     def pretty_name(email: str) -> str:
         local = (email or "").split("@")[0]
-        return " ".join(part.capitalize() for part in local.replace(".", " ").replace("_", " ").split()) or email
+        return (
+            " ".join(
+                part.capitalize() for part in local.replace(".", " ").replace("_", " ").split()
+            )
+            or email
+        )
 
     display_advisers = []
     for user in advisers:
@@ -1788,12 +2022,14 @@ def availability_schedule():
         email = props.get("hs_email") or ""
         if not email:
             continue
-        display_advisers.append({
-            "email": email,
-            "name": pretty_name(email),
-            "service_packages": props.get("client_types") or "",
-            "household_type": props.get("household_type") or "",
-        })
+        display_advisers.append(
+            {
+                "email": email,
+                "name": pretty_name(email),
+                "service_packages": props.get("client_types") or "",
+                "household_type": props.get("household_type") or "",
+            }
+        )
 
     emails = sorted([item["email"] for item in display_advisers])
 
@@ -1808,32 +2044,40 @@ def availability_schedule():
             agreement_start_date.isoformat() if agreement_start_date else "default",
         )
         try:
-            res = compute_user_schedule_by_email(selected, agreement_start_date=agreement_start_date)
+            res = compute_user_schedule_by_email(
+                selected, agreement_start_date=agreement_start_date
+            )
             capacity = res.get("capacity") or {}
             earliest_week = res.get("earliest_open_week")
             for wk in sorted(capacity.keys()):
                 vals = capacity[wk]
-                rows.append({
-                    "wk_label": week_label_from_ordinal(wk),
-                    "monday": date.fromordinal(wk).isoformat(),
-                    "clarify": str(vals[0]) if len(vals) > 0 else "0",
-                    "ooo": str(vals[2]) if len(vals) > 2 else "No",
-                    "deals": str(vals[3]) if len(vals) > 3 else "0",
-                    "target": str(vals[4]) if len(vals) > 4 else "0",
-                    "actual": str(vals[5]) if len(vals) > 5 else "0",
-                    "diff": str(vals[6]) if len(vals) > 6 else "0",
-                    "is_earliest": isinstance(earliest_week, int) and wk == earliest_week,
-                })
+                rows.append(
+                    {
+                        "wk_label": week_label_from_ordinal(wk),
+                        "monday": date.fromordinal(wk).isoformat(),
+                        "clarify": str(vals[0]) if len(vals) > 0 else "0",
+                        "ooo": str(vals[2]) if len(vals) > 2 else "No",
+                        "deals": str(vals[3]) if len(vals) > 3 else "0",
+                        "target": str(vals[4]) if len(vals) > 4 else "0",
+                        "actual": str(vals[5]) if len(vals) > 5 else "0",
+                        "diff": str(vals[6]) if len(vals) > 6 else "0",
+                        "is_earliest": isinstance(earliest_week, int) and wk == earliest_week,
+                    }
+                )
         except Exception as e:
-            return (f"<p>Failed to compute schedule for {selected}: {e}</p>", 500, {"Content-Type": "text/html; charset=utf-8"})
+            return (
+                f"<p>Failed to compute schedule for {selected}: {e}</p>",
+                500,
+                {"Content-Type": "text/html; charset=utf-8"},
+            )
 
     # Build the adviser dropdown options HTML (kept simple for template)
-    option_items = ["<option value=\"\">-- Select adviser --</option>"]
+    option_items = ['<option value="">-- Select adviser --</option>']
     for entry in sorted(display_advisers, key=lambda item: item["name"].lower()):
         e = entry["email"]
         sel_attr = " selected" if selected == e else ""
         label = f"{entry['name']}"
-        option_items.append(f"<option value=\"{e}\"{sel_attr}>{label}</option>")
+        option_items.append(f'<option value="{e}"{sel_attr}>{label}</option>')
     options_html = "".join(option_items)
 
     return render_template(
@@ -1871,11 +2115,20 @@ def availability_meetings():
 
             advisers.append(user)
     except Exception as e:
-        return (f"<p>Failed to load advisers: {e}</p>", 500, {"Content-Type": "text/html; charset=utf-8"})
+        return (
+            f"<p>Failed to load advisers: {e}</p>",
+            500,
+            {"Content-Type": "text/html; charset=utf-8"},
+        )
 
     def pretty_name(email: str) -> str:
         local = (email or "").split("@")[0]
-        return " ".join(part.capitalize() for part in local.replace(".", " ").replace("_", " ").split()) or email
+        return (
+            " ".join(
+                part.capitalize() for part in local.replace(".", " ").replace("_", " ").split()
+            )
+            or email
+        )
 
     display_advisers = []
     for user in advisers:
@@ -1883,12 +2136,14 @@ def availability_meetings():
         email = props.get("hs_email") or ""
         if not email:
             continue
-        display_advisers.append({
-            "email": email,
-            "name": pretty_name(email),
-            "service_packages": props.get("client_types") or "",
-            "household_type": props.get("household_type") or "",
-        })
+        display_advisers.append(
+            {
+                "email": email,
+                "name": pretty_name(email),
+                "service_packages": props.get("client_types") or "",
+                "household_type": props.get("household_type") or "",
+            }
+        )
 
     selected = request.args.get("email")
     rows = []
@@ -1929,8 +2184,16 @@ def availability_meetings():
                     except Exception:
                         start_dt = None
                     start_syd = start_dt.astimezone(SYDNEY_TZ) if start_dt else None
-                    activity_link = f"https://app.hubspot.com/contacts/{portal_id}/activities/{meeting_id}" if meeting_id else ""
-                    record_link = f"https://app.hubspot.com/contacts/{portal_id}/record/{meeting_object_type}/{meeting_id}" if meeting_id else ""
+                    activity_link = (
+                        f"https://app.hubspot.com/contacts/{portal_id}/activities/{meeting_id}"
+                        if meeting_id
+                        else ""
+                    )
+                    record_link = (
+                        f"https://app.hubspot.com/contacts/{portal_id}/record/{meeting_object_type}/{meeting_id}"
+                        if meeting_id
+                        else ""
+                    )
                     parsed.append(
                         {
                             "id": meeting_id,
@@ -1947,9 +2210,7 @@ def availability_meetings():
                             "_sort": start_syd,
                         }
                     )
-                parsed.sort(
-                    key=lambda m: m["_sort"] or datetime.max.replace(tzinfo=SYDNEY_TZ)
-                )
+                parsed.sort(key=lambda m: m["_sort"] or datetime.max.replace(tzinfo=SYDNEY_TZ))
                 for item in parsed:
                     item.pop("_sort", None)
                 rows = parsed
@@ -1959,7 +2220,7 @@ def availability_meetings():
         e = entry["email"]
         sel_attr = " selected" if selected == e else ""
         label = f"{entry['name']}"
-        option_items.append(f"<option value=\"{e}\"{sel_attr}>{label}</option>")
+        option_items.append(f'<option value="{e}"{sel_attr}>{label}</option>')
     options_html = "".join(option_items)
 
     return render_template(
@@ -2008,15 +2269,18 @@ def availability_matrix():
         )
     except Exception as e:
         logging.error("Failed to build availability matrix: %s", e)
-        return render_template_string(
-            """
+        return (
+            render_template_string(
+                """
             <div style=\"padding: 20px; text-align: center;\">
                 <h3>❌ Error Loading Availability Matrix</h3>
                 <p>{{ error }}</p>
             </div>
             """,
-            error=str(e),
-        ), 500
+                error=str(e),
+            ),
+            500,
+        )
 
 
 @main_bp.route("/meeting/owner", methods=["POST"])
@@ -2027,9 +2291,7 @@ def update_meeting_owner():
 
     payload = request.get_json(silent=True) or {}
     meeting_id = str(payload.get("meeting_id") or payload.get("id") or "").strip()
-    new_owner_id = str(
-        payload.get("new_owner_id") or payload.get("owner_id") or ""
-    ).strip()
+    new_owner_id = str(payload.get("new_owner_id") or payload.get("owner_id") or "").strip()
 
     if not meeting_id or not new_owner_id:
         return (
@@ -2067,35 +2329,35 @@ def update_meeting_owner():
         logging.error("Failed to update meeting owner: %s", e)
         return jsonify({"error": str(e)}), 500
 
+
 # Healthcheck
 @main_bp.route("/_ah/warmup")
 def warmup():
     """Healthcheck endpoint for platform warmup probes."""
     return ("", 200)
 
+
 if __name__ == "__main__":
     from dotenv import load_dotenv
 
     # Load variables from .env into environment
     load_dotenv()
-    app.run(host="0.0.0.0", debug=True, port=int(os.environ.get("PORT", "8080")))
+    app.run(host="0.0.0.0", debug=True, port=int(os.environ.get("PORT", "8080")))  # noqa: F821
 
 
 # ===== APP INITIALIZATION =====
 # Create Flask app and register blueprints
 # This MUST happen after all blueprint handlers and routes are defined
-CHAT_WEBHOOK_URL = (
-    get_secret("PIVOT-DIGITAL-CHAT-WEBHOOK-URL-ADVISER-ALGO")
-    or os.environ.get("CHAT_WEBHOOK_URL")
+CHAT_WEBHOOK_URL = get_secret("PIVOT-DIGITAL-CHAT-WEBHOOK-URL-ADVISER-ALGO") or os.environ.get(
+    "CHAT_WEBHOOK_URL"
 )
 
 # Calculate paths to templates and static (at project root, 3 levels up from main.py)
 from pathlib import Path as _Path
+
 _main_dir = _Path(__file__).parent.parent.parent
 app = Flask(
-    __name__,
-    template_folder=str(_main_dir / "templates"),
-    static_folder=str(_main_dir / "static")
+    __name__, template_folder=str(_main_dir / "templates"), static_folder=str(_main_dir / "static")
 )
 app.secret_key = get_secret("SESSION_SECRET") or "change-me-please"
 

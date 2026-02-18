@@ -1,19 +1,20 @@
 """Cache utilities with TTL support."""
 
-import time
 import logging
-from typing import Optional, Callable, Any, TypeVar, Dict
-from functools import wraps
+import time
 from dataclasses import dataclass
+from functools import wraps
+from typing import Any, Callable, Dict, Optional, TypeVar
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 @dataclass
 class CacheEntry:
     """A cache entry with timestamp and TTL."""
+
     value: Any
     timestamp: float
     ttl: int  # seconds
@@ -64,11 +65,7 @@ class TTLCache:
             value: Value to cache
             ttl: Optional custom TTL (uses default if not provided)
         """
-        self._cache[key] = CacheEntry(
-            value=value,
-            timestamp=time.time(),
-            ttl=ttl or self.ttl
-        )
+        self._cache[key] = CacheEntry(value=value, timestamp=time.time(), ttl=ttl or self.ttl)
 
     def delete(self, key: str) -> None:
         """Delete a key from cache.

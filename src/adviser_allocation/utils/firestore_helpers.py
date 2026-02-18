@@ -116,6 +116,7 @@ def get_capacity_overrides() -> List[Dict[str, Any]]:
 
 # Utility functions for write operations
 
+
 def save_office_closure(start_date: str, end_date: Optional[str] = None) -> Optional[str]:
     """Save an office closure to Firestore.
 
@@ -133,10 +134,12 @@ def save_office_closure(start_date: str, end_date: Optional[str] = None) -> Opti
 
     try:
         doc_ref = db.collection("office_closures").document()
-        doc_ref.set({
-            "start_date": start_date,
-            "end_date": end_date or start_date,
-        })
+        doc_ref.set(
+            {
+                "start_date": start_date,
+                "end_date": end_date or start_date,
+            }
+        )
         logger.info("Saved office closure: %s to %s", start_date, end_date or start_date)
         return doc_ref.id
     except Exception as exc:

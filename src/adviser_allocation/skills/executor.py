@@ -246,11 +246,7 @@ class SkillExecutor:
 
         for result in results:
             status_icon = "✓" if result.passed else "✗"
-            coverage_str = (
-                f" [{result.coverage_percent:.1f}%]"
-                if result.coverage_percent
-                else ""
-            )
+            coverage_str = f" [{result.coverage_percent:.1f}%]" if result.coverage_percent else ""
             print(
                 f"{status_icon} {result.skill_name:40s} "
                 f"{result.duration_seconds:6.2f}s "
