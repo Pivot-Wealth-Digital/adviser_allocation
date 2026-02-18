@@ -17,7 +17,7 @@ from adviser_allocation.utils.firestore_helpers import (
 class FirestoreHelpersTests(unittest.TestCase):
     """Test suite for Firestore helper functions."""
 
-    @patch("utils.firestore_helpers._client")
+    @patch("adviser_allocation.utils.firestore_helpers._client")
     def test_get_employee_leaves_success(self, mock_client):
         """Test successful retrieval of employee leaves."""
         mock_db = MagicMock()
@@ -50,7 +50,7 @@ class FirestoreHelpersTests(unittest.TestCase):
         self.assertEqual(leaves[0]["type"], "Full")
         self.assertEqual(leaves[1]["type"], "Partial: 1")
 
-    @patch("utils.firestore_helpers._client")
+    @patch("adviser_allocation.utils.firestore_helpers._client")
     def test_get_employee_leaves_no_db(self, mock_client):
         """Test employee leaves when database is unavailable."""
         mock_client.return_value = None
@@ -59,7 +59,7 @@ class FirestoreHelpersTests(unittest.TestCase):
 
         self.assertEqual(leaves, [])
 
-    @patch("utils.firestore_helpers._client")
+    @patch("adviser_allocation.utils.firestore_helpers._client")
     def test_get_employee_id_success(self, mock_client):
         """Test successful employee ID lookup."""
         mock_db = MagicMock()
@@ -77,7 +77,7 @@ class FirestoreHelpersTests(unittest.TestCase):
 
         self.assertEqual(result, "emp_123")
 
-    @patch("utils.firestore_helpers._client")
+    @patch("adviser_allocation.utils.firestore_helpers._client")
     def test_get_employee_id_not_found(self, mock_client):
         """Test employee ID lookup when email not found."""
         mock_db = MagicMock()
@@ -92,7 +92,7 @@ class FirestoreHelpersTests(unittest.TestCase):
 
         self.assertIsNone(result)
 
-    @patch("utils.firestore_helpers._client")
+    @patch("adviser_allocation.utils.firestore_helpers._client")
     def test_get_global_closures_success(self, mock_client):
         """Test successful retrieval of office closures."""
         mock_db = MagicMock()
@@ -117,7 +117,7 @@ class FirestoreHelpersTests(unittest.TestCase):
         self.assertEqual(closures[0]["start_date"], "2025-12-20")
         self.assertEqual(closures[0]["end_date"], "2025-12-31")
 
-    @patch("utils.firestore_helpers._client")
+    @patch("adviser_allocation.utils.firestore_helpers._client")
     def test_get_capacity_overrides_success(self, mock_client):
         """Test successful retrieval of capacity overrides."""
         mock_db = MagicMock()
@@ -139,7 +139,7 @@ class FirestoreHelpersTests(unittest.TestCase):
         self.assertEqual(overrides[0]["adviser_email"], "adviser@example.com")
         self.assertEqual(overrides[0]["id"], "override_1")
 
-    @patch("utils.firestore_helpers._client")
+    @patch("adviser_allocation.utils.firestore_helpers._client")
     def test_save_office_closure_success(self, mock_client):
         """Test saving an office closure."""
         mock_db = MagicMock()
@@ -155,7 +155,7 @@ class FirestoreHelpersTests(unittest.TestCase):
         self.assertEqual(result, "closure_123")
         mock_doc_ref.set.assert_called_once()
 
-    @patch("utils.firestore_helpers._client")
+    @patch("adviser_allocation.utils.firestore_helpers._client")
     def test_save_office_closure_single_day(self, mock_client):
         """Test saving single-day office closure."""
         mock_db = MagicMock()
@@ -171,7 +171,7 @@ class FirestoreHelpersTests(unittest.TestCase):
         self.assertEqual(call_args[0][0]["start_date"], "2025-01-01")
         self.assertEqual(call_args[0][0]["end_date"], "2025-01-01")
 
-    @patch("utils.firestore_helpers._client")
+    @patch("adviser_allocation.utils.firestore_helpers._client")
     def test_save_office_closure_no_db(self, mock_client):
         """Test saving closure when database unavailable."""
         mock_client.return_value = None
@@ -180,7 +180,7 @@ class FirestoreHelpersTests(unittest.TestCase):
 
         self.assertIsNone(result)
 
-    @patch("utils.firestore_helpers._client")
+    @patch("adviser_allocation.utils.firestore_helpers._client")
     def test_delete_office_closure_success(self, mock_client):
         """Test deleting an office closure."""
         mock_db = MagicMock()
@@ -194,7 +194,7 @@ class FirestoreHelpersTests(unittest.TestCase):
         self.assertTrue(result)
         mock_doc_ref.delete.assert_called_once()
 
-    @patch("utils.firestore_helpers._client")
+    @patch("adviser_allocation.utils.firestore_helpers._client")
     def test_delete_office_closure_no_db(self, mock_client):
         """Test deleting closure when database unavailable."""
         mock_client.return_value = None

@@ -9,7 +9,7 @@ from adviser_allocation.core import allocation as allocate  # noqa: E402
 
 
 class AllocationLogicTests(unittest.TestCase):
-    @patch("core.allocation.sydney_today")
+    @patch("adviser_allocation.core.allocation.sydney_today")
     def test_partial_week_adjusts_capacity(self, mock_today):
         mock_today.return_value = date(2025, 1, 6)  # Monday
 
@@ -44,7 +44,7 @@ class AllocationLogicTests(unittest.TestCase):
             "Partial leave of three days should halve fortnightly target",
         )
 
-    @patch("core.allocation.sydney_today")
+    @patch("adviser_allocation.core.allocation.sydney_today")
     def test_find_earliest_week_respects_buffer(self, mock_today):
         mock_today.return_value = date(2025, 1, 6)
         base_week = allocate.week_monday_ordinal(date(2024, 12, 30))

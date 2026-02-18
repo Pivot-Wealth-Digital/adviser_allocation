@@ -25,7 +25,7 @@ class HTTPClientTests(unittest.TestCase):
         self.assertIsNotNone(session.get_adapter("http://example.com"))
         self.assertIsNotNone(session.get_adapter("https://example.com"))
 
-    @patch("utils.http_client.requests.Session.get")
+    @patch("adviser_allocation.utils.http_client.requests.Session.get")
     def test_get_with_retries_sets_timeout(self, mock_get):
         """Test that GET requests include timeout."""
         mock_response = MagicMock()
@@ -41,7 +41,7 @@ class HTTPClientTests(unittest.TestCase):
             # Expected since we're not fully mocking
             pass
 
-    @patch("utils.http_client.requests.Session.post")
+    @patch("adviser_allocation.utils.http_client.requests.Session.post")
     def test_post_with_retries_sends_json(self, mock_post):
         """Test that POST requests send JSON properly."""
         mock_response = MagicMock()
@@ -54,7 +54,7 @@ class HTTPClientTests(unittest.TestCase):
         except Exception:
             pass
 
-    @patch("utils.http_client.requests.Session.patch")
+    @patch("adviser_allocation.utils.http_client.requests.Session.patch")
     def test_patch_with_retries_supports_both_json_and_data(self, mock_patch):
         """Test that PATCH requests support both json and data payloads."""
         mock_response = MagicMock()
@@ -72,7 +72,7 @@ class HTTPClientTests(unittest.TestCase):
         except Exception:
             pass
 
-    @patch("utils.http_client.requests.Session.delete")
+    @patch("adviser_allocation.utils.http_client.requests.Session.delete")
     def test_delete_with_retries(self, mock_delete):
         """Test DELETE requests."""
         mock_response = MagicMock()

@@ -299,8 +299,8 @@ class WorkflowErrorHandlingTests(unittest.TestCase):
 
     def test_unauthorized_access_redirects(self):
         """Test unauthorized access handling."""
-        # Without authentication
-        response = self.client.get("/settings/box/ui", follow_redirects=False)
+        # Without authentication, access a protected route
+        response = self.client.get("/allocations/history", follow_redirects=False)
 
         # Should redirect to login
         self.assertIn(response.status_code, [301, 302, 401, 403])

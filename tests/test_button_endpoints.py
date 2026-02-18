@@ -85,7 +85,7 @@ class ButtonEndpointTester:
                                     if "Error" in line or "Exception" in line:
                                         print(f"    Error: {line.strip()}")
                                         break
-                        except:
+                        except Exception:
                             pass
 
                 except Exception as e:
