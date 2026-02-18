@@ -12,7 +12,7 @@ os.environ.setdefault("USE_FIRESTORE", "false")
 class HubSpotIntegrationTests(unittest.TestCase):
     """Tests for HubSpot CRM integration."""
 
-    @patch('adviser_allocation.utils.http_client.requests.get')
+    @patch("adviser_allocation.utils.http_client.requests.get")
     def test_hubspot_contact_metadata_fetch(self, mock_get):
         """Test fetching contact metadata from HubSpot."""
         mock_response = MagicMock()
@@ -23,7 +23,7 @@ class HubSpotIntegrationTests(unittest.TestCase):
                 "firstname": {"value": "John"},
                 "lastname": {"value": "Doe"},
                 "email": {"value": "john@example.com"},
-            }
+            },
         }
         mock_get.return_value = mock_response
 
@@ -34,7 +34,7 @@ class HubSpotIntegrationTests(unittest.TestCase):
         data = response.json()
         self.assertIn("properties", data)
 
-    @patch('adviser_allocation.utils.http_client.requests.get')
+    @patch("adviser_allocation.utils.http_client.requests.get")
     def test_hubspot_deal_owner_fetch(self, mock_get):
         """Test fetching deal owner information."""
         mock_response = MagicMock()
@@ -45,7 +45,7 @@ class HubSpotIntegrationTests(unittest.TestCase):
                 "dealname": {"value": "Enterprise Deal"},
                 "hubspot_owner_id": {"value": "owner456"},
                 "dealstage": {"value": "closedwon"},
-            }
+            },
         }
         mock_get.return_value = mock_response
 
@@ -55,7 +55,7 @@ class HubSpotIntegrationTests(unittest.TestCase):
         data = response.json()
         self.assertIn("hubspot_owner_id", data["properties"])
 
-    @patch('adviser_allocation.utils.http_client.requests.post')
+    @patch("adviser_allocation.utils.http_client.requests.post")
     def test_hubspot_deal_owner_update(self, mock_post):
         """Test updating deal owner in HubSpot."""
         mock_response = MagicMock()
@@ -66,21 +66,14 @@ class HubSpotIntegrationTests(unittest.TestCase):
         }
         mock_post.return_value = mock_response
 
-        payload = {
-            "properties": {
-                "hubspot_owner_id": "new_owner789"
-            }
-        }
+        payload = {"properties": {"hubspot_owner_id": "new_owner789"}}
 
-        response = mock_post(
-            "https://api.hubapi.com/crm/v3/objects/deals/deal123",
-            json=payload
-        )
+        response = mock_post("https://api.hubapi.com/crm/v3/objects/deals/deal123", json=payload)
 
         self.assertEqual(response.status_code, 200)
         mock_post.assert_called_once()
 
-    @patch('adviser_allocation.utils.http_client.requests.get')
+    @patch("adviser_allocation.utils.http_client.requests.get")
     def test_hubspot_rate_limit_handling(self, mock_get):
         """Test handling of rate limit responses."""
         mock_response = MagicMock()
@@ -93,7 +86,7 @@ class HubSpotIntegrationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 429)
         self.assertEqual(response.headers["Retry-After"], "30")
 
-    @patch('adviser_allocation.utils.http_client.requests.get')
+    @patch("adviser_allocation.utils.http_client.requests.get")
     def test_hubspot_api_timeout(self, mock_get):
         """Test handling of API timeouts."""
         mock_get.side_effect = requests.Timeout("Request timed out")
@@ -101,7 +94,7 @@ class HubSpotIntegrationTests(unittest.TestCase):
         with self.assertRaises(requests.Timeout):
             mock_get("https://api.hubapi.com/crm/v3/objects/contacts")
 
-    @patch('adviser_allocation.utils.http_client.requests.post')
+    @patch("adviser_allocation.utils.http_client.requests.post")
     def test_hubspot_webhook_signature_verification(self, mock_post):
         """Test webhook signature verification."""
         import hashlib
@@ -112,11 +105,7 @@ class HubSpotIntegrationTests(unittest.TestCase):
         secret = "webhook_secret"
 
         # Calculate signature
-        signature = hmac.new(
-            secret.encode(),
-            payload.encode(),
-            hashlib.sha256
-        ).hexdigest()
+        signature = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
 
         headers = {
             "X-HubSpot-Request-Timestamp": "1234567890",
@@ -130,7 +119,7 @@ class HubSpotIntegrationTests(unittest.TestCase):
 class EmploymentHeroIntegrationTests(unittest.TestCase):
     """Tests for Employment Hero integration."""
 
-    @patch('adviser_allocation.utils.http_client.requests.get')
+    @patch("adviser_allocation.utils.http_client.requests.get")
     def test_eh_employee_list_sync(self, mock_get):
         """Test syncing employee list from Employment Hero."""
         mock_response = MagicMock()
@@ -159,7 +148,7 @@ class EmploymentHeroIntegrationTests(unittest.TestCase):
         data = response.json()
         self.assertEqual(len(data["data"]), 2)
 
-    @patch('adviser_allocation.utils.http_client.requests.get')
+    @patch("adviser_allocation.utils.http_client.requests.get")
     def test_eh_leave_request_sync(self, mock_get):
         """Test syncing leave requests from Employment Hero."""
         mock_response = MagicMock()
@@ -182,7 +171,7 @@ class EmploymentHeroIntegrationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json()["data"]), 1)
 
-    @patch('adviser_allocation.utils.http_client.requests.get')
+    @patch("adviser_allocation.utils.http_client.requests.get")
     def test_eh_api_pagination_handling(self, mock_get):
         """Test handling of paginated API responses."""
         mock_response = MagicMock()
@@ -193,7 +182,7 @@ class EmploymentHeroIntegrationTests(unittest.TestCase):
                 "pageNumber": 1,
                 "pageSize": 100,
                 "totalRecords": 250,
-            }
+            },
         }
         mock_get.return_value = mock_response
 
@@ -203,7 +192,7 @@ class EmploymentHeroIntegrationTests(unittest.TestCase):
         pagination = response.json()["pagination"]
         self.assertEqual(pagination["totalRecords"], 250)
 
-    @patch('adviser_allocation.utils.http_client.requests.get')
+    @patch("adviser_allocation.utils.http_client.requests.get")
     def test_eh_rate_limit_backoff(self, mock_get):
         """Test backoff on Employment Hero rate limits."""
         mock_response = MagicMock()
@@ -219,7 +208,7 @@ class EmploymentHeroIntegrationTests(unittest.TestCase):
 class BoxIntegrationTests(unittest.TestCase):
     """Tests for Box automation integration."""
 
-    @patch('adviser_allocation.utils.http_client.requests.post')
+    @patch("adviser_allocation.utils.http_client.requests.post")
     def test_box_jwt_authentication(self, mock_post):
         """Test Box JWT authentication flow."""
         mock_response = MagicMock()
@@ -237,13 +226,13 @@ class BoxIntegrationTests(unittest.TestCase):
                 "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
                 "assertion": "jwt_assertion",
                 "client_id": "client123",
-            }
+            },
         )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["token_type"], "bearer")
 
-    @patch('adviser_allocation.utils.http_client.requests.post')
+    @patch("adviser_allocation.utils.http_client.requests.post")
     def test_box_folder_create_from_template(self, mock_post):
         """Test creating folder from template in Box."""
         mock_response = MagicMock()
@@ -261,13 +250,13 @@ class BoxIntegrationTests(unittest.TestCase):
                 "name": "Client Folder",
                 "parent": {"id": "template_folder"},
             },
-            headers={"Authorization": "Bearer jwt_token_123"}
+            headers={"Authorization": "Bearer jwt_token_123"},
         )
 
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json()["name"], "Client Folder")
 
-    @patch('adviser_allocation.utils.http_client.requests.put')
+    @patch("adviser_allocation.utils.http_client.requests.put")
     def test_box_metadata_tagging(self, mock_put):
         """Test applying metadata to Box folder."""
         mock_response = MagicMock()
@@ -284,12 +273,12 @@ class BoxIntegrationTests(unittest.TestCase):
             json={
                 "adviser_name": "John Doe",
                 "household_type": "series a",
-            }
+            },
         )
 
         self.assertEqual(response.status_code, 200)
 
-    @patch('adviser_allocation.utils.http_client.requests.post')
+    @patch("adviser_allocation.utils.http_client.requests.post")
     def test_box_collaborator_invite(self, mock_post):
         """Test inviting collaborators to Box folder."""
         mock_response = MagicMock()
@@ -307,13 +296,13 @@ class BoxIntegrationTests(unittest.TestCase):
                 "item": {"id": "folder123", "type": "folder"},
                 "accessible_by": {"id": "user456", "type": "user"},
                 "role": "co-owner",
-            }
+            },
         )
 
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json()["role"], "co-owner")
 
-    @patch('adviser_allocation.utils.http_client.requests.get')
+    @patch("adviser_allocation.utils.http_client.requests.get")
     def test_box_error_handling_folder_not_found(self, mock_get):
         """Test error handling when Box folder not found."""
         mock_response = MagicMock()
@@ -334,7 +323,7 @@ class BoxIntegrationTests(unittest.TestCase):
 class GoogleChatIntegrationTests(unittest.TestCase):
     """Tests for Google Chat webhook integration."""
 
-    @patch('adviser_allocation.utils.http_client.requests.post')
+    @patch("adviser_allocation.utils.http_client.requests.post")
     def test_chat_webhook_card_format_valid(self, mock_post):
         """Test that chat webhook sends valid card format."""
         mock_response = MagicMock()
@@ -346,36 +335,22 @@ class GoogleChatIntegrationTests(unittest.TestCase):
             "cards": [
                 {
                     "header": {"title": "New Allocation"},
-                    "sections": [
-                        {
-                            "widgets": [
-                                {
-                                    "textParagraph": {
-                                        "text": "Adviser: John Doe"
-                                    }
-                                }
-                            ]
-                        }
-                    ]
+                    "sections": [{"widgets": [{"textParagraph": {"text": "Adviser: John Doe"}}]}],
                 }
-            ]
+            ],
         }
 
         response = mock_post(
-            "https://chat.googleapis.com/v1/spaces/SPACE_ID/messages",
-            json=payload
+            "https://chat.googleapis.com/v1/spaces/SPACE_ID/messages", json=payload
         )
 
         self.assertEqual(response.status_code, 200)
 
-    @patch('adviser_allocation.utils.http_client.requests.post')
+    @patch("adviser_allocation.utils.http_client.requests.post")
     def test_chat_webhook_retry_on_timeout(self, mock_post):
         """Test retry behavior on webhook timeout."""
         # First call times out, second succeeds
-        mock_post.side_effect = [
-            requests.Timeout(),
-            MagicMock(status_code=200)
-        ]
+        mock_post.side_effect = [requests.Timeout(), MagicMock(status_code=200)]
 
         try:
             response = mock_post("https://chat.googleapis.com/v1/spaces/SPACE_ID/messages")
@@ -383,7 +358,7 @@ class GoogleChatIntegrationTests(unittest.TestCase):
             # Would retry in actual implementation
             pass
 
-    @patch('adviser_allocation.utils.http_client.requests.post')
+    @patch("adviser_allocation.utils.http_client.requests.post")
     def test_chat_webhook_invalid_url_handling(self, mock_post):
         """Test handling of invalid webhook URL."""
         mock_post.side_effect = requests.exceptions.InvalidURL("Invalid URL")
@@ -395,7 +370,7 @@ class GoogleChatIntegrationTests(unittest.TestCase):
 class ServiceFailureRecoveryTests(unittest.TestCase):
     """Tests for service failure recovery and degradation."""
 
-    @patch('adviser_allocation.utils.http_client.requests.get')
+    @patch("adviser_allocation.utils.http_client.requests.get")
     def test_hubspot_failure_doesnt_block_allocation(self, mock_get):
         """Test that HubSpot failure doesn't block allocation."""
         mock_get.side_effect = requests.Timeout()
@@ -405,7 +380,7 @@ class ServiceFailureRecoveryTests(unittest.TestCase):
 
         self.assertTrue(allocation_created)
 
-    @patch('adviser_allocation.utils.http_client.requests.post')
+    @patch("adviser_allocation.utils.http_client.requests.post")
     def test_box_failure_logs_error_continues(self, mock_post):
         """Test that Box folder creation failure logs error but continues."""
         mock_post.side_effect = Exception("Box API error")
@@ -416,7 +391,7 @@ class ServiceFailureRecoveryTests(unittest.TestCase):
             # Error should be logged and handled
             self.assertIsNotNone(str(e))
 
-    @patch('adviser_allocation.utils.http_client.requests.post')
+    @patch("adviser_allocation.utils.http_client.requests.post")
     def test_chat_notification_failure_non_blocking(self, mock_post):
         """Test that chat notification failure doesn't fail allocation."""
         mock_post.side_effect = Exception("Chat API error")

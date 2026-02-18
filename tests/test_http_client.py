@@ -49,10 +49,7 @@ class HTTPClientTests(unittest.TestCase):
         mock_post.return_value = mock_response
 
         try:
-            result = post_with_retries(
-                "http://example.com",
-                json={"key": "value"}
-            )
+            result = post_with_retries("http://example.com", json={"key": "value"})
             self.assertIsNotNone(result)
         except Exception:
             pass
@@ -66,17 +63,11 @@ class HTTPClientTests(unittest.TestCase):
 
         try:
             # Test JSON
-            result = patch_with_retries(
-                "http://example.com",
-                json={"key": "value"}
-            )
+            result = patch_with_retries("http://example.com", json={"key": "value"})
             self.assertIsNotNone(result)
 
             # Test data
-            result = patch_with_retries(
-                "http://example.com",
-                data='{"key": "value"}'
-            )
+            result = patch_with_retries("http://example.com", data='{"key": "value"}')
             self.assertIsNotNone(result)
         except Exception:
             pass

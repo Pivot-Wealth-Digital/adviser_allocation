@@ -11,7 +11,7 @@ os.environ.setdefault("USE_FIRESTORE", "false")
 class FirestoreIntegrationTests(unittest.TestCase):
     """Tests for Firestore database integration."""
 
-    @patch('adviser_allocation.utils.firestore_helpers.get_firestore_client')
+    @patch("adviser_allocation.utils.firestore_helpers.get_firestore_client")
     def test_employee_document_creation(self, mock_firestore):
         """Test creating and retrieving employee document."""
         mock_db = MagicMock()
@@ -30,7 +30,7 @@ class FirestoreIntegrationTests(unittest.TestCase):
         # Verify document was set
         mock_db.collection("employees").document("emp123").set.assert_called_once()
 
-    @patch('adviser_allocation.utils.firestore_helpers.get_firestore_client')
+    @patch("adviser_allocation.utils.firestore_helpers.get_firestore_client")
     def test_leave_request_persistence(self, mock_firestore):
         """Test saving and retrieving leave requests."""
         mock_db = MagicMock()
@@ -49,7 +49,7 @@ class FirestoreIntegrationTests(unittest.TestCase):
         # Verify persistence
         mock_db.collection("leave_requests").add.assert_called_once()
 
-    @patch('adviser_allocation.utils.firestore_helpers.get_firestore_client')
+    @patch("adviser_allocation.utils.firestore_helpers.get_firestore_client")
     def test_office_closure_date_range_query(self, mock_firestore):
         """Test querying office closures by date range."""
         mock_db = MagicMock()
@@ -59,23 +59,28 @@ class FirestoreIntegrationTests(unittest.TestCase):
         mock_db.collection("closures").where("start_date", "<=", "2025-12-31").where(
             "end_date", ">=", "2025-01-01"
         ).stream.return_value = [
-            MagicMock(to_dict=lambda: {
-                "name": "Summer Break",
-                "start_date": "2025-01-15",
-                "end_date": "2025-01-20",
-            })
+            MagicMock(
+                to_dict=lambda: {
+                    "name": "Summer Break",
+                    "start_date": "2025-01-15",
+                    "end_date": "2025-01-20",
+                }
+            )
         ]
 
         mock_firestore.return_value = mock_db
 
         # Query should return closures
-        result = list(mock_db.collection("closures").where(
-            "start_date", "<=", "2025-12-31"
-        ).where("end_date", ">=", "2025-01-01").stream())
+        result = list(
+            mock_db.collection("closures")
+            .where("start_date", "<=", "2025-12-31")
+            .where("end_date", ">=", "2025-01-01")
+            .stream()
+        )
 
         self.assertEqual(len(result), 1)
 
-    @patch('adviser_allocation.utils.firestore_helpers.get_firestore_client')
+    @patch("adviser_allocation.utils.firestore_helpers.get_firestore_client")
     def test_capacity_override_active_date_filtering(self, mock_firestore):
         """Test filtering capacity overrides by active date."""
         mock_db = MagicMock()
@@ -95,20 +100,21 @@ class FirestoreIntegrationTests(unittest.TestCase):
             }
         ]
 
-        mock_db.collection("capacity_overrides").where(
-            "employee_id", "==", "emp123"
-        ).where("active", "==", True).stream.return_value = [
-            MagicMock(to_dict=lambda: overrides[0])
-        ]
+        mock_db.collection("capacity_overrides").where("employee_id", "==", "emp123").where(
+            "active", "==", True
+        ).stream.return_value = [MagicMock(to_dict=lambda: overrides[0])]
 
         # Query active overrides
-        result = list(mock_db.collection("capacity_overrides").where(
-            "employee_id", "==", "emp123"
-        ).where("active", "==", True).stream())
+        result = list(
+            mock_db.collection("capacity_overrides")
+            .where("employee_id", "==", "emp123")
+            .where("active", "==", True)
+            .stream()
+        )
 
         self.assertEqual(len(result), 1)
 
-    @patch('adviser_allocation.utils.firestore_helpers.get_firestore_client')
+    @patch("adviser_allocation.utils.firestore_helpers.get_firestore_client")
     def test_allocation_history_pagination(self, mock_firestore):
         """Test pagination in allocation history queries."""
         mock_db = MagicMock()
@@ -116,8 +122,7 @@ class FirestoreIntegrationTests(unittest.TestCase):
 
         # Mock paginated results
         allocations = [
-            {"id": f"alloc{i}", "adviser_id": "emp123", "deal_id": f"deal{i}"}
-            for i in range(10)
+            {"id": f"alloc{i}", "adviser_id": "emp123", "deal_id": f"deal{i}"} for i in range(10)
         ]
 
         mock_db.collection("allocations").order_by("timestamp").limit(5).stream.return_value = [
@@ -129,22 +134,24 @@ class FirestoreIntegrationTests(unittest.TestCase):
 
         self.assertEqual(len(result), 5)
 
-    @patch('adviser_allocation.utils.firestore_helpers.get_firestore_client')
+    @patch("adviser_allocation.utils.firestore_helpers.get_firestore_client")
     def test_duplicate_employee_handling(self, mock_firestore):
         """Test handling of duplicate employee records."""
         mock_db = MagicMock()
         mock_firestore.return_value = mock_db
 
         # Mock query returning duplicates
-        mock_db.collection("employees").where("email", "==", "test@example.com").stream.return_value = [
+        mock_db.collection("employees").where(
+            "email", "==", "test@example.com"
+        ).stream.return_value = [
             MagicMock(to_dict=lambda: {"id": "emp1", "email": "test@example.com"}),
             MagicMock(to_dict=lambda: {"id": "emp2", "email": "test@example.com"}),
         ]
 
         # Query should return both
-        result = list(mock_db.collection("employees").where(
-            "email", "==", "test@example.com"
-        ).stream())
+        result = list(
+            mock_db.collection("employees").where("email", "==", "test@example.com").stream()
+        )
 
         self.assertEqual(len(result), 2)
 
@@ -152,7 +159,7 @@ class FirestoreIntegrationTests(unittest.TestCase):
 class DataConsistencyTests(unittest.TestCase):
     """Tests for data consistency across operations."""
 
-    @patch('adviser_allocation.utils.firestore_helpers.get_firestore_client')
+    @patch("adviser_allocation.utils.firestore_helpers.get_firestore_client")
     def test_allocation_record_includes_all_fields(self, mock_firestore):
         """Test that allocation records include all required fields."""
         mock_db = MagicMock()
@@ -174,11 +181,17 @@ class DataConsistencyTests(unittest.TestCase):
         call_args = mock_db.collection("allocations").add.call_args
         saved_data = call_args[0][0]
 
-        required_fields = ["adviser_id", "deal_id", "household_type", "service_package", "timestamp"]
+        required_fields = [
+            "adviser_id",
+            "deal_id",
+            "household_type",
+            "service_package",
+            "timestamp",
+        ]
         for field in required_fields:
             self.assertIn(field, saved_data)
 
-    @patch('adviser_allocation.utils.firestore_helpers.get_firestore_client')
+    @patch("adviser_allocation.utils.firestore_helpers.get_firestore_client")
     def test_leave_request_date_consistency(self, mock_firestore):
         """Test that leave request dates are consistent."""
         mock_db = MagicMock()
@@ -205,7 +218,7 @@ class DataConsistencyTests(unittest.TestCase):
 class DatabaseErrorHandlingTests(unittest.TestCase):
     """Tests for database error handling."""
 
-    @patch('adviser_allocation.utils.firestore_helpers.get_firestore_client')
+    @patch("adviser_allocation.utils.firestore_helpers.get_firestore_client")
     def test_graceful_handling_when_firestore_unavailable(self, mock_firestore):
         """Test graceful degradation when Firestore is unavailable."""
         mock_firestore.side_effect = Exception("Firestore unavailable")
@@ -215,7 +228,7 @@ class DatabaseErrorHandlingTests(unittest.TestCase):
         except Exception as e:
             self.assertEqual(str(e), "Firestore unavailable")
 
-    @patch('adviser_allocation.utils.firestore_helpers.get_firestore_client')
+    @patch("adviser_allocation.utils.firestore_helpers.get_firestore_client")
     def test_query_error_logging(self, mock_firestore):
         """Test that query errors are logged."""
         mock_db = MagicMock()
@@ -229,7 +242,7 @@ class DatabaseErrorHandlingTests(unittest.TestCase):
         except Exception as e:
             self.assertEqual(str(e), "Query failed")
 
-    @patch('adviser_allocation.utils.firestore_helpers.get_firestore_client')
+    @patch("adviser_allocation.utils.firestore_helpers.get_firestore_client")
     def test_permission_denied_handling(self, mock_firestore):
         """Test handling of permission denied errors."""
         mock_db = MagicMock()
@@ -247,7 +260,7 @@ class DatabaseErrorHandlingTests(unittest.TestCase):
 class TransactionTests(unittest.TestCase):
     """Tests for database transactions."""
 
-    @patch('adviser_allocation.utils.firestore_helpers.get_firestore_client')
+    @patch("adviser_allocation.utils.firestore_helpers.get_firestore_client")
     def test_allocation_and_history_transaction(self, mock_firestore):
         """Test that allocation and history are recorded atomically."""
         mock_db = MagicMock()
@@ -258,7 +271,7 @@ class TransactionTests(unittest.TestCase):
         # Transaction should record both operations
         self.assertIsNotNone(mock_db.transaction())
 
-    @patch('adviser_allocation.utils.firestore_helpers.get_firestore_client')
+    @patch("adviser_allocation.utils.firestore_helpers.get_firestore_client")
     def test_transaction_rollback_on_error(self, mock_firestore):
         """Test that transaction rolls back on error."""
         mock_db = MagicMock()
@@ -274,7 +287,7 @@ class TransactionTests(unittest.TestCase):
 class BatchOperationTests(unittest.TestCase):
     """Tests for batch database operations."""
 
-    @patch('adviser_allocation.utils.firestore_helpers.get_firestore_client')
+    @patch("adviser_allocation.utils.firestore_helpers.get_firestore_client")
     def test_batch_write_employees(self, mock_firestore):
         """Test batch writing multiple employees."""
         mock_db = MagicMock()
@@ -290,10 +303,7 @@ class BatchOperationTests(unittest.TestCase):
 
         # Mock batch operations
         for emp in employees:
-            mock_batch.set(
-                mock_db.collection("employees").document(emp["id"]),
-                emp
-            )
+            mock_batch.set(mock_db.collection("employees").document(emp["id"]), emp)
 
         mock_batch.commit()
 
@@ -301,7 +311,7 @@ class BatchOperationTests(unittest.TestCase):
         self.assertEqual(mock_batch.set.call_count, 3)
         mock_batch.commit.assert_called_once()
 
-    @patch('adviser_allocation.utils.firestore_helpers.get_firestore_client')
+    @patch("adviser_allocation.utils.firestore_helpers.get_firestore_client")
     def test_batch_delete_closures(self, mock_firestore):
         """Test batch deleting office closures."""
         mock_db = MagicMock()
@@ -313,9 +323,7 @@ class BatchOperationTests(unittest.TestCase):
 
         # Mock batch delete
         for closure_id in closure_ids:
-            mock_batch.delete(
-                mock_db.collection("closures").document(closure_id)
-            )
+            mock_batch.delete(mock_db.collection("closures").document(closure_id))
 
         mock_batch.commit()
 

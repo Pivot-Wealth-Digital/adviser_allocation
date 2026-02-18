@@ -100,7 +100,9 @@ class SecretsSecurityTests(unittest.TestCase):
                     get_secret("SECRET_KEY")
                     # Check that the actual secret value is not in logs
                     log_text = "\n".join(log_context.output)
-                    self.assertNotIn("super_secret_value", log_text, "Secret value should never appear in logs")
+                    self.assertNotIn(
+                        "super_secret_value", log_text, "Secret value should never appear in logs"
+                    )
             except AssertionError:
                 # If no logs were generated, that's fine too - means secret wasn't logged
                 pass
@@ -114,8 +116,12 @@ class SecretsSecurityTests(unittest.TestCase):
             except Exception as e:
                 error_message = str(e)
                 # Should not contain actual secret values
-                self.assertNotIn("SECRET_KEY", error_message, "Secret key should not appear in errors")
-                self.assertNotIn("super_secret_value", error_message, "Secret value should not appear in errors")
+                self.assertNotIn(
+                    "SECRET_KEY", error_message, "Secret key should not appear in errors"
+                )
+                self.assertNotIn(
+                    "super_secret_value", error_message, "Secret value should not appear in errors"
+                )
 
 
 class SecretsCachingTests(unittest.TestCase):

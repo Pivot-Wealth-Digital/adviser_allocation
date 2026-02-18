@@ -40,7 +40,9 @@ class FirestoreHelpersTests(unittest.TestCase):
         mock_collection = MagicMock()
         mock_collection.stream.return_value = [mock_doc1, mock_doc2]
 
-        mock_db.collection.return_value.document.return_value.collection.return_value = mock_collection
+        mock_db.collection.return_value.document.return_value.collection.return_value = (
+            mock_collection
+        )
 
         leaves = get_employee_leaves("emp_123")
 

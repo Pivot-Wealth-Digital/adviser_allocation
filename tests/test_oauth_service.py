@@ -185,10 +185,13 @@ class OAuthServiceTests(unittest.TestCase):
     def test_build_authorization_url_with_partial_config(self):
         """Test that authorization URL fails with incomplete configuration."""
         # Initialize with incomplete config
-        init_oauth_service(db=None, config={
-            "EH_AUTHORIZE_URL": "https://oauth.example.com/authorize",
-            # Missing other required fields
-        })
+        init_oauth_service(
+            db=None,
+            config={
+                "EH_AUTHORIZE_URL": "https://oauth.example.com/authorize",
+                # Missing other required fields
+            },
+        )
 
         with self.assertRaises(RuntimeError):
             build_authorization_url("state")

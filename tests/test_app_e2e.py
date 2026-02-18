@@ -184,6 +184,7 @@ class TestPerformance:
     def test_page_load_time(self, page):
         """Test that page loads within reasonable time."""
         import time
+
         start = time.time()
         page.goto(APP_URL, wait_until="networkidle")
         elapsed = time.time() - start
@@ -193,6 +194,7 @@ class TestPerformance:
     def test_homepage_response_time(self, page):
         """Test homepage response time."""
         import time
+
         start = time.time()
         response = page.goto(APP_URL, timeout=10000)
         elapsed = time.time() - start
