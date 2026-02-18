@@ -1,12 +1,12 @@
 """Data protection and encryption security tests."""
 
-import os
-import unittest
 import hashlib
 import hmac
 import json
+import os
+import unittest
 from datetime import datetime
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("USE_FIRESTORE", "false")
 

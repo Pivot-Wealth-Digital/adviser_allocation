@@ -1,9 +1,9 @@
 """Integration tests for API endpoints."""
 
-import os
 import json
+import os
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("USE_FIRESTORE", "false")
 

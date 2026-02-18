@@ -1,21 +1,21 @@
 """Tests for OAuth service module."""
 
-import unittest
-from unittest.mock import patch, MagicMock
-from datetime import datetime, timedelta
 import time
+import unittest
+from datetime import datetime, timedelta
+from unittest.mock import MagicMock, patch
 
 from flask import Flask
 
 from adviser_allocation.services.oauth_service import (
-    init_oauth_service,
-    token_key,
-    save_tokens,
-    load_tokens,
-    exchange_code_for_tokens,
-    refresh_access_token,
-    get_access_token,
     build_authorization_url,
+    exchange_code_for_tokens,
+    get_access_token,
+    init_oauth_service,
+    load_tokens,
+    refresh_access_token,
+    save_tokens,
+    token_key,
 )
 
 

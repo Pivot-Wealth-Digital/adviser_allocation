@@ -1,9 +1,9 @@
 """Comprehensive tests for secrets management."""
 
+import logging
 import os
 import unittest
-import logging
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("USE_FIRESTORE", "false")
 

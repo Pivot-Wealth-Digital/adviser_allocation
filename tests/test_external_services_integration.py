@@ -1,9 +1,10 @@
 """Integration tests for external services."""
 
-import os
 import json
+import os
 import unittest
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import MagicMock, call, patch
+
 import requests
 
 os.environ.setdefault("USE_FIRESTORE", "false")

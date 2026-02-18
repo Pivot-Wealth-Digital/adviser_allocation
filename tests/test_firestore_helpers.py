@@ -1,16 +1,16 @@
 """Tests for Firestore helpers."""
 
 import unittest
-from unittest.mock import patch, MagicMock
-from typing import Dict, List, Any
+from typing import Any, Dict, List
+from unittest.mock import MagicMock, patch
 
 from adviser_allocation.utils.firestore_helpers import (
-    get_employee_leaves,
-    get_employee_id,
-    get_global_closures,
-    get_capacity_overrides,
-    save_office_closure,
     delete_office_closure,
+    get_capacity_overrides,
+    get_employee_id,
+    get_employee_leaves,
+    get_global_closures,
+    save_office_closure,
 )
 
 

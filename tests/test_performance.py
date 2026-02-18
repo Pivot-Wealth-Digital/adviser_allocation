@@ -1,10 +1,10 @@
 """Performance and load testing."""
 
+import concurrent.futures
 import os
 import time
 import unittest
-import concurrent.futures
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("USE_FIRESTORE", "false")
 

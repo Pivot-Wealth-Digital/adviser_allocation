@@ -1,8 +1,9 @@
 """End-to-end tests for adviser_allocation app using Playwright."""
 
+import os
+
 import pytest
 from playwright.sync_api import sync_playwright
-import os
 
 # App URL - change this to your deployed app
 APP_URL = os.environ.get("APP_URL", "https://pivot-digital-466902.ts.r.appspot.com")

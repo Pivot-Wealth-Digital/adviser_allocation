@@ -1,8 +1,9 @@
 """Tests for cache utilities."""
 
-import unittest
 import time
-from adviser_allocation.utils.cache_utils import TTLCache, CacheEntry, cached_with_ttl
+import unittest
+
+from adviser_allocation.utils.cache_utils import CacheEntry, TTLCache, cached_with_ttl
 
 
 class CacheUtilsTests(unittest.TestCase):

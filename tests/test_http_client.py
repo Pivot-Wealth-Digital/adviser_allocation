@@ -1,16 +1,17 @@
 """Tests for HTTP client utilities."""
 
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
 import requests
 
 from adviser_allocation.utils.http_client import (
-    create_session_with_retries,
-    get_with_retries,
-    post_with_retries,
-    patch_with_retries,
-    delete_with_retries,
     DEFAULT_TIMEOUT,
+    create_session_with_retries,
+    delete_with_retries,
+    get_with_retries,
+    patch_with_retries,
+    post_with_retries,
 )
 
 

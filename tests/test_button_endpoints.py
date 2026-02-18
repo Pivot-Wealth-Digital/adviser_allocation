@@ -1,7 +1,7 @@
 """Test that all homepage button endpoints actually work (return 200)."""
 
-import sys
 import os
+import sys
 
 # Load .env before importing app
 from dotenv import load_dotenv
@@ -11,8 +11,9 @@ load_dotenv(os.path.join(project_root, ".env"))
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../src"))
 
-from adviser_allocation.main import app
 from datetime import datetime
+
+from adviser_allocation.main import app
 
 
 class ButtonEndpointTester:

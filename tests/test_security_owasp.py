@@ -1,11 +1,11 @@
 """OWASP Top 10 security tests."""
 
-import os
-import json
-import unittest
-from unittest.mock import patch, MagicMock
 import hashlib
 import hmac
+import json
+import os
+import unittest
+from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("USE_FIRESTORE", "false")
 
