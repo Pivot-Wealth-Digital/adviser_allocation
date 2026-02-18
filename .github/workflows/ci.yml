@@ -1,0 +1,115 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  PROJECT_ID: pivot-digital-466902
+  REGION: australia-southeast1
+  SERVICE: adviser-allocation
+  REGISTRY: australia-southeast1-docker.pkg.dev
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install linters
+        run: pip install black==24.2.0 flake8==7.0.0 isort==5.13.2
+
+      - name: Run black
+        run: black --check src/ tests/
+
+      - name: Run flake8
+        run: flake8 src/ tests/
+
+      - name: Run isort
+        run: isort --check-only src/ tests/
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-timeout
+
+      - name: Run tests
+        env:
+          USE_FIRESTORE: "false"
+          PYTHONPATH: src
+        run: |
+          pytest tests/ -v --cov=src/adviser_allocation --cov-report=term-missing --timeout=60
+
+  deploy:
+    name: Deploy
+    needs: [lint, test]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
+
+      - name: Build and push image
+        run: |
+          IMAGE=${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/adviser-allocation/adviser-allocation
+          docker build -t $IMAGE:${{ github.sha }} -t $IMAGE:latest .
+          docker push $IMAGE --all-tags
+
+      - name: Deploy to Cloud Run (canary)
+        run: |
+          gcloud run deploy ${{ env.SERVICE }} \
+            --image=${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/adviser-allocation/adviser-allocation:${{ github.sha }} \
+            --region=${{ env.REGION }} \
+            --tag=canary \
+            --no-traffic
+
+      - name: Promote canary to production
+        run: |
+          gcloud run services update-traffic ${{ env.SERVICE }} \
+            --region=${{ env.REGION }} \
+            --to-latest
