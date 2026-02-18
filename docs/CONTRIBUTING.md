@@ -63,7 +63,7 @@ If using team workflow:
 Once merged to `main`:
 1. Cloud Build automatically triggers
 2. Runs all 65 tests
-3. If all pass → Deploy to App Engine
+3. If all pass → Deploy to Cloud Run
 4. If any fail → Block deployment, notify
 
 ---
@@ -76,7 +76,7 @@ Once merged to `main`:
 - `middleware/rate_limiter.py` - API rate limiting
 
 ⚠️ **Do NOT modify without testing:**
-- `app.yaml` - App Engine configuration
+- `cloudbuild.yaml` - Cloud Build / Cloud Run deployment config
 - `requirements.txt` - Python dependencies
 - Firestore collections and schema
 
@@ -151,7 +151,7 @@ git push origin feature/update-deps
 1. Create secret in Google Secret Manager
 2. Reference in code via `get_secret()`
 3. Document in [CONFIGURATION.md](CONFIGURATION.md)
-4. Update `app.yaml` if needed
+4. Update Cloud Run env vars if needed
 5. Test in both local and production
 
 ### Modify Documentation
@@ -178,7 +178,7 @@ Cloud Build Triggered
 ├─ Generate coverage report
 │
 ├─ If ALL PASS:
-│  └─ Deploy to App Engine ✅
+│  └─ Deploy to Cloud Run ✅
 │
 └─ If ANY FAIL:
    └─ Block deployment ❌
@@ -212,11 +212,11 @@ If production breaks after deployment:
 ### 1. Check What's Wrong
 
 ```bash
-# View current version
-gcloud app versions list --project=pivot-digital-466902
+# View current revisions
+gcloud run revisions list --service=adviser-allocation --region=australia-southeast1 --project=pivot-digital-466902
 
 # Check logs for errors
-gcloud app logs tail -s default --project=pivot-digital-466902
+gcloud run logs read --service=adviser-allocation --region=australia-southeast1 --project=pivot-digital-466902 --limit=50
 ```
 
 ### 2. Identify the Problem
@@ -225,15 +225,16 @@ gcloud app logs tail -s default --project=pivot-digital-466902
 - Check which deployment failed
 - View Cloud Build logs
 
-### 3. Option A: Rollback to Previous Version
+### 3. Option A: Rollback to Previous Revision
 
 ```bash
-# Find previous stable version
-gcloud app versions list --project=pivot-digital-466902
+# Find previous stable revision
+gcloud run revisions list --service=adviser-allocation --region=australia-southeast1 --project=pivot-digital-466902
 
-# Route traffic to previous version
-gcloud app services set-traffic default \
-  --splits=OLD_VERSION=1.0 \
+# Route traffic to previous revision
+gcloud run services update-traffic adviser-allocation \
+  --to-revisions=REVISION_NAME=100 \
+  --region=australia-southeast1 \
   --project=pivot-digital-466902
 ```
 
@@ -340,8 +341,7 @@ The project distinguishes between two types of utilities:
 **`tools/` - Reusable Library**
 - Importable package (`__init__.py` present)
 - Shared functionality used by other modules
-- Examples: Box API helpers, metadata templates
-- Imported in code: `from tools.box_collaborators import ...`
+- Imported in code: `from tools.module_name import ...`
 - Location: `/tools/`
 
 **Guidelines:**
@@ -449,7 +449,7 @@ When you make changes, update:
 - Broken tests block deployment automatically
 - Always run full test suite locally
 
-❌ **Don't modify `app.yaml` region**
+❌ **Don't modify deployment region**
 - Region is locked to `australia-southeast1`
 - Changing causes deployment failure
 - Contact DevOps if region change needed

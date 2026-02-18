@@ -12,8 +12,8 @@ Cloud Scheduler automatically runs sync jobs to keep Firestore data fresh. All j
 
 | Job ID | Schedule | Frequency | Endpoint | Target | Status |
 |--------|----------|-----------|----------|--------|--------|
-| `eh-employees-sync-daily` | `0 0 * * 1` (cron) | Weekly (Mondays @ 1:00 PM AEDT) | `GET /sync/employees` | App Engine | ENABLED |
-| `eh-leave-requests-sync-daily` | `0 0 * * 1-5` (cron) | Weekdays @ 1:00 PM AEDT | `GET /sync/leave_requests` | App Engine | ENABLED |
+| `eh-employees-sync-daily` | `0 0 * * 1` (cron) | Weekly (Mondays @ 1:00 PM AEDT) | `GET /sync/employees` | Cloud Run | ENABLED |
+| `eh-leave-requests-sync-daily` | `0 0 * * 1-5` (cron) | Weekdays @ 1:00 PM AEDT | `GET /sync/leave_requests` | Cloud Run | ENABLED |
 
 **Retry Policy:**
 - Max 1 retry for employees sync
@@ -115,26 +115,28 @@ gcloud builds log BUILD_ID \
 ```
 
 **Build Status:**
-- ✅ PASS: Tests passed, deployed to App Engine
+- ✅ PASS: Tests passed, deployed to Cloud Run
 - ❌ FAIL: Tests failed, deployment blocked
 - ⏳ QUEUED: Waiting to build
 - 🔨 BUILDING: Currently building
 
-### App Engine Logs
+### Cloud Run Logs
 
 View application logs:
 
 ```bash
 # Stream live logs
-gcloud app logs tail -s default \
+gcloud run logs read --service=adviser-allocation \
+  --region=australia-southeast1 \
   --project=pivot-digital-466902
 
-# View logs for specific version
-gcloud app logs tail -s default --version=main \
+# Tail logs (follow mode)
+gcloud run logs tail --service=adviser-allocation \
+  --region=australia-southeast1 \
   --project=pivot-digital-466902
 
 # Search for errors
-gcloud logging read "severity=ERROR AND resource.type=gae_app" \
+gcloud logging read "severity=ERROR AND resource.type=cloud_run_revision" \
   --project=pivot-digital-466902 \
   --limit=50 \
   --format=json
@@ -157,22 +159,26 @@ gcloud firestore databases describe \
 
 **Dashboard:** [GCP Console → Firestore](https://console.cloud.google.com/firestore)
 
-### App Engine Instances
+### Cloud Run Service
 
 Check deployment status:
 
 ```bash
-# View active instances
-gcloud app instances list \
-  --project=pivot-digital-466902
-
-# View versions and traffic
-gcloud app versions list \
-  --project=pivot-digital-466902
-
 # View service details
-gcloud app services describe default \
+gcloud run services describe adviser-allocation \
+  --region=australia-southeast1 \
   --project=pivot-digital-466902
+
+# View revisions and traffic
+gcloud run revisions list --service=adviser-allocation \
+  --region=australia-southeast1 \
+  --project=pivot-digital-466902
+
+# View service URL and conditions
+gcloud run services describe adviser-allocation \
+  --region=australia-southeast1 \
+  --project=pivot-digital-466902 \
+  --format="yaml(status)"
 ```
 
 ---
@@ -192,7 +198,7 @@ gcloud logging read "resource.type=cloud_scheduler_job AND severity=ERROR" \
   --format=json
 
 # View app logs around failure time
-gcloud app logs tail -s default --project=pivot-digital-466902 | grep ERROR
+gcloud run logs read --service=adviser-allocation --region=australia-southeast1 --project=pivot-digital-466902 | grep ERROR
 ```
 
 **Common Issues:**
@@ -215,7 +221,7 @@ gcloud scheduler jobs run eh-employees-sync-daily \
 **Check logs:**
 ```bash
 # Find allocation errors
-gcloud logging read "resource.type=gae_app AND textPayload=~'allocation.*error'" \
+gcloud logging read "resource.type=cloud_run_revision AND textPayload=~'allocation.*error'" \
   --project=pivot-digital-466902 \
   --limit=20 \
   --format=json
@@ -239,8 +245,9 @@ gcloud firestore documents list --collection=allocation_requests \
 
 **Check metrics:**
 ```bash
-# View App Engine instance metrics
-gcloud app services describe default \
+# View Cloud Run service metrics
+gcloud run services describe adviser-allocation \
+  --region=australia-southeast1 \
   --project=pivot-digital-466902
 
 # Check Firestore read/write metrics
@@ -259,7 +266,7 @@ gcloud app services describe default \
 **Resolution:**
 ```bash
 # Trigger OAuth flow to refresh
-# User visits: https://pivot-digital-466902.ts.r.appspot.com/auth/start
+# User visits: https://adviser-allocation-307314618542.australia-southeast1.run.app/auth/start
 
 # Or manually re-auth via UI
 # Visit admin dashboard and trigger re-authentication
@@ -274,17 +281,21 @@ gcloud app services describe default \
 If recent deployment breaks production:
 
 ```bash
-# View available versions
-gcloud app versions list \
+# View available revisions
+gcloud run revisions list --service=adviser-allocation \
+  --region=australia-southeast1 \
   --project=pivot-digital-466902
 
-# Check which version is active (should be 100%)
-gcloud app services describe default \
-  --project=pivot-digital-466902
+# Check which revision is serving traffic
+gcloud run services describe adviser-allocation \
+  --region=australia-southeast1 \
+  --project=pivot-digital-466902 \
+  --format="yaml(status.traffic)"
 
-# Route traffic to previous version
-gcloud app services set-traffic default \
-  --splits=OLD_VERSION=1.0 \
+# Route traffic to previous revision
+gcloud run services update-traffic adviser-allocation \
+  --to-revisions=REVISION=100 \
+  --region=australia-southeast1 \
   --project=pivot-digital-466902
 
 # Then fix code and re-deploy
@@ -341,7 +352,7 @@ If something is broken, follow this checklist:
 
 2. **View error logs**
    ```bash
-   gcloud app logs tail -s default --project=pivot-digital-466902
+   gcloud run logs read --service=adviser-allocation --region=australia-southeast1 --project=pivot-digital-466902
    ```
 
 3. **Check Cloud Build status**
@@ -360,7 +371,7 @@ If something is broken, follow this checklist:
 
 6. **Test endpoints manually**
    ```bash
-   curl https://pivot-digital-466902.ts.r.appspot.com/availability/earliest
+   curl https://adviser-allocation-307314618542.australia-southeast1.run.app/availability/earliest
    ```
 
 7. **Review allocation algorithm state**
@@ -374,7 +385,6 @@ If something is broken, follow this checklist:
 
 9. **Verify integrations are working**
    - HubSpot: Check latest sync job execution
-   - Box: Verify JWT token valid
    - Employment Hero: Verify OAuth token not expired
    - Google Chat: Verify webhook URL valid
 
@@ -389,7 +399,7 @@ If something is broken, follow this checklist:
 The application exposes a health check for monitoring:
 
 ```bash
-curl https://pivot-digital-466902.ts.r.appspot.com/health
+curl https://adviser-allocation-307314618542.australia-southeast1.run.app/health
 # Returns: {"status": "healthy"} with HTTP 200
 ```
 

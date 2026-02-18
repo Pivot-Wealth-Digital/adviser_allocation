@@ -17,7 +17,7 @@
   <article class="workflow-card">
     <header>
       <h3>Adviser Allocation Workflow</h3>
-      <p class="muted">Detailed diagrams covering allocation, capacity, and Box automation.</p>
+      <p class="muted">Detailed diagrams covering allocation and capacity.</p>
     </header>
     <div class="actions">
       <a class="primary" href="{{ url_for('main.allocation_history_ui') }}">
@@ -61,33 +61,9 @@ flowchart TD
     A --> B --> C --> D --> E --> F --> G --> H --> I
       </div>
     </div>
-    <div class="diagram">
-      <div class="diagram-title">Box Folder Creation Workflow (three-step HubSpot → Box sequence)</div>
-      <div class="mermaid">
-flowchart TD
-    subgraph HubSpot_Workflow
-        A1["Deal triggers HubSpot workflow"]
-        A2["POST /box/folder/create<br/>(deal_id, contacts: firstname, lastname, email)"]
-        A3["POST /box/folder/tag"]
-        A4["POST /box/folder/share"]
-    end
-    subgraph Box_Service
-        B1["Clone template<br/>Return folder_id"]
-        B2["Apply metadata<br/>Persist template fields"]
-        B3["Invite emails to Client Sharing subfolder"]
-    end
-    A1 --> A2 --> B1 --> A3 --> B2 --> A4 --> B3 --> E["End"]
-      </div>
-    </div>
   <div class="actions" style="margin-top:12px;">
-    <a class="secondary" href="{{ url_for('main.workflows_box_details') }}">
-      Box Workflow Custom-Code Guide →
-    </a>
     <a class="secondary" href="{{ url_for('main.workflows_adviser_allocation') }}">
       Adviser Allocation Automation Guide →
-    </a>
-    <a class="secondary" href="{{ url_for('box_api.box_folder_collaborators_page') }}">
-      Check Box Collaborators →
     </a>
   </div>
   </article>

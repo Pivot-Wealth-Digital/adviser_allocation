@@ -1,8 +1,8 @@
 # Adviser Allocation Service
 
-A production Flask application that automatically allocates HubSpot deals to advisers based on capacity and availability, with integrated Box folder provisioning and HR data synchronization.
+A production Flask application that automatically allocates HubSpot deals to advisers based on capacity and availability, with HR data synchronization.
 
-**Deployment:** Live at https://pivot-digital-466902.ts.r.appspot.com | **CI/CD:** Cloud Build (65 tests as deployment gate)
+**Deployment:** Live at https://adviser-allocation-307314618542.australia-southeast1.run.app | **CI/CD:** Cloud Build (65 tests as deployment gate)
 
 ---
 
@@ -23,10 +23,12 @@ python main.py
 # Visit http://localhost:8080
 ```
 
-### Deploy to App Engine
+### Deploy to Cloud Run
+
+Deployment is automatic via Cloud Build on push to `main`. For manual deploy:
 
 ```bash
-gcloud app deploy
+gcloud run deploy adviser-allocation --source . --region=australia-southeast1
 ```
 
 See [Configuration Guide](docs/CONFIGURATION.md) for environment variable setup.
@@ -39,8 +41,7 @@ See [Configuration Guide](docs/CONFIGURATION.md) for environment variable setup.
 |---------|---------|---------------|
 | **Adviser Allocation** | Automatically assign HubSpot deals to advisers based on earliest availability | [Architecture](ARCHITECTURE.md#allocation-algorithm) |
 | **Availability Dashboard** | Real-time view of adviser schedules, capacity, and meetings | [User Guide](docs/user-guide.md) |
-| **Box Folder Management** | Create and tag client folders from HubSpot deals | [User Guide](docs/user-guide.md) |
-| **Admin Tools** | Manage office closures, capacity overrides, Box settings | [User Guide](docs/user-guide.md) |
+| **Admin Tools** | Manage office closures, capacity overrides | [User Guide](docs/user-guide.md) |
 | **HR Integration** | Sync employees and leave requests from Employment Hero | [Integrations](docs/INTEGRATIONS.md) |
 
 ---
@@ -49,15 +50,15 @@ See [Configuration Guide](docs/CONFIGURATION.md) for environment variable setup.
 
 | Category | Details |
 |----------|---------|
-| **Platform** | Google App Engine Standard (Python 3.12) |
+| **Platform** | Google Cloud Run (Python 3.12, Docker) |
 | **Project** | `pivot-digital-466902` (Region: australia-southeast1) |
 | **Database** | Google Cloud Firestore |
 | **CI/CD** | Cloud Build (auto-deploy on main; 65 tests required) |
-| **Integrations** | HubSpot (CRM), Employment Hero (HR), Box (Documents), Google Chat (Notifications) |
+| **Integrations** | HubSpot (CRM), Employment Hero (HR), Google Chat (Notifications) |
 | **Authentication** | Employment Hero OAuth 2.0 + Session-based admin |
-| **Deployment** | https://pivot-digital-466902.ts.r.appspot.com |
+| **Deployment** | https://adviser-allocation-307314618542.australia-southeast1.run.app |
 
-**Requirements:** Python 3.12+, Google Cloud credentials, HubSpot/Employment Hero/Box API access
+**Requirements:** Python 3.12+, Google Cloud credentials, HubSpot/Employment Hero API access
 
 ---
 
@@ -68,16 +69,16 @@ See [Configuration Guide](docs/CONFIGURATION.md) for environment variable setup.
 **👤 For End Users (Operators):**
 - **View Availability** - Check adviser schedules and earliest available weeks
 - **Manage Allocations** - See allocation history and deal owner assignments
-- **Admin Tools** - Add office closures, adjust capacity overrides, configure Box
+- **Admin Tools** - Add office closures, adjust capacity overrides
 
-👉 Start with [User Guide](docs/user-guide.md) | [Box Workflow](docs/box-folder-workflow.md)
+👉 Start with [User Guide](docs/user-guide.md)
 
 **🛠️ For Developers:**
 - **Architecture** - System design, allocation algorithm, core modules
 - **API Reference** - All endpoints, webhooks, request/response formats
 - **Configuration** - Environment variables, secrets, OAuth setup
 - **Operations** - Cloud Scheduler, monitoring, troubleshooting
-- **Integrations** - HubSpot, Employment Hero, Box, Google Chat
+- **Integrations** - HubSpot, Employment Hero, Google Chat
 
 👉 Start with [Documentation Index](docs/README.md)
 
@@ -97,7 +98,6 @@ For detailed system diagrams and algorithm explanations, see [Architecture Guide
 |---------|---------|-------|
 | **HubSpot** | CRM (deals, contacts, meetings) | [HubSpot Setup](docs/CONFIGURATION.md#hubspot-configuration) |
 | **Employment Hero** | HR (employees, leave requests) | [EH Setup](docs/CONFIGURATION.md#employment-hero-oauth-setup) |
-| **Box** | Document storage (client folders) | [Box Setup](docs/CONFIGURATION.md#box-configuration) |
 | **Google Chat** | Notifications (allocation alerts) | [Chat Setup](docs/CONFIGURATION.md#google-chat-integration) |
 
 ---

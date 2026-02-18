@@ -6,13 +6,13 @@ This document describes the system architecture, core algorithms, and design pat
 
 ## System Architecture
 
-The Adviser Allocation Service is a Flask-based microservice deployed on Google App Engine that automates the allocation of HubSpot deals to financial advisers. The system integrates with multiple external services (HubSpot, Employment Hero, Box, Google Chat) and uses Firestore as the primary data store.
+The Adviser Allocation Service is a Flask-based microservice deployed on Google Cloud Run that automates the allocation of HubSpot deals to financial advisers. The system integrates with multiple external services (HubSpot, Employment Hero, Google Chat) and uses Firestore as the primary data store.
 
 ### High-Level Components
 
 1. **Flask API Server** - REST endpoints for webhooks, dashboards, and admin tools
 2. **Allocation Algorithm** - Core logic that calculates earliest available adviser
-3. **Integration Handlers** - Services that sync data from HubSpot, Employment Hero, Box
+3. **Integration Handlers** - Services that sync data from HubSpot, Employment Hero
 4. **Firestore Database** - NoSQL datastore for advisers, leave requests, closures, overrides
 5. **Cloud Scheduler** - Automated jobs for data synchronization
 6. **OAuth Service** - Employment Hero authentication and token management
@@ -195,32 +195,17 @@ graph LR
     style D fill:#e1f5ff
 ```
 
-### Box Folder Provisioning Workflow
-
-```mermaid
-flowchart TD
-    A[HubSpot Deal Created] -->|Webhook| B[/post/create_box_folder]
-    B -->|Copy Template| C[Create Folder in Box]
-    C -->|Apply Metadata| D[Tag with Deal Info]
-    D -->|Share| E[Grant Client Access]
-    E -->|Update HubSpot| F[Store Box URL in Deal]
-    F --> G[Google Chat Notification]
-```
-
 ### Admin Configuration System
 
 ```mermaid
 graph TD
     A[Admin Dashboard] --> B[Office Closures]
     A --> C[Capacity Overrides]
-    A --> D[Box Settings]
 
-    B -->|Global/Adviser| E[Affects Availability]
-    C -->|Per Adviser| E
-    D -->|Template Path| F[Folder Creation]
+    B -->|Global/Adviser| D[Affects Availability]
+    C -->|Per Adviser| D
 
-    E -->|Updates| G[Firestore]
-    F --> G
+    D -->|Updates| E[Firestore]
 ```
 
 ---

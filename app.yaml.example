@@ -18,14 +18,10 @@ env_variables:
   SESSION_SECRET: projects/pivot-digital-466902/secrets/HUBSPOT_SESSION_SECRET/versions/latest
   ADMIN_USERNAME: projects/pivot-digital-466902/secrets/ADMIN_USERNAME/versions/latest
   ADMIN_PASSWORD: projects/pivot-digital-466902/secrets/ADMIN_PASSWORD/versions/latest
-  BOX_IMPERSONATION_USER: projects/pivot-digital-466902/secrets/BOX_IMPERSONATION_USER/versions/latest
-  BOX_JWT_CONFIG_JSON: projects/pivot-digital-466902/secrets/BOX_JWT_CONFIG_JSON/versions/latest
   # Google Chat webhook for allocation alerts
   CHAT_WEBHOOK_URL: projects/pivot-digital-466902/secrets/CHAT_WEBHOOK_URL/versions/latest
   # Non-secret environment variables
   USE_FIRESTORE: "true"
   EH_SCOPES: "urn:mainapp:leave_requests:read"
-  REDIRECT_URI: "https://pivot-digital-466902.ts.r.appspot.com/auth/callback"
+  REDIRECT_URI: "https://adviser-allocation-307314618542.australia-southeast1.run.app/auth/callback"
   HUBSPOT_PORTAL_ID: "47011873"
-  BOX_METADATA_SCOPE: "enterprise_260686117"
-  BOX_METADATA_TEMPLATE_KEY: "clientDealPayload"

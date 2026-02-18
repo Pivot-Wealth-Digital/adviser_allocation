@@ -115,7 +115,7 @@ def _hubspot_headers() -> dict:
 
 
 def _fetch_deal_metadata(deal_id: str) -> Optional[dict]:
-    """Fetch deal metadata from HubSpot for Box folder.
+    """Fetch deal metadata from HubSpot.
 
     Args:
         deal_id: HubSpot deal ID

@@ -1,6 +1,6 @@
 # Adviser Allocation Platform – User Guide
 
-This guide explains how to work with every major feature of the Adviser Allocation platform, from checking capacity to provisioning Box client folders. Keep it open alongside the app for quick reference.
+This guide explains how to work with every major feature of the Adviser Allocation platform, from checking capacity to managing allocations. Keep it open alongside the app for quick reference.
 
 ---
 
@@ -13,7 +13,6 @@ This guide explains how to work with every major feature of the Adviser Allocati
    - *Availability Matrix*
    - *Client Allocation*
    - *Allocation History*
-   - *Create Box Folder*
    - *Manage Closures*
 3. The top right status card shows the app version, environment, and current Sydney time.
 
@@ -143,35 +142,6 @@ Fine-tune adviser capacity limits without changing global settings.
 - See which advisers have temporary adjustments
 - Review historical overrides to identify patterns
 
-### 4.3 System Settings (Box Configuration)
-
-Manage Box integration settings for client folder provisioning.
-
-#### Box Template Folder
-
-1. Open **Box Settings** (`/settings/box/ui`)
-2. Enter **Template Folder Path** (e.g., `/Templates/ClientTemplate`)
-   - This folder is copied when creating new client folders
-   - Should contain standard documents and subfolder structure for new clients
-3. Click **Save**
-
-#### What the Template Contains
-
-- **Subfolder structure** – Recreated for each client (e.g., `/Documents`, `/Agreements`, `/Correspondence`)
-- **Template documents** – Example files and worksheets for clients to use
-- **Naming consistency** – Ensures all client folders follow same structure
-
-#### Metadata Fields Applied
-
-When a Box folder is created, the following metadata is automatically applied:
-- `household_type` – Single or Couple
-- `service_package` – Series A, Series B, Seed, etc.
-- `primary_contact_id` – HubSpot contact ID
-- `spouse_contact_id` – Spouse HubSpot contact ID (if applicable)
-- `client_name` – Full name
-- `client_email` – Email address
-- `phone` – Phone number
-
 ---
 
 ## 5. Allocation Workflow
@@ -180,7 +150,6 @@ When a Box folder is created, the following metadata is automatically applied:
 - Receives HubSpot deal payloads.
 - Picks the next available adviser based on package, household type, and agreement start date.
 - Updates the HubSpot deal owner, persists the record (including metadata such as IP and User-Agent), and optionally emits a Google Chat alert.
-- Box folder creation is no longer triggered automatically—see the next section.
 
 ### Manual Allocation Review
 - Use **Client Allocation** to trigger allocations (mainly for testing).
@@ -188,63 +157,33 @@ When a Box folder is created, the following metadata is automatically applied:
 
 ---
 
-## 6. Box Folder Provisioning
-
-### UI (`/box/create`)
-- Enter a deal ID and click *Preview Folder Details*.
-- Review the recommended folder name, contact list, and metadata (deal salutation, household type, contact IDs, HubSpot links).
-- Adjust any fields (e.g., add spouse link overrides) and click *Create Folder*.
-- The response displays the Box folder ID, friendly name, metadata keys applied, and the direct Box URL.
-
-### API (`POST /post/create_box_folder`)
-```bash
-curl -X POST https://<app>/post/create_box_folder \
-  -H 'Content-Type: application/json' \
-  -d '{ "deal_id": "47110952883" }'
-```
-- Only `deal_id` is mandatory; the server fetches everything else from HubSpot.
-- Optional keys: `folder_name` (override), `metadata` (preferred fields match the UI: salutation, household type, primary/spouse contact IDs and links, associated contact IDs as a list).
-- Duplicate guard: if Box metadata already has a matching primary contact link, the existing folder is reused and its metadata refreshed.
-
-### Metadata Template (Box)
-- Fields retained: `Household Type`, `Deal Salutation`, `Primary Contact Link`, `Spouse Contact Link`, `Associated Contact IDs`, `Associated Contacts`.
-- Links use the configured `HUBSPOT_PORTAL_ID` (currently `47011873`). Update the env var if the portal changes.
-
----
-
-## 7. Environment & Configuration Checklist
+## 6. Environment & Configuration Checklist
 
 | Setting | Location | Notes |
 |---------|----------|-------|
-| `HUBSPOT_TOKEN` | `.env` / Secret Manager | Must be a valid private app token; needed for availability, schedule, and Box metadata queries. |
-| `HUBSPOT_PORTAL_ID` | `.env`, `app.yaml` | Drives HubSpot links inside Box metadata and in-app navigation. |
-| `BOX_METADATA_SCOPE`, `BOX_METADATA_TEMPLATE_KEY` | `.env`, `app.yaml` | Needed to apply the Box metadata template. |
-| `BOX_WEBHOOK_PRIMARY_SECRET` etc. | `.env` | Required for Box automation. |
-| Google Chat webhook URL | `.env` | Controls allocation notifications. |
+| `HUBSPOT_TOKEN` | `.env` / Secret Manager | Must be a valid private app token; needed for availability, schedule, and allocation queries. |
+| `HUBSPOT_PORTAL_ID` | `.env` / Cloud Run env vars | Drives HubSpot links in in-app navigation. |
+| Google Chat webhook URL | `.env` / Secret Manager | Controls allocation notifications. |
 
-After editing configuration, redeploy App Engine (or restart the local Flask server) to load the new values.
+After editing configuration, redeploy Cloud Run (or restart the local Flask server) to load the new values.
 
 ---
 
-## 8. FAQ Recap (Scheduling Focus)
+## 7. FAQ Recap (Scheduling Focus)
 
 - **Partial-week leave** – Add a closure for the specific days; capacity is reduced only for those dates.
 - **Solo vs Full Pods** – Solo pods have lower fortnight targets; availability views embed the right target automatically.
-- **Overflow handling** – Excess clarifies rolling forward increase the “Difference” column and push earliest availability forward.
-- **“Deal No Clarify” column** – Shows deal count awaiting clarify meetings; use the Box folder metadata to confirm whether the client has been provisioned.
-- **Box metadata missing?** – Ensure `BOX_METADATA_SCOPE/TEMPLATE_KEY` are set and that the metadata template in Box matches the preferred field list; redeploy if changes were made.
-- **Multiple Box folders created?** – Older folders without the new metadata fields won’t trip the duplicate guard. Recreate once, confirm metadata is present, and remove extras manually.
+- **Overflow handling** – Excess clarifies rolling forward increase the "Difference" column and push earliest availability forward.
+- **"Deal No Clarify" column** – Shows deal count awaiting clarify meetings.
 
 ---
 
-## 9. Troubleshooting Quick Reference
+## 8. Troubleshooting Quick Reference
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| `HUBSPOT_TOKEN is not configured` | Token missing in env | `set -a && source .env` locally, update Secret Manager/`app.yaml` in production and redeploy. |
-| Box response shows `409 item_name_in_use` | Folder already exists | Duplicate guard should detect existing metadata; if not, ensure metadata template is synced and rerun. |
-| Box metadata blank | Template scope/key unset or template outdated | Update Box template to the preferred fields and confirm env variables are present, then recreate. |
-| Availability tables empty | Filters exclude all advisers | Check agreement start date, enable “Include Non-Taking Advisers”, verify closures. |
+| `HUBSPOT_TOKEN is not configured` | Token missing in env | `set -a && source .env` locally, update Secret Manager / Cloud Run env vars in production and redeploy. |
+| Availability tables empty | Filters exclude all advisers | Check agreement start date, enable "Include Non-Taking Advisers", verify closures. |
 | Schedule numbers incorrect after edits | Edit mode still active or data cached | Click *Done*, reload the page, or recompute from the start date. |
 
 ---

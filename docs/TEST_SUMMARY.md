@@ -18,8 +18,6 @@ Complete test coverage for the src/ layout migration with comprehensive validati
 | Login with credentials | ✅ | Authenticates and redirects to home |
 | Public webhook `/post/allocate` | ✅ | Returns 200, publicly accessible |
 | Static assets | ✅ | CSS loads (6703 bytes) |
-| Box webhook `/box/folder/create` | ✅ | Returns 405 (POST-only, expected) |
-| Box webhook `/box/folder/tag` | ✅ | Returns 405 (POST-only, expected) |
 
 ### 2. Webhook Tests (`test_webhooks.py`)
 
@@ -50,11 +48,10 @@ Complete test coverage for the src/ layout migration with comprehensive validati
 
 | Test | Status | Details |
 |------|--------|---------|
-| App Engine health check `/_ah/warmup` | ✅ | Returns 200 |
+| Health check `/_ah/warmup` | ✅ | Returns 200 |
 | Static CSS assets | ✅ | Served correctly (6703 bytes) |
 | Protected route `/employees/ui` | ✅ | Requires authentication |
 | Protected route `/allocations/history` | ✅ | Requires authentication |
-| Box API webhooks | ✅ | All 3 endpoints respond with 405 |
 | Root path `/` | ✅ | Protected route |
 | Login flow | ✅ | Form loads and submits |
 | 404 handling | ✅ | Returns 404 for non-existent routes |
@@ -76,7 +73,7 @@ Complete test coverage for the src/ layout migration with comprehensive validati
 - [x] 404 error responses
 - [x] Session management
 
-### App Engine Compatibility ✅
+### Cloud Run Compatibility ✅
 - [x] Warmup endpoint (`/_ah/warmup`)
 - [x] PYTHONPATH configuration
 - [x] Gunicorn entrypoint
@@ -106,7 +103,6 @@ Complete test coverage for the src/ layout migration with comprehensive validati
 **Details:**
 - `/webhook/allocation` → `main.allocation_webhook`
 - `/post/allocate` → `allocation_api.handle_allocation`
-- `/box/folder/*` → `box_api.*`
 
 ## Deployment Status
 
@@ -156,11 +152,11 @@ python3 test_local_full.py && python3 test_webhooks.py && python3 test_integrati
 If production issues occur:
 
 ```bash
-# Check current versions
-gcloud app versions list --project=pivot-digital-466902
+# Check current revisions
+gcloud run revisions list --service=adviser-allocation --region=australia-southeast1 --project=pivot-digital-466902
 
-# Rollback traffic to previous version
-gcloud app services set-traffic default --splits [PREVIOUS_VERSION]=1 --project=pivot-digital-466902
+# Rollback traffic to previous revision
+gcloud run services update-traffic adviser-allocation --to-revisions=REVISION_NAME=100 --region=australia-southeast1 --project=pivot-digital-466902
 ```
 
 ## Files Modified/Created
@@ -173,10 +169,10 @@ gcloud app services set-traffic default --splits [PREVIOUS_VERSION]=1 --project=
 
 **Migration Files:**
 - `pyproject.toml` - Project metadata
-- `main.py` (root) - App Engine wrapper
+- `main.py` (root) - App entry point wrapper
 - `src/adviser_allocation/app.py` - App factory
 - `src/adviser_allocation/main.py` - Blueprint refactor
-- `app.yaml` - Deployment config with PYTHONPATH
+- `Dockerfile` - Cloud Run container config
 
 ## Summary
 
@@ -184,5 +180,5 @@ gcloud app services set-traffic default --splits [PREVIOUS_VERSION]=1 --project=
 - 20 tests across 3 comprehensive test suites
 - All production-critical endpoints verified
 - Security checks passing
-- App Engine compatibility confirmed
+- Cloud Run compatibility confirmed
 - Ready for main branch merge and production deployment

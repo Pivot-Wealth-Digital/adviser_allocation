@@ -41,62 +41,6 @@
   </div>
 
   <div class="card">
-    <h4>📦 Box Automation</h4>
-    <p class="muted">Create and manage Box folders</p>
-    <div class="button-stack">
-      <a href="/box/create" style="text-decoration: none;">
-        <button class="primary full-width">Manual Run UI</button>
-      </a>
-      <a href="/box/collaborators" style="text-decoration: none;">
-        <button class="secondary full-width">Collaborator Audit</button>
-      </a>
-      <a href="/box/folder/metadata/status" style="text-decoration: none;">
-        <button class="secondary full-width">Metadata Status</button>
-      </a>
-      <button class="ghost full-width" id="toggle-box-more" aria-expanded="false">More tools & guides</button>
-    </div>
-    <div id="box-more" class="expandable-section" style="display: none; margin-top: 16px;">
-      <div class="section-group">
-        <p class="section-label">Guides & References</p>
-        <div class="button-stack">
-          <a href="/workflows/box-details" style="text-decoration: none;">
-            <button class="ghost full-width">Custom-Code Guide</button>
-          </a>
-          <a href="/workflows/box-details#action-create" style="text-decoration: none;">
-            <button class="ghost full-width small-text">Create Folder Guide</button>
-          </a>
-          <a href="/workflows/box-details#action-tag" style="text-decoration: none;">
-            <button class="ghost full-width small-text">Apply Metadata Guide</button>
-          </a>
-          <a href="/workflows/box-details#action-auto" style="text-decoration: none;">
-            <button class="ghost full-width small-text">Auto Tag Guide</button>
-          </a>
-          <a href="/workflows/box-details#action-share" style="text-decoration: none;">
-            <button class="ghost full-width small-text">Share Subfolder Guide</button>
-          </a>
-        </div>
-      </div>
-      <div class="section-group">
-        <p class="section-label">Diagnostics</p>
-        <div class="button-stack">
-          <a href="/workflows/box-details#diagnostics-subfolders" style="text-decoration: none;">
-            <button class="ghost full-width small-text">Subfolder Check</button>
-          </a>
-          <a href="/workflows/box-details#diagnostics-collaborators" style="text-decoration: none;">
-            <button class="ghost full-width small-text">Collaborator Lookup</button>
-          </a>
-          <a href="/workflows/box-details#diagnostics-metadata" style="text-decoration: none;">
-            <button class="ghost full-width small-text">Missing Metadata</button>
-          </a>
-          <a href="/workflows/box-details#diagnostics-overview" style="text-decoration: none;">
-            <button class="ghost full-width small-text">Diagnostics Overview</button>
-          </a>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="card">
     <h4>⚙️ System Configuration</h4>
     <p class="muted">Manage settings and overrides</p>
     <div class="button-stack">
@@ -105,9 +49,6 @@
       </a>
       <a href="/capacity_overrides/ui" style="text-decoration: none;">
         <button class="secondary full-width">Capacity Overrides</button>
-      </a>
-      <a href="/settings/box/ui" style="text-decoration: none;">
-        <button class="secondary full-width">Box Settings</button>
       </a>
     </div>
   </div>
@@ -177,56 +118,6 @@
     border-color: var(--muted);
   }
 
-  button.ghost {
-    background: rgba(148, 163, 184, 0.12);
-    border-color: rgba(148, 163, 184, 0.35);
-    color: var(--muted);
-  }
-
-  button.ghost:hover {
-    background: rgba(148, 163, 184, 0.22);
-    border-color: rgba(148, 163, 184, 0.5);
-    color: var(--text);
-  }
-
-  .small-text {
-    font-size: 0.9em;
-  }
-
-  .expandable-section {
-    border-top: 1px solid var(--border);
-    padding-top: 16px;
-    animation: slideDown 0.2s ease-out;
-  }
-
-  @keyframes slideDown {
-    from {
-      opacity: 0;
-      transform: translateY(-8px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
-  .section-group {
-    margin-bottom: 16px;
-  }
-
-  .section-group:last-child {
-    margin-bottom: 0;
-  }
-
-  .section-label {
-    margin: 0 0 10px 0;
-    font-size: 0.85em;
-    font-weight: 600;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-
   .info-card {
     background: var(--soft-accent);
     border: 1px solid rgba(209, 213, 219, 0.5);
@@ -252,25 +143,4 @@
     }
   }
 </style>
-<script>
-  document.addEventListener('DOMContentLoaded', function() {
-    const toggleBtn = document.getElementById('toggle-box-more');
-    const moreSection = document.getElementById('box-more');
-
-    if (toggleBtn) {
-      toggleBtn.addEventListener('click', function() {
-        const isExpanded = toggleBtn.getAttribute('aria-expanded') === 'true';
-        if (isExpanded) {
-          moreSection.style.display = 'none';
-          toggleBtn.setAttribute('aria-expanded', 'false');
-          toggleBtn.textContent = 'More tools & guides';
-        } else {
-          moreSection.style.display = 'block';
-          toggleBtn.setAttribute('aria-expanded', 'true');
-          toggleBtn.textContent = 'Hide guides & diagnostics';
-        }
-      });
-    }
-  });
-</script>
 {% endblock %}

@@ -10,20 +10,17 @@ Required environment variables can be provided via `.env` file or Google Secret 
 | `EH_CLIENT_SECRET` | Employment Hero OAuth Client Secret | (from EH portal) | ✅ Yes |
 | `HUBSPOT_TOKEN` | HubSpot Private App token | `pat-...` | ✅ Yes |
 | `REDIRECT_URI` | OAuth callback URL (must match EH config exactly) | `https://app.example.com/auth/callback` | ✅ Yes |
-| `BOX_JWT_CONFIG_JSON` | Box service account config (JSON) | (from Box app) | ✅ Yes |
 | `SESSION_SECRET` | Flask session encryption key | (any random string) | ✅ Yes |
 | `ADMIN_USERNAME` | Admin UI login username | (any value) | ✅ Yes |
 | `ADMIN_PASSWORD` | Admin UI login password | (any value) | ✅ Yes |
 | `CHAT_WEBHOOK_URL` | Google Chat webhook URL | `https://chat.googleapis.com/v1/spaces/.../messages?key=...` | ✅ Yes |
 | `USE_FIRESTORE` | Enable Firestore (default: true) | `true` or `false` | ❌ No |
-| `BOX_IMPERSONATION_USER` | Box user email to impersonate | `admin@example.box.com` | ❌ No |
 | `PRESTART_WEEKS` | Adviser start buffer before allocating (default: 3) | `3` (weeks) | ❌ No |
 | `PORT` | Server port (default: 8080) | `8080` | ❌ No |
 
 ### Optional Configuration
 
 - **`USE_FIRESTORE`** - Set to `false` for local OAuth testing without Firestore
-- **`BOX_IMPERSONATION_USER`** - Box user to act as when managing folders
 - **`PRESTART_WEEKS`** - Weeks buffer before adviser can be allocated deals (default 3)
 - **`PORT`** - HTTP server port (default 8080)
 
@@ -39,7 +36,6 @@ EH_CLIENT_ID=your_eh_client_id
 EH_CLIENT_SECRET=your_eh_client_secret
 HUBSPOT_TOKEN=pat-...
 REDIRECT_URI=http://localhost:8080/auth/callback
-BOX_JWT_CONFIG_JSON={"boxAppSettings": {...}}
 SESSION_SECRET=your-secret-key
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=password
@@ -80,7 +76,7 @@ Secrets are stored in Google Secret Manager and retrieved via Google Cloud clien
 Secret path format: `projects/{PROJECT_ID}/secrets/{SECRET_NAME}/versions/latest`
 
 **Cross-project secret access:**
-- App Engine project: `pivot-digital-466902`
+- Cloud Run project: `pivot-digital-466902`
 - Secret Manager project: `307314618542`
 
 ### Required Secrets
@@ -90,7 +86,6 @@ Secret path format: `projects/{PROJECT_ID}/secrets/{SECRET_NAME}/versions/latest
 | `EH_CLIENT_ID` | Employment Hero OAuth Client ID | OAuth credentials from EH |
 | `EH_CLIENT_SECRET` | Employment Hero OAuth Client Secret | OAuth credentials from EH |
 | `HUBSPOT_TOKEN` | HubSpot Private App Token | Token from HubSpot portal |
-| `BOX_JWT_CONFIG_JSON` | Box JWT Configuration (JSON) | JSON from Box app |
 | `SESSION_SECRET` | Flask session encryption key | Random string |
 | `ADMIN_USERNAME` | Admin login username | Any value |
 | `ADMIN_PASSWORD` | Admin login password | Any value |
@@ -132,7 +127,7 @@ Set `REDIRECT_URI` to match your deployment URL:
 
 **Local:** `http://localhost:8080/auth/callback`
 
-**Production:** `https://pivot-digital-466902.ts.r.appspot.com/auth/callback`
+**Production:** `https://adviser-allocation-307314618542.australia-southeast1.run.app/auth/callback`
 
 ⚠️ **CRITICAL:** Must match EXACTLY (including protocol, domain, path, trailing slash)
 
@@ -203,54 +198,6 @@ HubSpot workflows can trigger webhooks:
 
 ---
 
-## Box Configuration
-
-### 1. Create Box JWT App
-
-1. Go to Box Developer Console
-2. Create new app → Custom App
-3. Authentication: `Server Authentication (OAuth 2.0 with JWT)`
-4. Grant required scopes:
-   - `manage_documents`
-   - `manage_files`
-   - `manage_folders`
-   - `read_all_files`
-
-5. Download JWT config JSON
-
-### 2. Store JWT Config
-
-```bash
-# Local (config/box_jwt_config.json - git-ignored)
-{
-  "boxAppSettings": {
-    "clientID": "...",
-    "clientSecret": "...",
-    "appAuth": {
-      "publicKeyID": "...",
-      "privateKey": "...",
-      "passphrase": "..."
-    }
-  },
-  "enterpriseID": "260686117"
-}
-
-# Production (Secret Manager - as JSON string)
-gcloud secrets create BOX_JWT_CONFIG_JSON --data-file=-
-```
-
-### 3. Configure Box Templates
-
-1. Set template folder in Box (e.g., `/Templates/ClientTemplate`)
-2. Store path in Firestore:
-   - Collection: `system_settings`
-   - Document: `box_config`
-   - Field: `template_folder_path`
-
-Or via UI: `/settings/box/ui` → Enter template path
-
----
-
 ## Google Chat Integration
 
 ### 1. Create Chat Webhook
@@ -295,25 +242,13 @@ Earliest Available: [Week]
 | `adviser_capacity_overrides` | Adviser-specific capacity limits | ✅ Yes (on first override) |
 | `allocation_requests` | Allocation history | ✅ Yes (on first allocation) |
 | `eh_tokens` | Employment Hero OAuth tokens | ✅ Yes (on first auth) |
-| `system_settings` | System configuration (e.g., Box template path) | ❌ Manual |
-
-### Create system_settings Document
-
-```bash
-gcloud firestore documents create \
-  --collection=system_settings \
-  --document=box_config \
-  --field-data=template_folder_path:/Templates/ClientTemplate
-```
-
-Or via UI: Use `/settings/box/ui`
 
 ---
 
 ## Local Development Environment Checklist
 
 - [ ] Python 3.12+ installed
-- [ ] `pip install -r requirements.txt` completed
+- [ ] `uv pip install -r requirements.txt` completed
 - [ ] Google Cloud credentials configured (`gcloud auth application-default login`)
 - [ ] `.env` file created with all required variables
 - [ ] Firestore emulator running (optional) or Firestore access confirmed
@@ -326,12 +261,11 @@ Or via UI: Use `/settings/box/ui`
 
 - [ ] All secrets added to Secret Manager
 - [ ] `REDIRECT_URI` matches HubSpot OAuth app config
-- [ ] Box JWT config valid and stored
 - [ ] Google Chat webhook URL configured
 - [ ] Firestore database created in `pivot-digital-466902` project
 - [ ] Cloud Build configured for CI/CD
-- [ ] App Engine runtime: Python 3.12
-- [ ] App Engine region: `australia-southeast1`
+- [ ] Cloud Run runtime: Python 3.12
+- [ ] Cloud Run region: `australia-southeast1`
 
 ---
 
@@ -359,16 +293,6 @@ Or via UI: Use `/settings/box/ui`
 2. Check Firestore database exists in project
 3. Check service account has Firestore permissions
 4. For local dev: Set `USE_FIRESTORE=false` to skip
-
-### Box Authentication Fails
-
-**Error:** `Box JWT authentication failed`
-
-**Solution:**
-1. Verify JWT config JSON is valid
-2. Check `appAuth.privateKey` is properly formatted (multiline)
-3. Verify passphrase matches Box app
-4. Ensure Box user has required permissions
 
 ### Missing Required Secrets
 
@@ -400,5 +324,5 @@ Or via UI: Use `/settings/box/ui`
 
 - All secrets in Secret Manager (`pivot-digital-466902` project)
 - Firestore region: `australia-southeast1`
-- App Engine region: `australia-southeast1`
+- Cloud Run region: `australia-southeast1`
 - Auto-deployment on `main` branch via Cloud Build

@@ -6,7 +6,7 @@ Chat alerts were not being sent in production, even though the allocation system
 
 ### Root Cause
 
-The `CHAT_WEBHOOK_URL` environment variable was **missing from app.yaml**, so it was never passed to App Engine deployment.
+The `CHAT_WEBHOOK_URL` environment variable was **missing from Cloud Run env config**, so it was never passed to Cloud Run deployment.
 
 ## How Chat Alerts Work
 
@@ -28,7 +28,7 @@ The allocation flow has two stages:
 
 ### Before Fix (Production was broken)
 ```yaml
-# app.yaml - MISSING CHAT_WEBHOOK_URL
+# Cloud Run env config - MISSING CHAT_WEBHOOK_URL
 env_variables:
   HUBSPOT_TOKEN: "..."
   EH_CLIENT_ID: "..."
@@ -40,7 +40,7 @@ Result: Every allocation would skip chat alerts silently because the URL was mis
 
 ### After Fix (Production will work)
 ```yaml
-# app.yaml - ADDED CHAT_WEBHOOK_URL
+# Cloud Run env config - ADDED CHAT_WEBHOOK_URL
 env_variables:
   HUBSPOT_TOKEN: "..."
   EH_CLIENT_ID: "..."
@@ -59,14 +59,14 @@ To fix chat alerts in production:
 
    Should show: `CHAT_WEBHOOK_URL`
 
-2. **Update app.yaml** (already done in migration branch)
+2. **Update Cloud Run env config** (already done in migration branch)
    ```yaml
    CHAT_WEBHOOK_URL: "projects/307314618542/secrets/CHAT_WEBHOOK_URL/versions/latest"
    ```
 
-3. **Redeploy to App Engine**
+3. **Redeploy to Cloud Run**
    ```bash
-   gcloud app deploy --no-promote --version=chat-alerts-fix
+   gcloud run deploy adviser-allocation --region=australia-southeast1 --tag=chat-alerts-fix --no-traffic
    ```
 
 4. **Test the fix**
@@ -76,7 +76,7 @@ To fix chat alerts in production:
 
 5. **Monitor logs**
    ```bash
-   gcloud app logs tail -s default --limit=50 --project=pivot-digital-466902
+   gcloud run logs read --service=adviser-allocation --region=australia-southeast1 --limit=50 --project=pivot-digital-466902
    ```
 
    Look for: `"Sent chat alert successfully"` or `"Chat alert flag=true"`
@@ -129,8 +129,8 @@ send_chat_alert_flag == true?
 
 ## Files Modified
 
-- **app.yaml**: Added `CHAT_WEBHOOK_URL` environment variable
-- **app.yaml.example**: Added for documentation
+- **Cloud Run env config**: Added `CHAT_WEBHOOK_URL` environment variable
+- **Cloud Run env config.example**: Added for documentation
 - **test_chat_alerts.py**: New test suite to verify configuration
 
 ## Monitoring After Fix
@@ -139,16 +139,16 @@ Watch these logs to confirm alerts are working:
 
 ```bash
 # All allocation events
-gcloud app logs tail -s default --grep="allocation" --project=pivot-digital-466902
+gcloud run logs read --service=adviser-allocation --region=australia-southeast1 --grep="allocation" --project=pivot-digital-466902
 
 # Chat alert success
-gcloud app logs tail -s default --grep="Sent chat alert" --project=pivot-digital-466902
+gcloud run logs read --service=adviser-allocation --region=australia-southeast1 --grep="Sent chat alert" --project=pivot-digital-466902
 
 # Chat alert errors
-gcloud app logs tail -s default --grep="Failed to send chat alert" --project=pivot-digital-466902
+gcloud run logs read --service=adviser-allocation --region=australia-southeast1 --grep="Failed to send chat alert" --project=pivot-digital-466902
 
 # Alert skips
-gcloud app logs tail -s default --grep="CHAT_WEBHOOK_URL not configured" --project=pivot-digital-466902
+gcloud run logs read --service=adviser-allocation --region=australia-southeast1 --grep="CHAT_WEBHOOK_URL not configured" --project=pivot-digital-466902
 ```
 
 ## Testing Locally
@@ -165,9 +165,9 @@ python3 test_local_full.py
 ## Summary
 
 ✅ **Issue**: Chat alerts not sent in production
-✅ **Root Cause**: Missing `CHAT_WEBHOOK_URL` in app.yaml
-✅ **Fix**: Added environment variable to app.yaml
+✅ **Root Cause**: Missing `CHAT_WEBHOOK_URL` in Cloud Run env config
+✅ **Fix**: Added environment variable to Cloud Run env config
 ✅ **Testing**: Created `test_chat_alerts.py` to verify
-✅ **Deployment**: Ready for next App Engine deployment
+✅ **Deployment**: Ready for next Cloud Run deployment
 
 Next Step: Deploy to staging, then promote to production.

@@ -11,7 +11,6 @@ HubSpot is the primary CRM system. The application:
 - Reads adviser profiles (Users object)
 - Reads meeting data (Clarify and Kick Off meetings)
 - Updates deal owner (allocates adviser)
-- Stores Box folder URLs in custom properties
 
 ### Authentication
 
@@ -53,7 +52,7 @@ HubSpot workflows can trigger webhooks to the application:
 3. Set trigger: Deal created or updated
 4. Add action: **Webhook**
 5. Configure:
-   - **URL:** `https://pivot-digital-466902.ts.r.appspot.com/post/allocate`
+   - **URL:** `https://adviser-allocation-307314618542.australia-southeast1.run.app/post/allocate`
    - **Method:** `POST`
    - **Payload:** Include deal fields:
      - `service_package`
@@ -102,7 +101,6 @@ HubSpot workflows can trigger webhooks to the application:
 
 The application updates these HubSpot properties:
 
-- **`box_folder_url`** - Link to Box client folder (set by Box integration)
 - **Deal Owner** - Allocated adviser (set by allocation algorithm)
 
 ---
@@ -186,102 +184,6 @@ Leave requests are used to:
 
 ---
 
-## Box Integration
-
-### Overview
-
-**Enterprise ID:** `260686117`
-
-Box is the document storage system for client folders:
-- Creates client folders from deal data
-- Applies metadata (contact info, household type, service package)
-- Shares folders with clients
-- Tracks metadata status
-
-### Authentication
-
-**Method:** JWT Service Account
-
-**Credentials:** JSON configuration from Box
-
-**Scopes:**
-- Manage documents, files, folders
-- Read all files
-- Collaborator management
-
-**Setup:** See [Configuration Guide](CONFIGURATION.md#box-configuration)
-
-### Workflows
-
-#### 1. Folder Creation
-
-**Trigger:** HubSpot workflow webhook to `/post/create_box_folder`
-
-**Process:**
-1. Receive deal data (client name, contact info)
-2. Copy Box template folder
-3. Rename to: `[First Name] [Last Name]`
-4. Handle naming conflicts (add suffix: (2), (3), etc.)
-5. Return folder ID and URL to HubSpot
-
-**Template Folder:**
-- Path: `/Templates/ClientTemplate` (configurable)
-- Contains: Subfolders and initial documents for new clients
-- Copied entire structure to client-specific folder
-
-#### 2. Metadata Tagging
-
-**Trigger:** HubSpot webhook to `/box/folder/tag/auto` or `/box/folder/tag`
-
-**Process:**
-1. Fetch deal data from HubSpot (if not provided)
-2. Build metadata dictionary:
-   - `primary_contact_id` - HubSpot contact ID
-   - `spouse_contact_id` - Spouse contact ID (if applicable)
-   - `household_type` - Single/Couple
-   - `service_package` - Series A/B/Seed/etc
-   - `client_name` - Full name
-   - `client_email` - Email address
-   - `phone` - Phone number
-3. Apply Box metadata template
-4. Update HubSpot deal with Box folder URL
-5. Share client subfolder with client email
-
-**Metadata Template:**
-Custom Box metadata template with fields:
-- Contact information
-- Household type
-- Service package
-- Deal status
-
-#### 3. Folder Sharing
-
-**Endpoint:** `POST /box/folder/share`
-
-**Process:**
-1. Add client as collaborator
-2. Role: `viewer` (read-only)
-3. Grant access to client-specific subfolder only
-
-### Admin Features
-
-**Metadata Compliance Scanning:**
-- Check folders have all required metadata
-- Identify missing fields
-- List non-compliant folders
-
-**Mismatch Detection:**
-- Compare HubSpot contact ID with Box metadata
-- Detect contact relationship mismatches
-- Flag for manual review
-
-**Repair Tool:**
-- Update missing metadata from HubSpot
-- Fix contact mismatches
-- Re-apply metadata template
-
----
-
 ## Google Chat Integration
 
 ### Overview
@@ -346,7 +248,10 @@ Sent to Google Chat when allocation succeeds:
 4. Check application logs for errors
 
 ```bash
-gcloud app logs tail -s default | grep "Chat\|webhook"
+gcloud logging read "resource.type=cloud_run_revision AND textPayload=~'Chat|webhook'" \
+  --project=pivot-digital-466902 \
+  --limit=50 \
+  --format=json
 ```
 
 ---
@@ -387,23 +292,6 @@ gcloud app logs tail -s default | grep "Chat\|webhook"
 - Check if some employees are filtered out
 - Review sync job logs
 
-### Box Issues
-
-**Folder creation fails:**
-- Verify JWT credentials are valid
-- Check Box enterprise limits not exceeded
-- Verify template folder path exists
-
-**Metadata not applying:**
-- Check metadata template exists in Box
-- Verify field names match template
-- Ensure Box app has metadata permissions
-
-**Sharing fails:**
-- Verify client email is valid
-- Check Box user exists
-- Verify folder exists before sharing
-
 ### Google Chat Issues
 
 **Notifications not appearing:**
@@ -424,35 +312,16 @@ gcloud app logs tail -s default | grep "Chat\|webhook"
 ```
 HubSpot Deal Created
       ↓
-   Webhook to /post/allocate
+Webhook to /post/allocate
       ↓
 Allocation Algorithm
       ↓
-┌─────────────────────────────┐
-│ Box Folder Creation         │
-│ /post/create_box_folder     │
-├─────────────────────────────┤
-│ 1. Copy template folder     │
-│ 2. Rename to client name    │
-│ 3. Return folder URL        │
-└──────────┬──────────────────┘
-           ↓
-    Update HubSpot
-    (box_folder_url)
-           ↓
-┌─────────────────────────────┐
-│ Metadata Tagging            │
-│ /box/folder/tag/auto        │
-├─────────────────────────────┤
-│ 1. Fetch data from HubSpot  │
-│ 2. Build metadata dict      │
-│ 3. Apply to Box folder      │
-│ 4. Share with client        │
-└──────────┬──────────────────┘
-           ↓
-      Google Chat
-      Notification
-      Sent to Team
+Update HubSpot
+(deal owner)
+      ↓
+Google Chat
+Notification
+Sent to Team
 ```
 
 ---
@@ -463,7 +332,7 @@ Monitor integration health:
 
 ```bash
 # Check recent integrations logs
-gcloud logging read "resource.type=gae_app AND textPayload=~'HubSpot|Box|Chat|EH'" \
+gcloud logging read "resource.type=cloud_run_revision AND textPayload=~'HubSpot|Chat|EH'" \
   --project=pivot-digital-466902 \
   --limit=50 \
   --format=json

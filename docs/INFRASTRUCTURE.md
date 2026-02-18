@@ -4,89 +4,85 @@
 
 | Service | Resource | Purpose | Status |
 |---------|----------|---------|--------|
-| **App Engine** | Project: `pivot-digital-466902`, Service: `default`, Region: `australia-southeast1` | Hosts Flask application (Python 3.12 runtime) | ✅ Active |
+| **Cloud Run** | Service: adviser-allocation, Region: australia-southeast1 | Hosts Flask application (Python 3.12, Dockerfile) | ✅ Active |
 | **Firestore** | Database in `pivot-digital-466902` project | Primary data store (NoSQL) | ✅ Active |
-| **Secret Manager** | Project ID: `307314618542` (Cross-project) | Stores credentials (EH, HubSpot, Box, passwords) | ✅ Active |
-| **Cloud Logging** | Logs for App Engine service `default` | Application logging and monitoring | ✅ Active |
+| **Secret Manager** | Project ID: `307314618542` (Cross-project) | Stores credentials (EH, HubSpot, passwords) | ✅ Active |
+| **Cloud Logging** | Logs for Cloud Run service `adviser-allocation` | Application logging and monitoring | ✅ Active |
 | **Cloud Build** | Trigger on git push to `main` branch | CI/CD pipeline (test gate + auto-deploy) | ✅ Active |
 | **Cloud Scheduler** | Jobs in `australia-southeast1` | Triggers sync jobs on schedule | ✅ Active |
-| **Cloud Run** | hubspot-incremental service | HubSpot sync (separate microservice) | ✅ Active |
 
-## App Engine
+## Cloud Run
 
-### Initial Setup
+### Configuration
 
-**Before first deployment**, create `app.yaml` from the template:
+Environment variables are configured directly on the Cloud Run service. Secrets are mounted via Secret Manager references at deploy time -- no secrets are committed to git.
 
-```bash
-cp app.yaml.example app.yaml
-```
-
-The `app.yaml` file is git-ignored to keep sensitive configuration local. The template `app.yaml.example` uses Secret Manager references for all credentials, so no secrets are committed to git. After copying, `app.yaml` will auto-load secrets at deploy time from GCP Secret Manager.
-
-**Note:** New contributors should follow this step before running any deployment commands.
+**Note:** New contributors do not need any local configuration files for deployment. Cloud Build handles the full CI/CD pipeline.
 
 ### Deployment Details
 
 **Current Configuration:**
-- **Runtime:** Python 3.12 (Standard Environment)
-- **Region:** `australia-southeast1` (locked)
-- **Service:** `default` (main service)
-- **Auto-Scaling:** Min 1, Max auto instances
-- **Memory:** 512 MB per instance
-- **Timeout:** 540 seconds (9 minutes)
-- **Entry Point:** `gunicorn -b :$PORT main:app`
+- **Runtime:** Python 3.12 (via Dockerfile)
+- **Region:** `australia-southeast1`
+- **Service:** `adviser-allocation`
+- **URL:** `https://adviser-allocation-307314618542.australia-southeast1.run.app`
+- **Deployed via:** Cloud Build (`cloudbuild.yaml`, triggered on push to `main`)
 
-### Instance Management
+### Service Management
 
 ```bash
-# View active instances
-gcloud app instances list --project=pivot-digital-466902
-
-# View versions and traffic split
-gcloud app versions list --project=pivot-digital-466902
-
-# View service configuration
-gcloud app services describe default --project=pivot-digital-466902
-
-# View traffic distribution
-gcloud app services describe default --project=pivot-digital-466902 --format=yaml | grep -A10 split
-```
-
-### Version Management
-
-Versions are created automatically on each deployment (via Cloud Build).
-
-```bash
-# List all versions
-gcloud app versions list --project=pivot-digital-466902
-
-# View version details
-gcloud app versions describe VERSION_ID --project=pivot-digital-466902
-
-# Route traffic to specific version
-gcloud app services set-traffic default \
-  --splits=VERSION_ID=1.0 \
+# View service details
+gcloud run services describe adviser-allocation \
+  --region=australia-southeast1 \
   --project=pivot-digital-466902
 
-# Stop a version
-gcloud app versions stop VERSION_ID --project=pivot-digital-466902
+# List revisions
+gcloud run revisions list \
+  --service=adviser-allocation \
+  --region=australia-southeast1 \
+  --project=pivot-digital-466902
+```
 
-# Delete a version
-gcloud app versions delete VERSION_ID --project=pivot-digital-466902
+### Revision Management
+
+Revisions are created automatically on each deployment (via Cloud Build).
+
+```bash
+# List all revisions
+gcloud run revisions list \
+  --service=adviser-allocation \
+  --region=australia-southeast1 \
+  --project=pivot-digital-466902
+
+# Route traffic to specific revision
+gcloud run services update-traffic adviser-allocation \
+  --to-revisions=REVISION_NAME=100 \
+  --region=australia-southeast1 \
+  --project=pivot-digital-466902
+
+# Delete a revision
+gcloud run revisions delete REVISION_NAME \
+  --region=australia-southeast1 \
+  --project=pivot-digital-466902
 ```
 
 ### Logs and Debugging
 
 ```bash
-# Stream live logs
-gcloud app logs tail -s default --project=pivot-digital-466902
+# Read recent logs
+gcloud run logs read \
+  --service=adviser-allocation \
+  --region=australia-southeast1 \
+  --project=pivot-digital-466902
 
-# View logs for specific version
-gcloud app logs tail -s default --version=MAIN_VERSION --project=pivot-digital-466902
+# Stream live logs
+gcloud run logs tail \
+  --service=adviser-allocation \
+  --region=australia-southeast1 \
+  --project=pivot-digital-466902
 
 # Search for errors
-gcloud logging read "resource.type=gae_app AND severity=ERROR" \
+gcloud logging read "resource.type=cloud_run_revision AND severity=ERROR AND resource.labels.service_name=adviser-allocation" \
   --project=pivot-digital-466902 \
   --limit=100
 ```
@@ -106,8 +102,7 @@ gcloud logging read "resource.type=gae_app AND severity=ERROR" \
 | `adviser_capacity_overrides` | Manual capacity limits per adviser | `{adviser_email, effective_date, client_limit}` | ~50-200 docs |
 | `allocation_requests` | Allocation history | `{deal_id, adviser_id, package, timestamp}` | ~100-10,000 docs |
 | `eh_tokens` | Employment Hero OAuth tokens | `{access_token, refresh_token, expires_at}` | 1 doc |
-| `box_metadata` | Box folder metadata tracking | `{folder_id, contact_ids, metadata_status}` | ~100-1,000 docs |
-| `system_settings` | System configuration | `{box_template_path, ...}` | ~5-10 docs |
+| `system_settings` | System configuration | `{...}` | ~5-10 docs |
 
 ### Database Operations
 
@@ -157,16 +152,19 @@ gcloud firestore indexes list --project=pivot-digital-466902
 
 ## Google Cloud Logging
 
-**Log Source:** `projects/pivot-digital-466902/logs/appengine.googleapis.com/default`
+**Log Source:** `projects/pivot-digital-466902/logs/run.googleapis.com/adviser-allocation`
 
 ### View Logs
 
 ```bash
 # Stream live logs (real-time)
-gcloud app logs tail -s default --project=pivot-digital-466902
+gcloud run logs tail \
+  --service=adviser-allocation \
+  --region=australia-southeast1 \
+  --project=pivot-digital-466902
 
 # View logs with filters
-gcloud logging read "resource.type=gae_app" \
+gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=adviser-allocation" \
   --project=pivot-digital-466902 \
   --limit=50 \
   --format=json
@@ -174,7 +172,7 @@ gcloud logging read "resource.type=gae_app" \
 # Export logs to BigQuery or GCS
 gcloud logging sinks create LOG_SINK \
   DESTINATION \
-  --log-filter="resource.type=gae_app" \
+  --log-filter="resource.type=cloud_run_revision AND resource.labels.service_name=adviser-allocation" \
   --project=pivot-digital-466902
 ```
 
@@ -204,7 +202,6 @@ gcloud logging read "severity=ERROR" \
 |-----|---------|-----------------|-------------|--------|
 | **Employment Hero** | Employee/leave data sync | OAuth 2.0 | ~100 req/min | ✅ Active |
 | **HubSpot** | Deal allocation, meetings, contacts | Private App Token | 100/s | ✅ Active |
-| **Box** | Folder creation and metadata | JWT Service Account | 10 req/s | ✅ Active |
 | **Google Chat** | Allocation notifications | Webhook | 100 msg/min | ✅ Active |
 
 ### API Health
@@ -213,9 +210,6 @@ gcloud logging read "severity=ERROR" \
 # Test HubSpot API
 curl -H "Authorization: Bearer $HUBSPOT_TOKEN" \
   https://api.hubapi.com/crm/v3/objects/deals?limit=1
-
-# Test Box API (requires JWT auth)
-# See Box SDK docs
 
 # Test Employment Hero API
 # Requires valid OAuth token from Firestore
@@ -232,7 +226,6 @@ curl -H "Authorization: Bearer $HUBSPOT_TOKEN" \
 | `EH_CLIENT_ID` | via app config | ✅ Active |
 | `EH_CLIENT_SECRET` | via app config | ✅ Active |
 | `HUBSPOT_TOKEN` | via app config | ✅ Active |
-| `BOX_JWT_CONFIG_JSON` | via app config | ✅ Active |
 | `SESSION_SECRET` | via app config | ✅ Active |
 | `ADMIN_USERNAME` | via app config | ✅ Active |
 | `ADMIN_PASSWORD` | via app config | ✅ Active |
@@ -252,9 +245,9 @@ echo "new-value" | gcloud secrets versions add SECRET_NAME \
   --data-file=- \
   --project=307314618542
 
-# Grant access to App Engine service account
+# Grant access to Cloud Run service account
 gcloud secrets add-iam-policy-binding SECRET_NAME \
-  --member=serviceAccount:APP_ENGINE_SA@appspot.gserviceaccount.com \
+  --member=serviceAccount:CLOUD_RUN_SA@pivot-digital-466902.iam.gserviceaccount.com \
   --role=roles/secretmanager.secretAccessor \
   --project=307314618542
 ```
@@ -276,12 +269,12 @@ gcloud secrets add-iam-policy-binding SECRET_NAME \
 
 **Credential Compromise:**
 1. Rotate secret: `gcloud secrets versions add ...`
-2. Update external systems (Employment Hero, HubSpot, Box)
+2. Update external systems (Employment Hero, HubSpot, Google Chat)
 3. Monitor for unauthorized access
 
 **Complete Outage:**
 1. Verify Cloud Build pipeline (push to trigger redeploy)
-2. Check App Engine quota/billing
+2. Check Cloud Run service status and billing
 3. View logs for root cause
 4. Rollback to previous version if needed
 
@@ -302,8 +295,10 @@ gcloud secrets add-iam-policy-binding SECRET_NAME \
 ### Monitoring
 
 ```bash
-# Check App Engine quota
-gcloud compute project-info describe --project=pivot-digital-466902
+# Check Cloud Run service status
+gcloud run services describe adviser-allocation \
+  --region=australia-southeast1 \
+  --project=pivot-digital-466902
 
 # View Firestore read/write metrics
 # GCP Console → Firestore → Monitoring
@@ -318,7 +313,7 @@ gcloud scheduler jobs describe JOB_NAME \
 
 ## Links
 
-- **GCP Console:** https://console.cloud.google.com/appengine?project=pivot-digital-466902
+- **GCP Console:** https://console.cloud.google.com/run/detail/australia-southeast1/adviser-allocation?project=pivot-digital-466902
 - **Firestore Console:** https://console.firebase.google.com/u/0/project/pivot-digital-466902/firestore
 - **Cloud Logging:** https://console.cloud.google.com/logs
 - **Cloud Build:** https://console.cloud.google.com/cloud-build

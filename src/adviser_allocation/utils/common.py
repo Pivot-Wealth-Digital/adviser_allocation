@@ -24,7 +24,7 @@ def sydney_datetime_from_date(d: date) -> datetime:
     return datetime.combine(d, datetime.min.time(), SYDNEY_TZ)
 
 
-# Optional: persist tokens in Firestore (recommended on App Engine)
+# Optional: persist tokens in Firestore (recommended on Cloud Run)
 USE_FIRESTORE = os.environ.get("USE_FIRESTORE", "true").lower() == "true"
 db = None
 
@@ -36,7 +36,7 @@ def init_firestore():
         try:
             from google.cloud import firestore
 
-            db = firestore.Client()  # Uses App Engine default credentials
+            db = firestore.Client()  # Uses default credentials
         except Exception as e:
             logging.warning(f"Firestore client init failed: {e}")
     return db

@@ -10,11 +10,7 @@ This folder contains all detailed project documentation. Start below based on yo
 How to use the adviser allocation platform, including:
 - Checking adviser availability and schedules
 - Managing allocations
-- Creating Box folders
-- Admin tools (office closures, capacity overrides, Box settings)
-
-### [Box Folder Workflow](box-folder-workflow.md)
-Detailed walkthrough of the Box folder provisioning process.
+- Admin tools (office closures, capacity overrides)
 
 ---
 
@@ -49,7 +45,7 @@ Environment setup and secrets:
 Deployment, monitoring, and troubleshooting:
 - Cloud Scheduler jobs and management
 - Cloud Build status monitoring
-- App Engine logs and metrics
+- Cloud Run logs and metrics
 - Firestore monitoring
 - Troubleshooting guide
 - Emergency fixes and rollbacks
@@ -59,15 +55,14 @@ Deployment, monitoring, and troubleshooting:
 Integration details and troubleshooting:
 - **HubSpot CRM** - Portal ID, webhooks, data synced
 - **Employment Hero** - OAuth flow, leave request syncing
-- **Box** - JWT authentication, folder creation, metadata
 - **Google Chat** - Webhook notifications
 - Integration flow diagrams
 - Troubleshooting for each service
 
 ### [Infrastructure](INFRASTRUCTURE.md)
 GCP services and infrastructure:
-- GCP services overview (App Engine, Firestore, Secrets, Build, Scheduler)
-- App Engine configuration and management
+- GCP services overview (Cloud Run, Firestore, Secrets, Build, Scheduler)
+- Cloud Run configuration and management
 - Firestore collections and queries
 - Google Cloud Logging
 - External APIs and rate limits
@@ -108,7 +103,6 @@ Version history and release notes.
 **I need to...** | **Go to...**
 ---|---
 Check adviser availability | [User Guide - Adviser Schedule](USER_GUIDE.md#adviser-schedule)
-Create a Box folder | [User Guide - Box Folder Provisioning](USER_GUIDE.md#box-folder-provisioning)
 Manage office closures | [User Guide - Admin Tools](USER_GUIDE.md#admin-tools)
 Set up a new integration | [Configuration](CONFIGURATION.md)
 Understand the system | [Architecture](../ARCHITECTURE.md)
@@ -118,7 +112,6 @@ Deploy to production | [Contributing - Deployment](CONTRIBUTING.md#deployment-pr
 Monitor the system | [Operations - Monitoring](OPERATIONS.md#monitoring)
 Configure HubSpot | [Configuration - HubSpot](CONFIGURATION.md#hubspot-configuration)
 Set up Employment Hero | [Configuration - Employment Hero](CONFIGURATION.md#employment-hero-oauth-setup)
-Configure Box | [Configuration - Box](CONFIGURATION.md#box-configuration)
 
 ---
 

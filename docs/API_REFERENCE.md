@@ -5,8 +5,6 @@
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
 | `/post/allocate` | POST | Assign deal to earliest-available adviser |
-| `/post/create_box_folder` | POST | Create Box client folder from deal data |
-| `/box/folder/tag/auto` | POST | Apply metadata to Box folder |
 
 ### POST /post/allocate
 
@@ -34,43 +32,6 @@
 - Google Chat notification sent
 
 **Documentation:** See [Architecture](../ARCHITECTURE.md#allocation-algorithm) for algorithm details
-
-### POST /post/create_box_folder
-
-**Purpose:** Creates a client folder in Box from HubSpot deal data.
-
-**Request Payload:**
-```json
-{
-  "fields": {
-    "firstname": "John",
-    "lastname": "Smith",
-    "salutation": "Mr"
-  }
-}
-```
-
-**Response:**
-- Folder ID and URL
-
-**Documentation:** See [Box Integration](INTEGRATIONS.md#box-integration)
-
-### POST /box/folder/tag/auto
-
-**Purpose:** Automatically applies metadata to a Box folder by fetching missing data from HubSpot.
-
-**Request Payload:**
-```json
-{
-  "hs_deal_id": "123456",
-  "box_folder_id": "789"
-}
-```
-
-**Response:**
-- Metadata applied successfully
-
-**Documentation:** See [Box Integration](INTEGRATIONS.md#box-integration)
 
 ---
 
@@ -184,7 +145,6 @@ Allocation history dashboard with:
 | `/capacity_overrides/ui` | Manage adviser capacity overrides | Admin |
 | `/employees/ui` | View employee directory | Admin |
 | `/leave_requests/ui` | Calendar view of upcoming leave | Admin |
-| `/box/create` | Box folder creation UI | Admin |
 
 ### GET/POST /closures/ui
 
@@ -234,10 +194,6 @@ Allocation history dashboard with:
 ### GET /leave_requests/ui
 
 **Purpose:** Calendar view of approved leave requests across all employees.
-
-### GET /box/create
-
-**Purpose:** UI to manually create Box client folders.
 
 ---
 
