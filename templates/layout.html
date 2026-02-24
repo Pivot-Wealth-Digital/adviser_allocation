@@ -1,24 +1,33 @@
 <!doctype html>
 <html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{{ title or 'Adviser App' }}</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}" />
-    {% block head %}{% endblock %}
-  </head>
-  <body>
-    <div style="position: fixed; top: 10px; right: 10px; z-index: 1000;">
-      <a href="/logout" style="text-decoration: none;">
-        <button style="background: #dc3545; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.8em;">
-          🚪 Logout
-        </button>
-      </a>
-    </div>
-    <div class="container">
-      {% block content %}{% endblock %}
-    </div>
-    {% block scripts %}{% endblock %}
-  </body>
-</html>
 
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ title or 'Adviser App' }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}" />
+  {% block head %}{% endblock %}
+</head>
+
+<body>
+  {% if session.get('is_authenticated') %}
+  <div
+    style="position: fixed; top: 16px; right: 20px; z-index: 1000; display: flex; align-items: center; gap: 10px; background: var(--card); padding: 6px 14px; border-radius: var(--radius-md); border: 1px solid var(--border); font-size: 0.85rem;">
+    {% if session.get('user') %}
+    <img src="{{ session['user'].get('picture', '') }}" alt=""
+      style="width: 28px; height: 28px; border-radius: var(--radius-sm); object-fit: cover;">
+    <span style="font-weight: 500; color: var(--text);">{{ session['user'].get('name', 'User') }}</span>
+    <a href="/logout" style="color: var(--muted); text-decoration: none; margin-left: 4px; font-size: 0.8rem;">Sign
+      out</a>
+    {% else %}
+    <a href="/logout" style="color: var(--muted); text-decoration: none; font-size: 0.8rem;">Logout</a>
+    {% endif %}
+  </div>
+  {% endif %}
+  <div class="container">
+    {% block content %}{% endblock %}
+  </div>
+  {% block scripts %}{% endblock %}
+</body>
+
+</html>

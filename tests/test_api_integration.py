@@ -257,7 +257,7 @@ class APIAuthenticationTests(unittest.TestCase):
             sess["is_authenticated"] = True
 
         # Logout
-        self.client.get("/logout", follow_redirects=True)
+        self.client.get("/logout", follow_redirects=False)
 
         # Try to access protected route
         response = self.client.get("/")

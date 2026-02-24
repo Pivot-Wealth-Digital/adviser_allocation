@@ -14,7 +14,12 @@
   <div class="card-header">
     <h3>Compute Availability</h3>
     <label class="helper-toggle" title="Toggle helper content">
-      <input type="checkbox" id="toggleHelpers" checked />
+      <label class="toggle-switch" title="Toggle extra visualization helpers"
+        style="margin: 0; display: inline-flex; align-items: center; gap: 8px; cursor: pointer;">
+        <input type="checkbox" id="toggleHelpers" checked>
+        <span class="toggle-slider"></span>
+        <span style="font-size: 0.9em; font-weight: 500; color: var(--text);">Helpers</span>
+      </label>
       Show helper tips
     </label>
   </div>
@@ -37,7 +42,7 @@
       </select>
     </div>
     <div>
-      <button id="computeBtn" class="primary">Compute Availability</button>
+      <button id="computeBtn">Compute Availability</button>
     </div>
   </div>
   <div id="loading" style="display:none;margin-top:12px;color:var(--muted);">
@@ -54,11 +59,14 @@
       </th>
       <th>
         Service Packages
-        <span class="tooltip-icon" data-tooltip="These are the service packages the adviser can service" tabindex="0">?</span>
+        <span class="tooltip-icon" data-tooltip="These are the service packages the adviser can service"
+          tabindex="0">?</span>
       </th>
       <th>
         Household Types
-        <span class="tooltip-icon" data-tooltip="This is an extra check to show whether the adviser is working with singles only, or couples and singles. Specific to Seed & Series A" tabindex="0">?</span>
+        <span class="tooltip-icon"
+          data-tooltip="This is an extra check to show whether the adviser is working with singles only, or couples and singles. Specific to Seed & Series A"
+          tabindex="0">?</span>
       </th>
       <th>Pod Type</th>
       <th data-sort="num">
@@ -71,45 +79,52 @@
   </thead>
   <tbody>
     {% if compute and rows %}
-      {% for r in rows %}
-        <tr>
-          <td>
-            <div class="adviser-cell">
-              <span class="adviser-name">{{ r.name }}</span>
-              <span class="pill {% if not r.taking_on_clients_sort %}off{% endif %}">{{ r.taking_on_clients }}</span>
-            </div>
-          </td>
-          <td>
-            <div class="taglist">
-              {% for t in r.tag_items %}
-                <span class="tag {{ t.cls }}">{{ t.name }}</span>
-              {% endfor %}
-            </div>
-          </td>
-          <td>
-            <div class="taglist">
-              {% for t in r.household_items %}
-                <span class="tag {{ t.cls }}">{{ t.name }}</span>
-              {% endfor %}
-            </div>
-          </td>
-          <td>{{ r.pod }}</td>
-          <td data-value="{{ r.limit|replace(',', '') if r.limit else '' }}" title="{{ r.limit_hint or '' }}">{{ r.limit }}</td>
-          <td>{{ r.wk_label }}</td>
-          <td class="nowrap">{{ r.monday }}</td>
-        </tr>
-      {% endfor %}
+    {% for r in rows %}
+    <tr>
+      <td>
+        <div class="adviser-cell">
+          <span class="adviser-name">{{ r.name }}</span>
+          <span class="pill {% if not r.taking_on_clients_sort %}off{% endif %}">{{ r.taking_on_clients }}</span>
+        </div>
+      </td>
+      <td>
+        <div class="taglist">
+          {% for t in r.tag_items %}
+          <span class="tag {{ t.cls }}">{{ t.name }}</span>
+          {% endfor %}
+        </div>
+      </td>
+      <td>
+        <div class="taglist">
+          {% for t in r.household_items %}
+          <span class="tag {{ t.cls }}">{{ t.name }}</span>
+          {% endfor %}
+        </div>
+      </td>
+      <td>{{ r.pod }}</td>
+      <td data-value="{{ r.limit|replace(',', '') if r.limit else '' }}" title="{{ r.limit_hint or '' }}">{{ r.limit }}
+      </td>
+      <td>{{ r.wk_label }}</td>
+      <td class="nowrap">{{ r.monday }}</td>
+    </tr>
+    {% endfor %}
     {% elif compute and not rows %}
-      <tr><td colspan="7">No advisers found matching criteria.</td></tr>
+    <tr>
+      <td colspan="7">No advisers found matching criteria.</td>
+    </tr>
     {% else %}
-      <tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px;">Click "Compute Availability" to see adviser availability data.</td></tr>
+    <tr>
+      <td colspan="7" style="text-align:center;color:var(--muted);padding:24px;">Click "Compute Availability" to see
+        adviser availability data.</td>
+    </tr>
     {% endif %}
   </tbody>
 </table>
 
 <div class="card faq-card">
   <h3 style="margin: 0 0 6px 0;">Adviser Allocation FAQ</h3>
-  <p class="muted" style="margin: 0 0 12px 0;">Expand questions below for a quick refresher on how availability is calculated.</p>
+  <p class="muted" style="margin: 0 0 12px 0;">Expand questions below for a quick refresher on how availability is
+    calculated.</p>
   <div class="faq-accordion">
     <div class="faq-item">
       <button class="faq-question" type="button" aria-expanded="false">
@@ -117,9 +132,15 @@
         <span class="faq-chevron" aria-hidden="true">&#9662;</span>
       </button>
       <div class="faq-answer" hidden>
-        <p>Before any assignment is made, the scheduler projects each adviser's workload at least two weeks ahead (or longer if the client's agreement start date is further out).</p>
-        <p>It models each adviser's fortnightly capacity by rolling forward existing clarifies already booked, outstanding deals and backlog, target workloads, and pod type limits. The algorithm skips any weeks where the adviser is fully out of office, then finds the first week with available capacity and no backlog.</p>
-        <p>Once every eligible adviser has an earliest open week, it filters out anyone who cannot start by the client's required date. It then chooses the adviser with the earliest available week and, if there is a tie, the lowest workload ratio (clarifies / fortnight target). If two advisers are still identical after that, it randomises the final pick so the load is shared fairly over time.</p>
+        <p>Before any assignment is made, the scheduler projects each adviser's workload at least two weeks ahead (or
+          longer if the client's agreement start date is further out).</p>
+        <p>It models each adviser's fortnightly capacity by rolling forward existing clarifies already booked,
+          outstanding deals and backlog, target workloads, and pod type limits. The algorithm skips any weeks where the
+          adviser is fully out of office, then finds the first week with available capacity and no backlog.</p>
+        <p>Once every eligible adviser has an earliest open week, it filters out anyone who cannot start by the client's
+          required date. It then chooses the adviser with the earliest available week and, if there is a tie, the lowest
+          workload ratio (clarifies / fortnight target). If two advisers are still identical after that, it randomises
+          the final pick so the load is shared fairly over time.</p>
       </div>
     </div>
     <div class="faq-item">
@@ -128,8 +149,12 @@
         <span class="faq-chevron" aria-hidden="true">&#9662;</span>
       </button>
       <div class="faq-answer" hidden>
-        <p>Leave data comes directly from Employment Hero and syncs into the scheduler. Each request is classified by weekday count: 1-2 days off keeps capacity the same, 3-4 days off cuts capacity for that week in half, and 5 days off marks the week as Full.</p>
-        <p>Leave automatically merges with company-wide closures or holidays, with the stricter rule taking priority. When an adviser is marked as Full, their clarify capacity resets to zero for that week (it does not roll forward), ensuring they are skipped in allocations until they return.</p>
+        <p>Leave data comes directly from Employment Hero and syncs into the scheduler. Each request is classified by
+          weekday count: 1-2 days off keeps capacity the same, 3-4 days off cuts capacity for that week in half, and 5
+          days off marks the week as Full.</p>
+        <p>Leave automatically merges with company-wide closures or holidays, with the stricter rule taking priority.
+          When an adviser is marked as Full, their clarify capacity resets to zero for that week (it does not roll
+          forward), ensuring they are skipped in allocations until they return.</p>
       </div>
     </div>
     <div class="faq-item">
@@ -138,8 +163,11 @@
         <span class="faq-chevron" aria-hidden="true">&#9662;</span>
       </button>
       <div class="faq-answer" hidden>
-        <p>A full-pod adviser typically manages about six clients per month (three per fortnight). For solo advisers or anyone still within their 90-day ramp-up, the system automatically reduces the target to four clients per month (two per fortnight).</p>
-        <p>All downstream logic - from backlog tracking to workload ratios - is calculated from that adjusted target so solo advisers are never overfilled and their earliest available week stays realistic.</p>
+        <p>A full-pod adviser typically manages about six clients per month (three per fortnight). For solo advisers or
+          anyone still within their 90-day ramp-up, the system automatically reduces the target to four clients per
+          month (two per fortnight).</p>
+        <p>All downstream logic - from backlog tracking to workload ratios - is calculated from that adjusted target so
+          solo advisers are never overfilled and their earliest available week stays realistic.</p>
       </div>
     </div>
     <div class="faq-item">
@@ -148,8 +176,13 @@
         <span class="faq-chevron" aria-hidden="true">&#9662;</span>
       </button>
       <div class="faq-answer" hidden>
-        <p>If an adviser's clarifies exceed their fortnight target, the extra work is logged as overflow. At the start of each new scheduling window, the system adds any overflow from previous weeks into the backlog, deducts spare capacity from the backlog each week going forward, and continues rolling over any remaining excess until the backlog clears.</p>
-        <p>In the capacity table, the Difference column shows how each week tracks: positive numbers indicate overload (overflow) and negative numbers show spare capacity. Overflow automatically pushes the adviser's next open slot further into the future until their workload returns to target.</p>
+        <p>If an adviser's clarifies exceed their fortnight target, the extra work is logged as overflow. At the start
+          of each new scheduling window, the system adds any overflow from previous weeks into the backlog, deducts
+          spare capacity from the backlog each week going forward, and continues rolling over any remaining excess until
+          the backlog clears.</p>
+        <p>In the capacity table, the Difference column shows how each week tracks: positive numbers indicate overload
+          (overflow) and negative numbers show spare capacity. Overflow automatically pushes the adviser's next open
+          slot further into the future until their workload returns to target.</p>
       </div>
     </div>
     <div class="faq-item">
@@ -158,8 +191,11 @@
         <span class="faq-chevron" aria-hidden="true">&#9662;</span>
       </button>
       <div class="faq-answer" hidden>
-        <p>Deal No Clarify lists clients in the onboarding pipeline who already have an adviser assigned but do not yet have a clarify meeting booked. These deals are grouped by their agreement start week and count toward each adviser's backlog until a meeting is scheduled.</p>
-        <p>In the dashboard, this column acts as a quick visual check, helping operations teams spot clients who still need to be booked in so that no one slips through the cracks.</p>
+        <p>Deal No Clarify lists clients in the onboarding pipeline who already have an adviser assigned but do not yet
+          have a clarify meeting booked. These deals are grouped by their agreement start week and count toward each
+          adviser's backlog until a meeting is scheduled.</p>
+        <p>In the dashboard, this column acts as a quick visual check, helping operations teams spot clients who still
+          need to be booked in so that no one slips through the cracks.</p>
       </div>
     </div>
   </div>
@@ -244,101 +280,101 @@
 {% block scripts %}
 {{ super() }}
 <script>
-(function() {
-  // Table sorting functionality
-  const table = document.querySelector('table');
-  if (table) {
-    const getCellValue = (td) => {
-      const v = td.getAttribute('data-value');
-      return v !== null ? Number(v) : td.textContent.trim().toLowerCase();
-    };
-    const comparer = (idx, numeric) => (a, b) => {
-      const ta = a.children[idx];
-      const tb = b.children[idx];
-      const va = getCellValue(ta);
-      const vb = getCellValue(tb);
-      if (numeric) return (va === vb ? 0 : va > vb ? 1 : -1);
-      return va.localeCompare(vb);
-    };
-    const ths = table.querySelectorAll('thead th');
-    ths.forEach((th, idx) => {
-      th.style.cursor = 'pointer';
-      th.addEventListener('click', () => {
-        const tbody = table.tBodies[0];
-        const rows = Array.from(tbody.querySelectorAll('tr'));
-        const isNum = th.getAttribute('data-sort') === 'num';
-        const asc = th.getAttribute('data-asc') !== 'true';
-        rows.sort(comparer(idx, isNum));
-        if (!asc) rows.reverse();
-        rows.forEach(r => tbody.appendChild(r));
-        ths.forEach(h => h.removeAttribute('data-asc'));
-        th.setAttribute('data-asc', asc ? 'true' : 'false');
+  (function () {
+    // Table sorting functionality
+    const table = document.querySelector('table');
+    if (table) {
+      const getCellValue = (td) => {
+        const v = td.getAttribute('data-value');
+        return v !== null ? Number(v) : td.textContent.trim().toLowerCase();
+      };
+      const comparer = (idx, numeric) => (a, b) => {
+        const ta = a.children[idx];
+        const tb = b.children[idx];
+        const va = getCellValue(ta);
+        const vb = getCellValue(tb);
+        if (numeric) return (va === vb ? 0 : va > vb ? 1 : -1);
+        return va.localeCompare(vb);
+      };
+      const ths = table.querySelectorAll('thead th');
+      ths.forEach((th, idx) => {
+        th.style.cursor = 'pointer';
+        th.addEventListener('click', () => {
+          const tbody = table.tBodies[0];
+          const rows = Array.from(tbody.querySelectorAll('tr'));
+          const isNum = th.getAttribute('data-sort') === 'num';
+          const asc = th.getAttribute('data-asc') !== 'true';
+          rows.sort(comparer(idx, isNum));
+          if (!asc) rows.reverse();
+          rows.forEach(r => tbody.appendChild(r));
+          ths.forEach(h => h.removeAttribute('data-asc'));
+          th.setAttribute('data-asc', asc ? 'true' : 'false');
+        });
       });
-    });
-  }
-
-  // Compute button functionality
-  const computeBtn = document.getElementById('computeBtn');
-  const agreementDateInput = document.getElementById('agreementStartDate');
-  const includeNoSelect = document.getElementById('includeNo');
-  const loadingDiv = document.getElementById('loading');
-
-  if (includeNoSelect && !includeNoSelect.value) {
-    includeNoSelect.value = '0';
-  }
-
-  if (computeBtn && agreementDateInput && includeNoSelect) {
-    computeBtn.addEventListener('click', function() {
-      const agreementDate = agreementDateInput.value;
-      const includeNo = includeNoSelect.value;
-      
-      if (!agreementDate) {
-        alert('Please select an agreement start date');
-        return;
-      }
-
-      // Show loading state
-      loadingDiv.style.display = 'block';
-      computeBtn.disabled = true;
-      computeBtn.textContent = 'Computing...';
-
-      // Build URL with parameters
-      const params = new URLSearchParams({
-        compute: '1',
-        agreement_start_date: agreementDate,
-        include_no: includeNo || '0'
-      });
-
-      // Redirect to same page with compute parameters
-      window.location.href = '?' + params.toString();
-    });
-  }
-
-  const helperToggle = document.getElementById('toggleHelpers');
-  if (helperToggle) {
-    const applyHelperState = () => {
-      document.body.classList.toggle('helpers-hidden', !helperToggle.checked);
-    };
-    helperToggle.addEventListener('change', applyHelperState);
-    applyHelperState();
-  }
-
-  // FAQ accordion toggle
-  const faqButtons = document.querySelectorAll('.faq-question');
-  faqButtons.forEach((btn) => {
-    const answer = btn.nextElementSibling;
-    if (answer) {
-      answer.hidden = true;
     }
-    btn.addEventListener('click', () => {
-      const expanded = btn.getAttribute('aria-expanded') === 'true';
-      const nextState = !expanded;
-      btn.setAttribute('aria-expanded', nextState ? 'true' : 'false');
+
+    // Compute button functionality
+    const computeBtn = document.getElementById('computeBtn');
+    const agreementDateInput = document.getElementById('agreementStartDate');
+    const includeNoSelect = document.getElementById('includeNo');
+    const loadingDiv = document.getElementById('loading');
+
+    if (includeNoSelect && !includeNoSelect.value) {
+      includeNoSelect.value = '0';
+    }
+
+    if (computeBtn && agreementDateInput && includeNoSelect) {
+      computeBtn.addEventListener('click', function () {
+        const agreementDate = agreementDateInput.value;
+        const includeNo = includeNoSelect.value;
+
+        if (!agreementDate) {
+          alert('Please select an agreement start date');
+          return;
+        }
+
+        // Show loading state
+        loadingDiv.style.display = 'block';
+        computeBtn.disabled = true;
+        computeBtn.textContent = 'Computing...';
+
+        // Build URL with parameters
+        const params = new URLSearchParams({
+          compute: '1',
+          agreement_start_date: agreementDate,
+          include_no: includeNo || '0'
+        });
+
+        // Redirect to same page with compute parameters
+        window.location.href = '?' + params.toString();
+      });
+    }
+
+    const helperToggle = document.getElementById('toggleHelpers');
+    if (helperToggle) {
+      const applyHelperState = () => {
+        document.body.classList.toggle('helpers-hidden', !helperToggle.checked);
+      };
+      helperToggle.addEventListener('change', applyHelperState);
+      applyHelperState();
+    }
+
+    // FAQ accordion toggle
+    const faqButtons = document.querySelectorAll('.faq-question');
+    faqButtons.forEach((btn) => {
+      const answer = btn.nextElementSibling;
       if (answer) {
-        answer.hidden = !nextState;
+        answer.hidden = true;
       }
+      btn.addEventListener('click', () => {
+        const expanded = btn.getAttribute('aria-expanded') === 'true';
+        const nextState = !expanded;
+        btn.setAttribute('aria-expanded', nextState ? 'true' : 'false');
+        if (answer) {
+          answer.hidden = !nextState;
+        }
+      });
     });
-  });
-})();
+  })();
 </script>
 {% endblock %}

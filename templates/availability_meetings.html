@@ -25,17 +25,20 @@
     <div>
       <label for="weeksBack">Weeks of history</label>
       <input type="number" min="1" max="52" id="weeksBack" value="{{ weeks_back }}" />
-      <span class="col-helper">Starting from the Monday {{ since_label if since_label else 'derived from weeks back' }}</span>
+      <span class="col-helper">Starting from the Monday {{ since_label if since_label else 'derived from weeks back'
+        }}</span>
     </div>
     <div>
-      <button id="fetchBtn" class="primary">Fetch meetings</button>
+      <button id="fetchBtn">Fetch meetings</button>
     </div>
   </div>
-  <p class="muted" style="margin-top:12px;">Times are shown in Sydney. Window includes any future meetings after the start date.</p>
+  <p class="muted" style="margin-top:12px;">Times are shown in Sydney. Window includes any future meetings after the
+    start date.</p>
 </div>
 
 {% if compute and selected and not error_msg %}
-  <p class="muted" style="margin: 8px 0 4px 0;">Showing meetings for <strong>{{ selected }}</strong> since <strong>{{ since_label }}</strong> ({{ weeks_back }} week{{ 's' if weeks_back|int != 1 else '' }} back).</p>
+<p class="muted" style="margin: 8px 0 4px 0;">Showing meetings for <strong>{{ selected }}</strong> since <strong>{{
+    since_label }}</strong> ({{ weeks_back }} week{{ 's' if weeks_back|int != 1 else '' }} back).</p>
 {% endif %}
 
 <table>
@@ -51,30 +54,37 @@
   </thead>
   <tbody>
     {% if error_msg %}
-      <tr><td colspan="6" style="color:var(--err);">{{ error_msg }}</td></tr>
+    <tr>
+      <td colspan="6" style="color:var(--err);">{{ error_msg }}</td>
+    </tr>
     {% elif compute and selected %}
-      {% if rows %}
-        {% for m in rows %}
-          <tr>
-            <td class="nowrap">{{ m.date }}</td>
-            <td class="nowrap">{{ m.time }}</td>
-            <td><span class="pill pill-{{ m.type|lower|replace(' ', '-') }}">{{ m.type }}</span></td>
-            <td>{{ m.title }}</td>
-            <td>{{ m.outcome }}</td>
-            <td>
-              {% if m.link %}
-                <a href="{{ m.link }}" target="_blank" rel="noopener">Open</a>
-              {% else %}
-                —
-              {% endif %}
-            </td>
-          </tr>
-        {% endfor %}
-      {% else %}
-        <tr><td colspan="6">No meetings found for this window.</td></tr>
-      {% endif %}
+    {% if rows %}
+    {% for m in rows %}
+    <tr>
+      <td class="nowrap">{{ m.date }}</td>
+      <td class="nowrap">{{ m.time }}</td>
+      <td><span class="pill pill-{{ m.type|lower|replace(' ', '-') }}">{{ m.type }}</span></td>
+      <td>{{ m.title }}</td>
+      <td>{{ m.outcome }}</td>
+      <td>
+        {% if m.link %}
+        <a href="{{ m.link }}" target="_blank" rel="noopener">Open</a>
+        {% else %}
+        —
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
     {% else %}
-      <tr><td colspan="6" style="text-align:center;color:var(--muted);padding:24px;">Select an adviser and click "Fetch meetings" to list Clarify/Kick Off bookings.</td></tr>
+    <tr>
+      <td colspan="6">No meetings found for this window.</td>
+    </tr>
+    {% endif %}
+    {% else %}
+    <tr>
+      <td colspan="6" style="text-align:center;color:var(--muted);padding:24px;">Select an adviser and click "Fetch
+        meetings" to list Clarify/Kick Off bookings.</td>
+    </tr>
     {% endif %}
   </tbody>
 </table>
@@ -91,42 +101,56 @@
     background: #e4e9f2;
     color: #1a2b4c;
   }
-  .pill-clarify { background: #e6f4ea; color: #1b4332; }
-  .pill-kick-off { background: #e8f0fe; color: #1a237e; }
-  .guide-card h3 { margin: 0; }
-  .inline-guide-title { margin: 0 0 8px 0; }
+
+  .pill-clarify {
+    background: #e6f4ea;
+    color: #1b4332;
+  }
+
+  .pill-kick-off {
+    background: #e8f0fe;
+    color: #1a237e;
+  }
+
+  .guide-card h3 {
+    margin: 0;
+  }
+
+  .inline-guide-title {
+    margin: 0 0 8px 0;
+  }
 </style>
 {% endblock %}
 
 {% block scripts %}
 <script>
-(function(){
-  const adviserSelect = document.getElementById('adviserSelect');
-  const weeksBackInput = document.getElementById('weeksBack');
-  const fetchBtn = document.getElementById('fetchBtn');
-  const currentSelected = "{{ selected }}";
+  (function () {
+    const adviserSelect = document.getElementById('adviserSelect');
+    const weeksBackInput = document.getElementById('weeksBack');
+    const fetchBtn = document.getElementById('fetchBtn');
+    const currentSelected = "{{ selected }}";
 
-  if (currentSelected && adviserSelect) {
-    adviserSelect.value = currentSelected;
-  }
+    if (currentSelected && adviserSelect) {
+      adviserSelect.value = currentSelected;
+    }
 
-  if (fetchBtn) {
-    fetchBtn.addEventListener('click', function() {
-      const adviser = adviserSelect ? adviserSelect.value : '';
-      const weeksBackRaw = weeksBackInput ? weeksBackInput.value : '8';
-      if (!adviser) {
-        alert('Please select an adviser');
-        return;
-      }
-      const weeks = Math.min(52, Math.max(1, parseInt(weeksBackRaw || '8', 10)));
-      const params = new URLSearchParams({
-        compute: '1',
-        email: adviser,
-        weeks_back: String(weeks)
+    if (fetchBtn) {
+      fetchBtn.addEventListener('click', function () {
+        const adviser = adviserSelect ? adviserSelect.value : '';
+        const weeksBackRaw = weeksBackInput ? weeksBackInput.value : '8';
+        if (!adviser) {
+          alert('Please select an adviser');
+          return;
+        }
+        const weeks = Math.min(52, Math.max(1, parseInt(weeksBackRaw || '8', 10)));
+        const params = new URLSearchParams({
+          compute: '1',
+          email: adviser,
+          weeks_back: String(weeks)
+        });
+        window.location.href = '?' + params.toString();
       });
-      window.location.href = '?' + params.toString();
-    });
-  }
-})();
+    }
+  })();
 </script>
 {% endblock %}

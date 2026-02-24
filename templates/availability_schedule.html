@@ -17,7 +17,12 @@
   <div class="card-header">
     <h3>Compute Schedule</h3>
     <label class="helper-toggle" title="Toggle helper content">
-      <input type="checkbox" id="toggleHelpers" checked>
+      <label class="toggle-switch" title="Toggle extra visualization helpers"
+        style="margin: 0; display: inline-flex; align-items: center; gap: 8px; cursor: pointer;">
+        <input type="checkbox" id="toggleHelpers" checked>
+        <span class="toggle-slider"></span>
+        <span style="font-size: 0.9em; font-weight: 500; color: var(--text);">Helpers</span>
+      </label>
       Show helper tips
     </label>
   </div>
@@ -39,7 +44,7 @@
       <input type="date" id="agreementStartDate" value="{{ default_date }}" />
     </div>
     <div>
-      <button id="computeBtn" class="primary">Compute Schedule</button>
+      <button id="computeBtn">Compute Schedule</button>
     </div>
   </div>
   <div id="loading" style="display:none;margin-top:12px;color:var(--muted);">
@@ -47,7 +52,7 @@
   </div>
 </div>
 
-<div class="row" {% if not compute or not selected %}style="display:none"{% endif %}>
+<div class="row" {% if not compute or not selected %}style="display:none" {% endif %}>
   <button id="toggle-edit" class="secondary" style="margin-left:8px">Edit</button>
   <button id="done-edit" class="secondary" style="display:none;margin-left:4px">Done</button>
   <button id="reset-edit" class="secondary" style="display:none;margin-left:4px">Reset</button>
@@ -64,7 +69,8 @@
       </th>
       <th>
         Out Of Office
-        <span class="tooltip-icon" data-tooltip="Accounts for both personal leave and business wide events" tabindex="0">?</span>
+        <span class="tooltip-icon" data-tooltip="Accounts for both personal leave and business wide events"
+          tabindex="0">?</span>
       </th>
       <th>
         Booked Clarifies
@@ -72,41 +78,52 @@
       </th>
       <th>
         Clarifies Not Yet Booked
-        <span class="tooltip-icon" data-tooltip="Number of deals that have not yet booked a clarify that will i.e. require provisioning in the scheduler." tabindex="0">?</span>
+        <span class="tooltip-icon"
+          data-tooltip="Number of deals that have not yet booked a clarify that will i.e. require provisioning in the scheduler."
+          tabindex="0">?</span>
       </th>
       <th>
         Capacity Utilised
-        <span class="tooltip-icon" data-tooltip="Total of booked and not yet booked, including outstanding overflow from prior fortnights." tabindex="0">?</span>
+        <span class="tooltip-icon"
+          data-tooltip="Total of booked and not yet booked, including outstanding overflow from prior fortnights."
+          tabindex="0">?</span>
       </th>
       <th>
         Fortnightly Target
-        <span class="tooltip-icon" data-tooltip="Maximum number of clarifies to be completed in a given fortnight" tabindex="0">?</span>
+        <span class="tooltip-icon" data-tooltip="Maximum number of clarifies to be completed in a given fortnight"
+          tabindex="0">?</span>
       </th>
       <th>
         Variance
-        <span class="tooltip-icon" data-tooltip="Utilised less target. Overflow will carry forward to the next fortnight" tabindex="0">?</span>
+        <span class="tooltip-icon"
+          data-tooltip="Utilised less target. Overflow will carry forward to the next fortnight" tabindex="0">?</span>
       </th>
     </tr>
   </thead>
   <tbody>
     {% if compute and selected and rows %}
-      {% for r in rows %}
-        <tr{% if r.is_earliest %} class="hl"{% endif %}>
-          <td>{{ r.wk_label }}</td>
-          <td class="nowrap">{{ r.monday }}</td>
-          <td data-field="ooo">{{ r.ooo }}</td>
-          <td data-field="clarify">{{ r.clarify }}</td>
-          <td data-field="deals">{{ r.deals }}</td>
-          <td data-field="actual">{{ r.actual }}</td>
-          <td data-field="target">{{ r.target }}</td>
-          <td data-field="diff">{{ r.diff }}</td>
-        </tr>
+    {% for r in rows %}
+    <tr{% if r.is_earliest %} class="hl" {% endif %}>
+      <td>{{ r.wk_label }}</td>
+      <td class="nowrap">{{ r.monday }}</td>
+      <td data-field="ooo">{{ r.ooo }}</td>
+      <td data-field="clarify">{{ r.clarify }}</td>
+      <td data-field="deals">{{ r.deals }}</td>
+      <td data-field="actual">{{ r.actual }}</td>
+      <td data-field="target">{{ r.target }}</td>
+      <td data-field="diff">{{ r.diff }}</td>
+      </tr>
       {% endfor %}
-    {% elif compute and selected and not rows %}
-      <tr><td colspan="8">No schedule data found for the selected adviser.</td></tr>
-    {% else %}
-      <tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px;">Select an adviser and click "Compute Schedule" to view weekly capacity data.</td></tr>
-    {% endif %}
+      {% elif compute and selected and not rows %}
+      <tr>
+        <td colspan="8">No schedule data found for the selected adviser.</td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="8" style="text-align:center;color:var(--muted);padding:24px;">Select an adviser and click "Compute
+          Schedule" to view weekly capacity data.</td>
+      </tr>
+      {% endif %}
   </tbody>
 </table>
 
@@ -177,162 +194,162 @@
 
 {% block scripts %}
 <script>
-(function(){
-  // Compute button functionality
-  const computeBtn = document.getElementById('computeBtn');
-  const adviserSelect = document.getElementById('adviserSelect');
-  const agreementDateInput = document.getElementById('agreementStartDate');
-  const loadingDiv = document.getElementById('loading');
+  (function () {
+    // Compute button functionality
+    const computeBtn = document.getElementById('computeBtn');
+    const adviserSelect = document.getElementById('adviserSelect');
+    const agreementDateInput = document.getElementById('agreementStartDate');
+    const loadingDiv = document.getElementById('loading');
 
-  if (computeBtn && adviserSelect && agreementDateInput) {
-    // Set initial adviser selection if we have one
-    const currentSelected = "{{ selected }}";
-    if (currentSelected) {
-      adviserSelect.value = currentSelected;
+    if (computeBtn && adviserSelect && agreementDateInput) {
+      // Set initial adviser selection if we have one
+      const currentSelected = "{{ selected }}";
+      if (currentSelected) {
+        adviserSelect.value = currentSelected;
+      }
+
+      computeBtn.addEventListener('click', function () {
+        const selectedAdviser = adviserSelect.value;
+        const agreementDate = agreementDateInput.value;
+
+        if (!selectedAdviser) {
+          alert('Please select an adviser');
+          return;
+        }
+
+        if (!agreementDate) {
+          alert('Please select an agreement start date');
+          return;
+        }
+
+        // Show loading state
+        loadingDiv.style.display = 'block';
+        computeBtn.disabled = true;
+        computeBtn.textContent = 'Computing...';
+
+        // Build URL with parameters (include all advisers)
+        const params = new URLSearchParams({
+          compute: '1',
+          email: selectedAdviser,
+          agreement_start_date: agreementDate,
+          include_no: '1'
+        });
+
+        // Redirect to same page with compute parameters
+        window.location.href = '?' + params.toString();
+      });
     }
 
-    computeBtn.addEventListener('click', function() {
-      const selectedAdviser = adviserSelect.value;
-      const agreementDate = agreementDateInput.value;
-      
-      if (!selectedAdviser) {
-        alert('Please select an adviser');
-        return;
-      }
-      
-      if (!agreementDate) {
-        alert('Please select an agreement start date');
-        return;
-      }
+    const helperToggle = document.getElementById('toggleHelpers');
+    if (helperToggle) {
+      const applyHelperState = () => {
+        document.body.classList.toggle('helpers-hidden', !helperToggle.checked);
+      };
+      helperToggle.addEventListener('change', applyHelperState);
+      applyHelperState();
+    }
 
-      // Show loading state
-      loadingDiv.style.display = 'block';
-      computeBtn.disabled = true;
-      computeBtn.textContent = 'Computing...';
+    // Edit functionality
+    const editBtn = document.getElementById('toggle-edit');
+    const doneBtn = document.getElementById('done-edit');
+    const resetBtn = document.getElementById('reset-edit');
+    const table = document.querySelector('table');
+    if (!table) return;
 
-      // Build URL with parameters (include all advisers)
-      const params = new URLSearchParams({
-        compute: '1',
-        email: selectedAdviser,
-        agreement_start_date: agreementDate,
-        include_no: '1'
+    function getNumFromCell(td) {
+      if (!td) return 0;
+      const input = td.querySelector('input');
+      const raw = input ? input.value : (td.dataset.value || td.textContent || '0');
+      const n = parseFloat(String(raw).replace(/[^0-9.-]/g, ''));
+      return isNaN(n) ? 0 : n;
+    }
+
+    function recalc() {
+      const rows = Array.from(table.querySelectorAll('tbody tr'));
+      let prevClarify = 0;
+      rows.forEach(tr => {
+        const tdClarify = tr.querySelector('td[data-field="clarify"]');
+        const tdTarget = tr.querySelector('td[data-field="target"]');
+        const tdActual = tr.querySelector('td[data-field="actual"]');
+        const tdDiff = tr.querySelector('td[data-field="diff"]');
+        const tdOoo = tr.querySelector('td[data-field="ooo"]');
+        const oooRaw = (tdOoo ? tdOoo.textContent : '').trim().toLowerCase();
+        const isFull = oooRaw.startsWith('full');
+        const c = getNumFromCell(tdClarify);
+        const t = getNumFromCell(tdTarget);
+
+        if (isFull) {
+          const diff = 0 - t;
+          if (tdActual) tdActual.textContent = '0';
+          if (tdDiff) tdDiff.textContent = String(diff);
+          return;
+        }
+
+        const actual = c + prevClarify;
+        const diff = actual - t;
+        if (tdActual) tdActual.textContent = String(actual);
+        if (tdDiff) tdDiff.textContent = String(diff);
+        prevClarify = c;
       });
+    }
 
-      // Redirect to same page with compute parameters
-      window.location.href = '?' + params.toString();
-    });
-  }
-
-  const helperToggle = document.getElementById('toggleHelpers');
-  if (helperToggle) {
-    const applyHelperState = () => {
-      document.body.classList.toggle('helpers-hidden', !helperToggle.checked);
-    };
-    helperToggle.addEventListener('change', applyHelperState);
-    applyHelperState();
-  }
-
-  // Edit functionality
-  const editBtn=document.getElementById('toggle-edit');
-  const doneBtn=document.getElementById('done-edit');
-  const resetBtn=document.getElementById('reset-edit');
-  const table=document.querySelector('table');
-  if(!table) return;
-
-  function getNumFromCell(td){
-    if(!td) return 0;
-    const input = td.querySelector('input');
-    const raw = input ? input.value : (td.dataset.value || td.textContent || '0');
-    const n = parseFloat(String(raw).replace(/[^0-9.-]/g,''));
-    return isNaN(n) ? 0 : n;
-  }
-
-  function recalc(){
-    const rows = Array.from(table.querySelectorAll('tbody tr'));
-    let prevClarify = 0;
-    rows.forEach(tr => {
-      const tdClarify = tr.querySelector('td[data-field="clarify"]');
-      const tdTarget  = tr.querySelector('td[data-field="target"]');
-      const tdActual  = tr.querySelector('td[data-field="actual"]');
-      const tdDiff    = tr.querySelector('td[data-field="diff"]');
-      const tdOoo     = tr.querySelector('td[data-field="ooo"]');
-      const oooRaw    = (tdOoo ? tdOoo.textContent : '').trim().toLowerCase();
-      const isFull    = oooRaw.startsWith('full');
-      const c = getNumFromCell(tdClarify);
-      const t = getNumFromCell(tdTarget);
-
-      if (isFull) {
-        const diff = 0 - t;
-        if(tdActual) tdActual.textContent = '0';
-        if(tdDiff) tdDiff.textContent = String(diff);
-        return;
-      }
-
-      const actual = c + prevClarify;
-      const diff = actual - t;
-      if(tdActual) tdActual.textContent = String(actual);
-      if(tdDiff) tdDiff.textContent = String(diff);
-      prevClarify = c;
-    });
-  }
-
-  function enterEdit(){
-    doneBtn.style.display='inline-block';
-    resetBtn.style.display='inline-block';
-    editBtn.style.display='none';
-    Array.from(table.querySelectorAll('tbody tr')).forEach(tr => {
-      ['clarify','deals'].forEach(f => {
-        const td = tr.querySelector(`td[data-field="${f}"]`);
-        if(!td) return;
-        const val = (td.dataset.value || td.textContent || '0').trim();
-        td.dataset.value = val;
-        if(!td.dataset.original){ td.dataset.original = val; }
-        td.innerHTML = `<input type="number" min="0" step="1" value="${val}">`;
+    function enterEdit() {
+      doneBtn.style.display = 'inline-block';
+      resetBtn.style.display = 'inline-block';
+      editBtn.style.display = 'none';
+      Array.from(table.querySelectorAll('tbody tr')).forEach(tr => {
+        ['clarify', 'deals'].forEach(f => {
+          const td = tr.querySelector(`td[data-field="${f}"]`);
+          if (!td) return;
+          const val = (td.dataset.value || td.textContent || '0').trim();
+          td.dataset.value = val;
+          if (!td.dataset.original) { td.dataset.original = val; }
+          td.innerHTML = `<input type="number" min="0" step="1" value="${val}">`;
+        });
       });
-    });
-    recalc();
-  }
+      recalc();
+    }
 
-  function exitEdit(){
-    doneBtn.style.display='none';
-    resetBtn.style.display='none';
-    editBtn.style.display='inline-block';
-    Array.from(table.querySelectorAll('tbody tr')).forEach(tr => {
-      ['clarify','deals'].forEach(f => {
-        const td = tr.querySelector(`td[data-field="${f}"]`);
-        if(!td) return;
-        const input = td.querySelector('input');
-        const val = input ? input.value : (td.textContent || '0');
-        td.textContent = val;
-        td.dataset.value = val;
+    function exitEdit() {
+      doneBtn.style.display = 'none';
+      resetBtn.style.display = 'none';
+      editBtn.style.display = 'inline-block';
+      Array.from(table.querySelectorAll('tbody tr')).forEach(tr => {
+        ['clarify', 'deals'].forEach(f => {
+          const td = tr.querySelector(`td[data-field="${f}"]`);
+          if (!td) return;
+          const input = td.querySelector('input');
+          const val = input ? input.value : (td.textContent || '0');
+          td.textContent = val;
+          td.dataset.value = val;
+        });
       });
-    });
-    recalc();
-  }
+      recalc();
+    }
 
-  function resetEdit(){
-    Array.from(table.querySelectorAll('tbody tr')).forEach(tr => {
-      ['clarify','deals'].forEach(f => {
-        const td = tr.querySelector(`td[data-field="${f}"]`);
-        if(!td) return;
-        const orig = td.dataset.original || td.dataset.value || '0';
-        const input = td.querySelector('input');
-        if(input){ input.value = orig; }
-        td.dataset.value = orig;
+    function resetEdit() {
+      Array.from(table.querySelectorAll('tbody tr')).forEach(tr => {
+        ['clarify', 'deals'].forEach(f => {
+          const td = tr.querySelector(`td[data-field="${f}"]`);
+          if (!td) return;
+          const orig = td.dataset.original || td.dataset.value || '0';
+          const input = td.querySelector('input');
+          if (input) { input.value = orig; }
+          td.dataset.value = orig;
+        });
       });
-    });
-    recalc();
-  }
+      recalc();
+    }
 
-  function onInput(e){
-    const el = e.target;
-    if(el && el.tagName === 'INPUT') recalc();
-  }
+    function onInput(e) {
+      const el = e.target;
+      if (el && el.tagName === 'INPUT') recalc();
+    }
 
-  if(editBtn) editBtn.addEventListener('click', enterEdit);
-  if(doneBtn) doneBtn.addEventListener('click', exitEdit);
-  if(resetBtn) resetBtn.addEventListener('click', resetEdit);
-  table.addEventListener('input', onInput);
-})();
+    if (editBtn) editBtn.addEventListener('click', enterEdit);
+    if (doneBtn) doneBtn.addEventListener('click', exitEdit);
+    if (resetBtn) resetBtn.addEventListener('click', resetEdit);
+    table.addEventListener('input', onInput);
+  })();
 </script>
 {% endblock %}
