@@ -72,19 +72,27 @@ ignore = [
     "F811",    # redefinition of unused name
     "F841",    # local variable assigned but never used
     "B904",    # raise from (existing code pattern)
+    "B905",    # zip without strict (existing code)
+    "B017",    # pytest.raises(Exception) (existing code)
+    "C414",    # unnecessary list() in sorted() (existing code)
     "PLW0602", # global without assignment
     "PLW0603", # global statement
+    "PLW1510", # subprocess.run without check (existing code)
     "PLW2901", # loop variable overwritten
+    "PLW3301", # nested min/max calls (existing code)
     "B007",    # unused loop variable
     "C416",    # unnecessary list comprehension
     "PLR0911", # too-many-return-statements (existing code)
     "PLR0912", # too-many-branches (existing code)
     "PLR0913", # too-many-arguments (existing code)
     "PLR0915", # too-many-statements (existing code)
+    "PLR1730", # replace if with min/max (existing code)
+    "PLR1733", # unnecessary dict key lookup (existing code)
     "PLR2004", # magic-value-comparison (existing code)
     "PLR0914", # too-many-locals (existing code)
     "PLR1702", # too-many-nested-blocks (existing code)
     "PLR0917", # too-many-positional-arguments (existing code)
+    "PLR5501", # use elif instead of else-if (existing code)
 ]
 
 # Coding law limits (warn, don't block existing code)
@@ -96,6 +104,7 @@ max-statements = 50    # Law: max ~50 lines per function
 "__init__.py" = ["F401"]
 "tests/*" = ["T201"]
 "scripts/*" = ["T201"]
+"src/adviser_allocation/skills/*" = ["T201"]
 
 [tool.ruff.format]
 quote-style = "double"
