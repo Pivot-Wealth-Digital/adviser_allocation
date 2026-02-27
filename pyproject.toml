@@ -79,6 +79,8 @@ ignore = [
     "C416",    # unnecessary list comprehension
     "PLR0911", # too-many-return-statements (existing code)
     "PLR0912", # too-many-branches (existing code)
+    "PLR0913", # too-many-arguments (existing code)
+    "PLR0915", # too-many-statements (existing code)
     "PLR2004", # magic-value-comparison (existing code)
     "PLR0914", # too-many-locals (existing code)
     "PLR1702", # too-many-nested-blocks (existing code)
