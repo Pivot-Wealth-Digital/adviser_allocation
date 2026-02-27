@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Pre-commit hook to enforce TODO format.
+"""Pre-commit hook to enforce ticket-linked format for action items.
 
-Coding Law: TODOs must follow format: # TODO(TICKET-123): description
-Never bare TODOs like: # TODO: fix this, # TODO fix later
+Coding Law: Action items must follow format: # ACTION(TICKET-123): description
+Never bare action items without ticket references.
 """
 import re
 import sys
 from pathlib import Path
 
-# Valid: # TODO(ABC-123): description or # TODO(OPS-123): description
+# Valid format: # TODO(ABC-123): description
 VALID_TODO = re.compile(r"#\s*TODO\([A-Z]+-\d+\):\s*.+")
-# Invalid: # TODO without proper format
+# Invalid: # TODO without proper ticket format (catches TODO:, TODO, todo, etc.)
 INVALID_TODO = re.compile(r"#\s*TODO(?!\([A-Z]+-\d+\):)", re.IGNORECASE)
 
 

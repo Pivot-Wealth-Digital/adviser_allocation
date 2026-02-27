@@ -41,6 +41,7 @@ repos:
         language: python
         types: [python]
         pass_filenames: true
+        exclude: ^scripts/check_
 
       - id: check-generic-names
         name: Check generic variable names (warning)
