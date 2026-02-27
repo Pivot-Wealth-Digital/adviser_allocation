@@ -4,7 +4,7 @@
 {% block content %}
 <div class="topbar">
   <div style="display: flex; align-items: center; gap: 16px;">
-    <a href="/" style="color: #d0d7e2; text-decoration: none; font-size: 0.9em;">← Home</a>
+    <a href="/" style="color: var(--muted); text-decoration: none; font-size: 0.9em;">← Home</a>
     <h2>Allocation History</h2>
   </div>
   <div class="datebox"><span>Today: {{ today }}</span><span>Week: {{ week_num }}</span></div>
@@ -44,79 +44,84 @@
   </div>
 
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-top:16px;">
-    <div style="border:1px solid var(--border);border-radius:8px;padding:12px;background:var(--card);">
+    <div
+      style="border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;background:var(--card);box-shadow:var(--shadow-sm);">
       <h4>Status Breakdown</h4>
       {% if status_stats %}
-        <ul style="list-style:none;margin:0;padding:0;">
-          {% for item in status_stats %}
-            <li style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);">
-              <span>{{ item.label }}</span>
-              <span style="font-weight:600;">{{ item.count }}</span>
-            </li>
-          {% endfor %}
-        </ul>
+      <ul style="list-style:none;margin:0;padding:0;">
+        {% for item in status_stats %}
+        <li style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);">
+          <span>{{ item.label }}</span>
+          <span style="font-weight:600;">{{ item.count }}</span>
+        </li>
+        {% endfor %}
+      </ul>
       {% else %}
-        <p class="muted">No data yet</p>
+      <p class="muted">No data yet</p>
       {% endif %}
     </div>
-    <div style="border:1px solid var(--border);border-radius:8px;padding:12px;background:var(--card);">
+    <div
+      style="border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;background:var(--card);box-shadow:var(--shadow-sm);">
       <h4>Top Service Packages</h4>
       {% if service_stats %}
-        <ul style="list-style:none;margin:0;padding:0;">
-          {% for item in service_stats %}
-            <li style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);">
-              <span>{{ item.label }}</span>
-              <span style="font-weight:600;">{{ item.count }}</span>
-            </li>
-          {% endfor %}
-        </ul>
+      <ul style="list-style:none;margin:0;padding:0;">
+        {% for item in service_stats %}
+        <li style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);">
+          <span>{{ item.label }}</span>
+          <span style="font-weight:600;">{{ item.count }}</span>
+        </li>
+        {% endfor %}
+      </ul>
       {% else %}
-        <p class="muted">No data yet</p>
+      <p class="muted">No data yet</p>
       {% endif %}
     </div>
-    <div style="border:1px solid var(--border);border-radius:8px;padding:12px;background:var(--card);">
+    <div
+      style="border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;background:var(--card);box-shadow:var(--shadow-sm);">
       <h4>Top Household Types</h4>
       {% if household_stats %}
-        <ul style="list-style:none;margin:0;padding:0;">
-          {% for item in household_stats %}
-            <li style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);">
-              <span>{{ item.label }}</span>
-              <span style="font-weight:600;">{{ item.count }}</span>
-            </li>
-          {% endfor %}
-        </ul>
+      <ul style="list-style:none;margin:0;padding:0;">
+        {% for item in household_stats %}
+        <li style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);">
+          <span>{{ item.label }}</span>
+          <span style="font-weight:600;">{{ item.count }}</span>
+        </li>
+        {% endfor %}
+      </ul>
       {% else %}
-        <p class="muted">No data yet</p>
+      <p class="muted">No data yet</p>
       {% endif %}
     </div>
-    <div style="border:1px solid var(--border);border-radius:8px;padding:12px;background:var(--card);">
+    <div
+      style="border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;background:var(--card);box-shadow:var(--shadow-sm);">
       <h4>Top Advisers</h4>
       {% if adviser_stats %}
-        <ul style="list-style:none;margin:0;padding:0;">
-          {% for item in adviser_stats %}
-            <li style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);">
-              <span>{{ item.label }}</span>
-              <span style="font-weight:600;">{{ item.count }}</span>
-            </li>
-          {% endfor %}
-        </ul>
+      <ul style="list-style:none;margin:0;padding:0;">
+        {% for item in adviser_stats %}
+        <li style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);">
+          <span>{{ item.label }}</span>
+          <span style="font-weight:600;">{{ item.count }}</span>
+        </li>
+        {% endfor %}
+      </ul>
       {% else %}
-        <p class="muted">No data yet</p>
+      <p class="muted">No data yet</p>
       {% endif %}
     </div>
-    <div style="border:1px solid var(--border);border-radius:8px;padding:12px;background:var(--card);">
+    <div
+      style="border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;background:var(--card);box-shadow:var(--shadow-sm);">
       <h4>Source Breakdown</h4>
       {% if source_stats %}
-        <ul style="list-style:none;margin:0;padding:0;">
-          {% for item in source_stats %}
-            <li style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);">
-              <span>{{ item.label }}</span>
-              <span style="font-weight:600;">{{ item.count }}</span>
-            </li>
-          {% endfor %}
-        </ul>
+      <ul style="list-style:none;margin:0;padding:0;">
+        {% for item in source_stats %}
+        <li style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);">
+          <span>{{ item.label }}</span>
+          <span style="font-weight:600;">{{ item.count }}</span>
+        </li>
+        {% endfor %}
+      </ul>
       {% else %}
-        <p class="muted">No data yet</p>
+      <p class="muted">No data yet</p>
       {% endif %}
     </div>
   </div>
@@ -128,10 +133,10 @@
     <div>
       <label for="daysFilter">Time Period</label>
       <select id="daysFilter" onchange="applyFilters()">
-        <option value="7" {% if days_filter == 7 %}selected{% endif %}>Last 7 days</option>
-        <option value="30" {% if days_filter == 30 %}selected{% endif %}>Last 30 days</option>
-        <option value="90" {% if days_filter == 90 %}selected{% endif %}>Last 90 days</option>
-        <option value="365" {% if days_filter == 365 %}selected{% endif %}>Last year</option>
+        <option value="7" {% if days_filter==7 %}selected{% endif %}>Last 7 days</option>
+        <option value="30" {% if days_filter==30 %}selected{% endif %}>Last 30 days</option>
+        <option value="90" {% if days_filter==90 %}selected{% endif %}>Last 90 days</option>
+        <option value="365" {% if days_filter==365 %}selected{% endif %}>Last year</option>
       </select>
     </div>
     <div>
@@ -139,9 +144,9 @@
       <select id="statusFilter" onchange="applyFilters()">
         <option value="">All Statuses</option>
         {% for status in unique_statuses %}
-          <option value="{{ status }}" {% if status_filter == status %}selected{% endif %}>
-            {{ status.title() }}
-          </option>
+        <option value="{{ status }}" {% if status_filter==status %}selected{% endif %}>
+          {{ status.title() }}
+        </option>
         {% endfor %}
       </select>
     </div>
@@ -150,9 +155,9 @@
       <select id="dealFilter" onchange="applyFilters()">
         <option value="">All Deals ({{ unique_deals|length }})</option>
         {% for deal in unique_deals %}
-          <option value="{{ deal }}" {% if deal_filter == deal %}selected{% endif %}>
-            {{ deal }}
-          </option>
+        <option value="{{ deal }}" {% if deal_filter==deal %}selected{% endif %}>
+          {{ deal }}
+        </option>
         {% endfor %}
       </select>
     </div>
@@ -161,9 +166,9 @@
       <select id="adviserFilter" onchange="applyFilters()">
         <option value="">All Advisers ({{ unique_advisers|length }})</option>
         {% for adviser in unique_advisers %}
-          <option value="{{ adviser }}" {% if adviser_filter == adviser %}selected{% endif %}>
-            {{ adviser }}
-          </option>
+        <option value="{{ adviser }}" {% if adviser_filter==adviser %}selected{% endif %}>
+          {{ adviser }}
+        </option>
         {% endfor %}
       </select>
     </div>
@@ -171,7 +176,7 @@
       <label for="pageSizeSelect">Rows per page</label>
       <select id="pageSizeSelect" onchange="applyFilters()">
         {% for size in [10, 25, 50, 100, 200] %}
-          <option value="{{ size }}" {% if page_size == size %}selected{% endif %}>{{ size }}</option>
+        <option value="{{ size }}" {% if page_size==size %}selected{% endif %}>{{ size }}</option>
         {% endfor %}
       </select>
     </div>
@@ -189,18 +194,18 @@
     {% if status_filter or deal_filter or adviser_filter %}filtered{% endif %} allocation requests
     from the last <strong>{{ days_filter }} days</strong>
   </p>
-  
+
   {% if total_count == 0 %}
-    <div style="text-align: center; padding: 40px; color: var(--muted);">
-      <h4>📋 No Allocation Requests Found</h4>
-      {% if status_filter or deal_filter or adviser_filter %}
-        <p>No allocation requests match the current filters.</p>
-        <button onclick="clearFilters()" class="secondary">Clear Filters</button>
-      {% else %}
-        <p>No allocation requests have been received in the selected time period.</p>
-        <p style="font-size: 0.9em;">Requests will appear here when sent to the webhook endpoint.</p>
-      {% endif %}
-    </div>
+  <div style="text-align: center; padding: 40px; color: var(--muted);">
+    <h4>📋 No Allocation Requests Found</h4>
+    {% if status_filter or deal_filter or adviser_filter %}
+    <p>No allocation requests match the current filters.</p>
+    <button onclick="clearFilters()" class="secondary">Clear Filters</button>
+    {% else %}
+    <p>No allocation requests have been received in the selected time period.</p>
+    <p style="font-size: 0.9em;">Requests will appear here when sent to the webhook endpoint.</p>
+    {% endif %}
+  </div>
   {% endif %}
 </div>
 
@@ -231,99 +236,99 @@
       </td>
       <td>
         {% if allocation.deal_id %}
-          <a href="https://app.hubspot.com/contacts/{{ hubspot_portal_id or '21983344' }}/deal/{{ allocation.deal_id }}" 
-             target="_blank" 
-             style="color: var(--brand); text-decoration: none; font-weight: bold;">
-            🔗 Deal {{ allocation.deal_id }}
-          </a>
-          <br><small class="muted">Click to open in HubSpot</small>
+        <a href="https://app.hubspot.com/contacts/{{ hubspot_portal_id or '21983344' }}/deal/{{ allocation.deal_id }}"
+          target="_blank" style="color: var(--brand); text-decoration: none; font-weight: bold;">
+          🔗 Deal {{ allocation.deal_id }}
+        </a>
+        <br><small class="muted">Click to open in HubSpot</small>
         {% else %}
-          <span class="muted">No Deal ID</span>
+        <span class="muted">No Deal ID</span>
         {% endif %}
       </td>
       <td>
         {% if allocation.adviser_name %}
-          <strong>{{ allocation.adviser_name }}</strong>
-          {% if allocation.adviser_hubspot_id %}
-            <br><small class="muted">ID: {{ allocation.adviser_hubspot_id }}</small>
-          {% endif %}
+        <strong>{{ allocation.adviser_name }}</strong>
+        {% if allocation.adviser_hubspot_id %}
+        <br><small class="muted">ID: {{ allocation.adviser_hubspot_id }}</small>
+        {% endif %}
         {% elif allocation.adviser_email %}
-          <strong>{{ allocation.adviser_email }}</strong>
+        <strong>{{ allocation.adviser_email }}</strong>
         {% else %}
-          <span class="muted">Not assigned</span>
+        <span class="muted">Not assigned</span>
         {% endif %}
       </td>
       <td>
         {% if allocation.status %}
-          {% set status_lower = allocation.status.lower() %}
-          {% if status_lower == 'success' or status_lower == 'completed' %}
-            <span class="tag green">✅ {{ allocation.status.title() }}</span>
-          {% elif status_lower == 'pending' or status_lower == 'processing' %}
-            <span class="tag orange">⏳ {{ allocation.status.title() }}</span>
-          {% elif status_lower == 'failed' or status_lower == 'error' %}
-            <span class="tag pink">❌ {{ allocation.status.title() }}</span>
-          {% else %}
-            <span class="tag">{{ allocation.status.title() }}</span>
-          {% endif %}
+        {% set status_lower = allocation.status.lower() %}
+        {% if status_lower == 'success' or status_lower == 'completed' %}
+        <span class="tag green">✅ {{ allocation.status.title() }}</span>
+        {% elif status_lower == 'pending' or status_lower == 'processing' %}
+        <span class="tag orange">⏳ {{ allocation.status.title() }}</span>
+        {% elif status_lower == 'failed' or status_lower == 'error' %}
+        <span class="tag pink">❌ {{ allocation.status.title() }}</span>
         {% else %}
-          <span class="muted">N/A</span>
+        <span class="tag">{{ allocation.status.title() }}</span>
+        {% endif %}
+        {% else %}
+        <span class="muted">N/A</span>
         {% endif %}
       </td>
       <td>
         {% if allocation.agreement_start_date %}
-          <div class="date-display">
-            <span class="date-formatted" data-date="{{ allocation.agreement_start_date }}">
-              {{ allocation.agreement_start_date }}
-            </span>
-          </div>
+        <div class="date-display">
+          <span class="date-formatted" data-date="{{ allocation.agreement_start_date }}">
+            {{ allocation.agreement_start_date }}
+          </span>
+        </div>
         {% else %}
-          <span class="muted">N/A</span>
+        <span class="muted">N/A</span>
         {% endif %}
       </td>
       <td>
         {% if allocation.service_package is string %}
-          {% set svc_values = (allocation.service_package or '').split(',') %}
+        {% set svc_values = (allocation.service_package or '').split(',') %}
         {% else %}
-          {% set svc_values = allocation.service_package or [] %}
+        {% set svc_values = allocation.service_package or [] %}
         {% endif %}
         {% if svc_values %}
-          <div class="taglist">
-            {% for token in svc_values %}
-              {% if token.strip() %}
-                <span class="tag blue">{{ token.strip() }}</span>
-              {% endif %}
-            {% endfor %}
-          </div>
+        <div class="taglist">
+          {% for token in svc_values %}
+          {% if token.strip() %}
+          <span class="tag blue">{{ token.strip() }}</span>
+          {% endif %}
+          {% endfor %}
+        </div>
         {% else %}
-          <span class="muted">N/A</span>
+        <span class="muted">N/A</span>
         {% endif %}
       </td>
       <td>
         {% if allocation.household_type is string %}
-          {% set hh_values = (allocation.household_type or '').split(',') %}
+        {% set hh_values = (allocation.household_type or '').split(',') %}
         {% else %}
-          {% set hh_values = allocation.household_type or [] %}
+        {% set hh_values = allocation.household_type or [] %}
         {% endif %}
         {% if hh_values %}
-          <div class="taglist">
-            {% for token in hh_values %}
-              {% if token.strip() %}
-                <span class="tag purple">{{ token.strip() }}</span>
-              {% endif %}
-            {% endfor %}
-          </div>
+        <div class="taglist">
+          {% for token in hh_values %}
+          {% if token.strip() %}
+          <span class="tag purple">{{ token.strip() }}</span>
+          {% endif %}
+          {% endfor %}
+        </div>
         {% else %}
-          <span class="muted">N/A</span>
+        <span class="muted">N/A</span>
         {% endif %}
       </td>
       <td>
         <span class="tag">{{ allocation.source or 'webhook' }}</span>
         {% if allocation.ip_address and allocation.ip_address != '127.0.0.1' %}
-          <br><small class="muted">{{ allocation.ip_address }}</small>
+        <br><small class="muted">{{ allocation.ip_address }}</small>
         {% endif %}
       </td>
       <td>
-        <button onclick="viewDetails('{{ allocation.doc_id }}')" class="secondary" style="font-size: 0.8em; padding: 4px 8px;">
+        <button onclick="viewDetails('{{ allocation.doc_id }}')" class="secondary"
+          style="font-size: 0.8em; padding: 4px 8px;">
           👁️ Details
         </button>
       </td>
@@ -335,14 +340,16 @@
 
 {% if total_pages > 1 %}
 <div class="pagination-controls">
-  <button onclick="changePage({{ page - 1 }})" class="secondary" {% if page <= 1 %}disabled{% endif %}>&laquo; Prev</button>
+  <button onclick="changePage({{ page - 1 }})" class="secondary" {% if page <=1 %}disabled{% endif %}>&laquo;
+    Prev</button>
   <span style="margin:0 12px;">Page <strong>{{ page }}</strong> of <strong>{{ total_pages }}</strong></span>
-  <button onclick="changePage({{ page + 1 }})" class="secondary" {% if page >= total_pages %}disabled{% endif %}>Next &raquo;</button>
+  <button onclick="changePage({{ page + 1 }})" class="secondary" {% if page>= total_pages %}disabled{% endif %}>Next
+    &raquo;</button>
 </div>
 {% endif %}
 
 <div class="card" style="margin-top: 24px;">
-  <h4>📊 Summary Statistics</h4>
+  <h4>Summary Statistics</h4>
   <div class="row" style="margin-top: 12px;">
     <div class="stat-card">
       <strong>{{ total_count }}</strong>
@@ -364,7 +371,7 @@
 </div>
 
 <div class="card">
-  <h4>🔧 Webhook Information</h4>
+  <h4>Webhook Information</h4>
   <p class="muted">Send allocation requests to this endpoint:</p>
   <div style="background: #f5f5f5; padding: 12px; border-radius: 8px; margin: 8px 0;">
     <code id="webhookUrl">{{ request.host_url }}webhook/allocation</code>
@@ -376,7 +383,7 @@
 </div>
 
 <div class="floating-note">
-  <strong>🚧 Under construction</strong>
+  <strong>Under construction</strong>
   <span>The allocation history dashboard is still being assembled. Some metrics may be incomplete.</span>
 </div>
 
@@ -397,46 +404,63 @@
   .row {
     gap: 12px;
   }
-  
+
   .timestamp-display {
     white-space: nowrap;
   }
-  
+
   .timestamp-formatted {
     font-weight: 500;
   }
-  
+
   .date-display {
     white-space: nowrap;
   }
-  
+
   .date-formatted {
     font-weight: 500;
   }
-  
+
   .tag {
     font-size: 0.8em;
     font-weight: 600;
     white-space: nowrap;
   }
-  
+
   .stat-card {
-    background: var(--soft-accent);
-    padding: 16px;
-    border-radius: 8px;
+    background: #fff;
+    padding: 20px 16px;
+    border-radius: var(--radius-lg);
     text-align: center;
-    min-width: 100px;
+    min-width: 110px;
+    flex: 1;
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-sm);
+    transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   }
-  
+
+  .stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+  }
+
   .stat-card strong {
     display: block;
-    font-size: 1.5em;
+    font-size: 2.2rem;
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
     color: var(--text);
+    margin-bottom: 4px;
+    line-height: 1;
+    letter-spacing: -0.02em;
   }
-  
+
   .stat-card small {
     color: var(--muted);
-    font-size: 0.8em;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
   }
 
   .pagination-controls {
@@ -451,7 +475,7 @@
     opacity: 0.5;
     cursor: not-allowed;
   }
-  
+
   /* Modal Styles */
   .modal {
     position: fixed;
@@ -460,9 +484,9 @@
     top: 0;
     width: 100%;
     height: 100%;
-    background-color: rgba(0,0,0,0.5);
+    background-color: rgba(0, 0, 0, 0.5);
   }
-  
+
   .modal-content {
     background-color: white;
     margin: 5% auto;
@@ -474,7 +498,7 @@
     overflow-y: auto;
     position: relative;
   }
-  
+
   .close {
     position: absolute;
     right: 20px;
@@ -484,11 +508,11 @@
     cursor: pointer;
     color: var(--muted);
   }
-  
+
   .close:hover {
     color: var(--text);
   }
-  
+
   code {
     background: #f5f5f5;
     padding: 2px 6px;
@@ -517,35 +541,37 @@
     font-size: 0.95em;
     margin-bottom: 4px;
   }
-  
+
   /* Loading state */
   .loading {
     opacity: 0.6;
     pointer-events: none;
   }
-  
+
   @media (max-width: 768px) {
     .row {
       flex-direction: column;
       align-items: flex-start;
     }
-    
-    .row > div {
+
+    .row>div {
       width: 100%;
     }
-    
-    .row select, .row button {
+
+    .row select,
+    .row button {
       width: 100%;
     }
-    
+
     table {
       font-size: 0.85em;
     }
-    
-    th, td {
+
+    th,
+    td {
       padding: 8px 4px;
     }
-    
+
     .modal-content {
       width: 95%;
       margin: 10% auto;
@@ -570,108 +596,108 @@
       bottom: 16px;
       max-width: none;
     }
-}
+  }
 </style>
 {% endblock %}
 {% block scripts %}
 <script>
-// Store allocation data for details modal
-const allocationData = {{ allocations|tojson }};
+  // Store allocation data for details modal
+  const allocationData = {{ allocations| tojson }};
 
-// Format timestamp function
-function formatTimestamp(timestampStr) {
-  if (!timestampStr) return 'N/A';
-  
-  try {
-    const date = new Date(timestampStr);
-    const options = { 
-      year: 'numeric', 
-      month: 'short', 
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      timeZone: 'Australia/Sydney'
-    };
-    return date.toLocaleDateString('en-AU', options);
-  } catch (e) {
-    return timestampStr;
+  // Format timestamp function
+  function formatTimestamp(timestampStr) {
+    if (!timestampStr) return 'N/A';
+
+    try {
+      const date = new Date(timestampStr);
+      const options = {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        timeZone: 'Australia/Sydney'
+      };
+      return date.toLocaleDateString('en-AU', options);
+    } catch (e) {
+      return timestampStr;
+    }
   }
-}
 
-// Format date function
-function formatDate(dateStr) {
-  if (!dateStr) return 'N/A';
-  
-  try {
-    const date = new Date(dateStr);
-    const options = { 
-      year: 'numeric', 
-      month: 'short', 
-      day: 'numeric',
-      weekday: 'short'
-    };
-    return date.toLocaleDateString('en-AU', options);
-  } catch (e) {
-    return dateStr;
+  // Format date function
+  function formatDate(dateStr) {
+    if (!dateStr) return 'N/A';
+
+    try {
+      const date = new Date(dateStr);
+      const options = {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        weekday: 'short'
+      };
+      return date.toLocaleDateString('en-AU', options);
+    } catch (e) {
+      return dateStr;
+    }
   }
-}
 
-// Format all timestamps and dates on page load
-document.addEventListener('DOMContentLoaded', function() {
-  const timestampElements = document.querySelectorAll('.timestamp-formatted');
-  timestampElements.forEach(el => {
-    const originalTimestamp = el.dataset.timestamp;
-    const formattedTimestamp = formatTimestamp(originalTimestamp);
-    el.innerHTML = `<strong>${formattedTimestamp}</strong><br><small class="muted">${originalTimestamp}</small>`;
+  // Format all timestamps and dates on page load
+  document.addEventListener('DOMContentLoaded', function () {
+    const timestampElements = document.querySelectorAll('.timestamp-formatted');
+    timestampElements.forEach(el => {
+      const originalTimestamp = el.dataset.timestamp;
+      const formattedTimestamp = formatTimestamp(originalTimestamp);
+      el.innerHTML = `<strong>${formattedTimestamp}</strong><br><small class="muted">${originalTimestamp}</small>`;
+    });
+
+    const dateElements = document.querySelectorAll('.date-formatted');
+    dateElements.forEach(el => {
+      const originalDate = el.dataset.date;
+      const formattedDate = formatDate(originalDate);
+      el.innerHTML = `<strong>${formattedDate}</strong><br><small class="muted">${originalDate}</small>`;
+    });
   });
-  
-  const dateElements = document.querySelectorAll('.date-formatted');
-  dateElements.forEach(el => {
-    const originalDate = el.dataset.date;
-    const formattedDate = formatDate(originalDate);
-    el.innerHTML = `<strong>${formattedDate}</strong><br><small class="muted">${originalDate}</small>`;
-  });
-});
 
-// Filter functions
-function applyFilters() {
-  const days = document.getElementById('daysFilter').value;
-  const status = document.getElementById('statusFilter').value;
-  const deal = document.getElementById('dealFilter').value;
-  const adviser = document.getElementById('adviserFilter').value;
-  const pageSize = document.getElementById('pageSizeSelect') ? document.getElementById('pageSizeSelect').value : '';
+  // Filter functions
+  function applyFilters() {
+    const days = document.getElementById('daysFilter').value;
+    const status = document.getElementById('statusFilter').value;
+    const deal = document.getElementById('dealFilter').value;
+    const adviser = document.getElementById('adviserFilter').value;
+    const pageSize = document.getElementById('pageSizeSelect') ? document.getElementById('pageSizeSelect').value : '';
 
-  const params = new URLSearchParams();
-  if (days) params.set('days', days);
-  if (status) params.set('status', status);
-  if (deal) params.set('deal', deal);
-  if (adviser) params.set('adviser', adviser);
-  if (pageSize) params.set('page_size', pageSize);
-  params.set('page', '1');
+    const params = new URLSearchParams();
+    if (days) params.set('days', days);
+    if (status) params.set('status', status);
+    if (deal) params.set('deal', deal);
+    if (adviser) params.set('adviser', adviser);
+    if (pageSize) params.set('page_size', pageSize);
+    params.set('page', '1');
 
-  window.location.href = '?' + params.toString();
-}
+    window.location.href = '?' + params.toString();
+  }
 
-function clearFilters() {
-  window.location.href = window.location.pathname;
-}
+  function clearFilters() {
+    window.location.href = window.location.pathname;
+  }
 
-function changePage(newPage) {
-  const params = new URLSearchParams(window.location.search);
-  const pageSizeSelect = document.getElementById('pageSizeSelect');
-  if (pageSizeSelect) params.set('page_size', pageSizeSelect.value);
-  params.set('page', newPage);
-  window.location.href = '?' + params.toString();
-}
+  function changePage(newPage) {
+    const params = new URLSearchParams(window.location.search);
+    const pageSizeSelect = document.getElementById('pageSizeSelect');
+    if (pageSizeSelect) params.set('page_size', pageSizeSelect.value);
+    params.set('page', newPage);
+    window.location.href = '?' + params.toString();
+  }
 
-// Details modal functions
-function viewDetails(docId) {
-  const allocation = allocationData.find(a => a.doc_id === docId);
-  if (!allocation) return;
-  
-  const detailsContent = document.getElementById('detailsContent');
-  detailsContent.innerHTML = `
+  // Details modal functions
+  function viewDetails(docId) {
+    const allocation = allocationData.find(a => a.doc_id === docId);
+    if (!allocation) return;
+
+    const detailsContent = document.getElementById('detailsContent');
+    detailsContent.innerHTML = `
     <div style="margin-bottom: 20px;">
       <h4>Request Information</h4>
       <p><strong>ID:</strong> ${allocation.doc_id}</p>
@@ -692,66 +718,66 @@ function viewDetails(docId) {
       <pre style="background: #f5f5f5; padding: 12px; border-radius: 8px; overflow-x: auto; max-height: 300px;">${JSON.stringify(allocation.request_data, null, 2)}</pre>
     </div>
   `;
-  
-  document.getElementById('detailsModal').style.display = 'block';
-}
 
-function closeDetails() {
-  document.getElementById('detailsModal').style.display = 'none';
-}
-
-// Close modal when clicking outside
-window.onclick = function(event) {
-  const modal = document.getElementById('detailsModal');
-  if (event.target === modal) {
-    modal.style.display = 'none';
+    document.getElementById('detailsModal').style.display = 'block';
   }
-}
 
-// Copy webhook URL
-function copyWebhookUrl() {
-  const webhookUrl = document.getElementById('webhookUrl').textContent;
-  navigator.clipboard.writeText(webhookUrl).then(() => {
-    alert('Webhook URL copied to clipboard!');
-  }).catch(() => {
-    // Fallback for older browsers
-    const textArea = document.createElement('textarea');
-    textArea.value = webhookUrl;
-    document.body.appendChild(textArea);
-    textArea.select();
-    document.execCommand('copy');
-    document.body.removeChild(textArea);
-    alert('Webhook URL copied to clipboard!');
-  });
-}
+  function closeDetails() {
+    document.getElementById('detailsModal').style.display = 'none';
+  }
 
-// Export data function
-function exportData() {
-  const data = allocationData.map(allocation => ({
-    timestamp: allocation.timestamp,
-    deal_id: allocation.deal_id,
-    adviser_email: allocation.adviser_email,
-    status: allocation.status,
-    agreement_start_date: allocation.agreement_start_date,
-    service_package: allocation.service_package,
-    source: allocation.source,
-    ip_address: allocation.ip_address
-  }));
-  
-  const csv = [
-    Object.keys(data[0]).join(','),
-    ...data.map(row => Object.values(row).map(val => `"${val || ''}"`).join(','))
-  ].join('\\n');
-  
-  const blob = new Blob([csv], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `allocation_history_${new Date().toISOString().split('T')[0]}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
+  // Close modal when clicking outside
+  window.onclick = function (event) {
+    const modal = document.getElementById('detailsModal');
+    if (event.target === modal) {
+      modal.style.display = 'none';
+    }
+  }
+
+  // Copy webhook URL
+  function copyWebhookUrl() {
+    const webhookUrl = document.getElementById('webhookUrl').textContent;
+    navigator.clipboard.writeText(webhookUrl).then(() => {
+      alert('Webhook URL copied to clipboard!');
+    }).catch(() => {
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea');
+      textArea.value = webhookUrl;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      alert('Webhook URL copied to clipboard!');
+    });
+  }
+
+  // Export data function
+  function exportData() {
+    const data = allocationData.map(allocation => ({
+      timestamp: allocation.timestamp,
+      deal_id: allocation.deal_id,
+      adviser_email: allocation.adviser_email,
+      status: allocation.status,
+      agreement_start_date: allocation.agreement_start_date,
+      service_package: allocation.service_package,
+      source: allocation.source,
+      ip_address: allocation.ip_address
+    }));
+
+    const csv = [
+      Object.keys(data[0]).join(','),
+      ...data.map(row => Object.values(row).map(val => `"${val || ''}"`).join(','))
+    ].join('\\n');
+
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `allocation_history_${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
 </script>
 {% endblock %}

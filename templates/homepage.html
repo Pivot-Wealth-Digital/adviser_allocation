@@ -9,11 +9,11 @@
 
 <div class="grid-2">
   <div class="card">
-    <h4>📊 Availability & Scheduling</h4>
+    <h4>Availability & Scheduling</h4>
     <p class="muted">View and manage adviser availability</p>
     <div class="button-stack">
       <a href="/availability/earliest" style="text-decoration: none;">
-        <button class="primary full-width">View Earliest Availability</button>
+        <button class="full-width">View Earliest Availability</button>
       </a>
       <a href="/availability/schedule" style="text-decoration: none;">
         <button class="secondary full-width">View Adviser Schedule</button>
@@ -25,11 +25,11 @@
   </div>
 
   <div class="card">
-    <h4>📝 Allocation Management</h4>
+    <h4>Allocation Management</h4>
     <p class="muted">Allocate clients and view history</p>
     <div class="button-stack">
       <a href="/post/allocate" style="text-decoration: none;">
-        <button class="primary full-width">Client Allocation</button>
+        <button class="full-width">Client Allocation</button>
       </a>
       <a href="/allocations/history" style="text-decoration: none;">
         <button class="secondary full-width">Allocation History</button>
@@ -41,7 +41,7 @@
   </div>
 
   <div class="card">
-    <h4>⚙️ System Configuration</h4>
+    <h4>System Configuration</h4>
     <p class="muted">Manage settings and overrides</p>
     <div class="button-stack">
       <a href="/closures/ui" style="text-decoration: none;">
@@ -55,7 +55,7 @@
 </div>
 
 <div class="card info-card">
-  <h4>ℹ️ Quick Info</h4>
+  <h4>Quick Info</h4>
   <div class="info-grid">
     <div><strong>Today:</strong> <span class="muted">{{ today }}</span></div>
     <div><strong>Week:</strong> <span class="muted">{{ week_num }}</span></div>
@@ -67,17 +67,18 @@
 {% block head %}
 <style>
   .card h4 {
-    margin: 0 0 12px 0;
+    margin: 0 0 16px 0;
     color: var(--text);
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 1.1em;
+    gap: 10px;
+    font-size: 1.2em;
+    font-family: 'Outfit', sans-serif;
   }
 
   .card p.muted {
-    margin: 0 0 16px 0;
-    font-size: 0.9em;
+    margin: 0 0 20px 0;
+    font-size: 0.95em;
   }
 
   .button-stack {
@@ -93,53 +94,47 @@
   .full-width {
     width: 100%;
     padding: 12px 16px;
-    font-size: 0.95em;
-  }
-
-  .primary {
-    background: var(--brand);
-    border-color: var(--brand);
-    color: white;
-  }
-
-  .primary:hover {
-    background: var(--brand-600);
-    border-color: var(--brand-600);
-  }
-
-  .secondary {
-    background: #f5f5f5;
-    border-color: var(--border);
-    color: var(--text);
-  }
-
-  .secondary:hover {
-    background: #eeeeee;
-    border-color: var(--muted);
+    font-size: 1em;
   }
 
   .info-card {
-    background: var(--soft-accent);
-    border: 1px solid rgba(209, 213, 219, 0.5);
-    margin-top: 28px;
+    background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
+    color: #F8FAFC;
+    border: none;
+    margin-top: 32px;
+    border-radius: var(--radius-lg);
+  }
+
+  .info-card h4 {
+    color: #fff;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding-bottom: 12px;
+    margin-bottom: 16px;
   }
 
   .info-grid {
     display: flex;
     flex-wrap: wrap;
-    gap: 20px;
-    font-size: 0.9em;
+    gap: 24px;
+    font-size: 0.95em;
   }
 
-  .info-grid > div {
+  .info-grid>div {
     display: flex;
     align-items: center;
     gap: 8px;
   }
 
+  .info-grid .muted {
+    color: #94A3B8;
+    font-weight: 500;
+  }
+
   @media (max-width: 900px) {
     .info-grid {
       gap: 16px;
+      flex-direction: column;
+      align-items: flex-start;
     }
   }
 </style>

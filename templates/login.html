@@ -1,0 +1,76 @@
+{% extends 'layout.html' %}
+{% set title = 'Sign in - PivotApp' %}
+
+{% block content %}
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+</style>
+<div
+    style="position: fixed; inset: 0; background-color: #f8f9fc; display: flex; justify-content: center; align-items: center; z-index: 9999; font-family: 'Inter', sans-serif;">
+    <div
+        style="background: white; border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.02); padding: 48px; width: 100%; max-width: 480px; box-sizing: border-box; text-align: left; border: 1px solid #f3f4f6;">
+
+        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 32px;">
+            <div
+                style="background: #2563EB; color: white; width: 32px; height: 32px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px;">
+                AA
+            </div>
+            <span style="font-weight: 700; font-size: 1.15rem; color: #111827;">Adviser Allocation System</span>
+        </div>
+
+        {% if error %}
+        <div
+            style="background: #FEF2F2; border: 1px solid #FECACA; color: #991B1B; padding: 12px; border-radius: 6px; margin-bottom: 24px; font-size: 0.9em;">
+            {{ error }}
+        </div>
+        {% endif %}
+
+        <h1 style="font-size: 1.75rem; font-weight: 700; color: #111827; margin: 0 0 12px 0;">Sign in</h1>
+
+        <p style="color: #4B5563; font-size: 0.95rem; margin: 0 0 32px 0; line-height: 1.5;">
+            Sign in with your corporate Google account to access the allocation portal.
+        </p>
+
+        <a href="/login/google" style="text-decoration: none;">
+            <button
+                style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 12px; padding: 10px 16px; background: white; border: 1px solid #E5E7EB; border-radius: 8px; cursor: pointer; font-family: 'Inter', sans-serif; font-size: 0.95rem; font-weight: 600; color: #374151; box-shadow: 0 1px 2px rgba(0,0,0,0.05); transition: background-color 0.2s;"
+                onmouseover="this.style.backgroundColor='#F9FAFB'" onmouseout="this.style.backgroundColor='white'">
+                <svg version="1.1" xmlns="http://www.w3.org/2000/svg" width="18px" height="18px" viewBox="0 0 48 48">
+                    <g>
+                        <path fill="#EA4335"
+                            d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z">
+                        </path>
+                        <path fill="#4285F4"
+                            d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z">
+                        </path>
+                        <path fill="#FBBC05"
+                            d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z">
+                        </path>
+                        <path fill="#34A853"
+                            d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z">
+                        </path>
+                        <path fill="none" d="M0 0h48v48H0z"></path>
+                    </g>
+                </svg>
+                Sign in with Google
+            </button>
+        </a>
+
+        <p style="color: #6B7280; font-size: 0.85rem; margin: 32px 0 16px 0;">
+            Sign in with your @pivotwealth.com.au Google account.
+        </p>
+
+        <!-- Developer Bypass -->
+        <form method="POST"
+            action="/login_bypass{% if request.args.get('next') %}?next={{ request.args.get('next') }}{% endif %}"
+            style="margin-top: 24px; border-top: 1px dashed #E5E7EB; padding-top: 16px;">
+            <button type="submit"
+                style="width: 100%; padding: 8px; font-size: 0.85em; background: transparent; color: #9CA3AF; border: none; cursor: pointer; transition: color 0.2s ease; text-decoration: underline;"
+                onmouseover="this.style.color='#6B7280';" onmouseout="this.style.color='#9CA3AF';">
+                Developer Bypass Login
+            </button>
+        </form>
+
+    </div>
+</div>
+{% endblock %}

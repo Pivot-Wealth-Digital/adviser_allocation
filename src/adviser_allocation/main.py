@@ -22,7 +22,10 @@ from flask import (
     send_from_directory,
     session,
     url_for,
+    current_app, # Added current_app for Authlib
 )
+from requests.exceptions import RequestException # Added for Authlib
+from authlib.integrations.flask_client import OAuth # Added for Authlib
 
 # Import skill definitions to register all skills in the system
 import adviser_allocation.skills.definitions
@@ -109,6 +112,14 @@ def login_required(view_func):
                 nxt = request.path
                 return redirect(f"/login?next={nxt}")
             return jsonify({"error": "Unauthorized"}), 401
+            
+        # Optional: Additional check to ensure it's specifically a Google domain user
+        user = session.get("user")
+        if user and user.get("email") and not user["email"].endswith("@pivotwealth.com.au"):
+             # Technically shouldn't happen if auth/callback protects it, but as a secondary guard
+             session.clear()
+             return redirect("/login")
+             
         return view_func(*args, **kwargs)
 
     return wrapper
@@ -125,6 +136,9 @@ def require_login():
     # List of endpoints that don't require authentication
     public_endpoints = [
         "main.login",
+        "main.login_google",
+        "main.login_bypass",
+        "main.google_auth_callback",
         "main.logout",
         "static",  # Static files (CSS, JS, images)
     ]
@@ -588,7 +602,7 @@ def sync_employees():
         return jsonify({"synced": len(data)}), status
     except Exception as e:
         logging.error(f"Failed to sync employees: {e}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Internal server error"}), 500
 
 
 @main_bp.route("/sync/leave_requests", methods=["POST", "GET"])
@@ -599,7 +613,7 @@ def sync_leave_requests():
         return jsonify({"synced": len(data)}), status
     except Exception as e:
         logging.error(f"Failed to sync leave requests: {e}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Internal server error"}), 500
 
 
 # ---- Global Closures (Holidays) ----
@@ -623,7 +637,7 @@ def closures():
             return jsonify({"count": len(items), "closures": items}), 200
         except Exception as e:
             logging.error(f"Failed to list closures: {e}")
-            return jsonify({"error": str(e)}), 500
+            return jsonify({"error": "Internal server error"}), 500
 
     # POST (create) requires admin
     try:
@@ -677,7 +691,7 @@ def closures():
         )
     except Exception as e:
         logging.error(f"Failed to create closure: {e}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Internal server error"}), 500
 
 
 @main_bp.route("/closures/<closure_id>", methods=["PUT", "DELETE"])
@@ -694,7 +708,7 @@ def closures_item(closure_id):
             return jsonify({"ok": True}), 200
         except Exception as e:
             logging.error(f"Failed to delete closure {closure_id}: {e}")
-            return jsonify({"error": str(e)}), 500
+            return jsonify({"error": "Internal server error"}), 500
 
     # PUT
     try:
@@ -736,7 +750,7 @@ def closures_item(closure_id):
         return jsonify(resp), 200
     except Exception as e:
         logging.error(f"Failed to update closure {closure_id}: {e}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Internal server error"}), 500
 
 
 @main_bp.route("/capacity_overrides", methods=["GET", "POST"])
@@ -760,7 +774,7 @@ def capacity_overrides():
             return jsonify({"count": len(items), "overrides": items}), 200
         except Exception as exc:
             logging.error("Failed to load capacity overrides: %s", exc)
-            return jsonify({"error": str(exc)}), 500
+            return jsonify({"error": "Internal server error"}), 500
 
     if not is_authenticated():
         return jsonify({"error": "Unauthorized"}), 401
@@ -808,7 +822,7 @@ def capacity_overrides():
         return jsonify(doc), 201
     except Exception as exc:
         logging.error("Failed to create capacity override: %s", exc)
-        return jsonify({"error": str(exc)}), 500
+        return jsonify({"error": "Internal server error"}), 500
 
 
 @main_bp.route("/capacity_overrides/<override_id>", methods=["PUT", "DELETE"])
@@ -828,7 +842,7 @@ def capacity_overrides_item(override_id: str):
             return jsonify({"ok": True}), 200
         except Exception as exc:
             logging.error("Failed to delete capacity override %s: %s", override_id, exc)
-            return jsonify({"error": str(exc)}), 500
+            return jsonify({"error": "Internal server error"}), 500
 
     if not request.is_json:
         return jsonify({"error": "Expected application/json"}), 415
@@ -880,7 +894,7 @@ def capacity_overrides_item(override_id: str):
         return jsonify(response), 200
     except Exception as exc:
         logging.error("Failed to update capacity override %s: %s", override_id, exc)
-        return jsonify({"error": str(exc)}), 500
+        return jsonify({"error": "Internal server error"}), 500
 
 
 @main_bp.route("/capacity_overrides/ui")
@@ -1053,45 +1067,72 @@ def closures_ui():
     )
 
 
-@main_bp.route("/login", methods=["GET", "POST"])
+@main_bp.route("/login")
 def login():
-    """Site-wide login for all access."""
-    # If already logged in, go to home or 'next'
+    """Site-wide login page (shows the login UI)."""
     nxt = request.args.get("next") or "/"
     if is_authenticated():
         return redirect(nxt)
+    
+    # Store 'next' in session for safety during OAuth redirect
+    session["next"] = nxt
+    return render_template("login.html")
 
-    if request.method == "POST":
-        username = request.form.get("username") or ""
-        password = request.form.get("password") or ""
-        if not ADMIN_USERNAME or not ADMIN_PASSWORD:
-            return (
-                "<p>Login credentials not configured. Set ADMIN_USERNAME and ADMIN_PASSWORD.</p>",
-                500,
-            )
-        if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
-            session["is_authenticated"] = True
-            return redirect(nxt)
-        # invalid
-        error = "Invalid credentials"
-    else:
-        error = ""
 
-    html = (
-        "<html><head><title>Login - Adviser Allocation System</title>"
-        "<style>body{font-family:sans-serif;max-width:420px;margin:60px auto;padding:0 12px}.f{display:flex;flex-direction:column;gap:10px}label{font-size:.9em;color:#333}input{padding:8px;border:1px solid #bbb;border-radius:4px}button{padding:8px 12px;border:1px solid #0a7;background:#0a7;color:#fff;border-radius:4px;cursor:pointer}.err{color:#a00;margin-top:8px}h3{color:#333;text-align:center}</style>"
-        "</head><body>"
-        "<h3>🔐 Adviser Allocation System</h3>"
-        "<p style='text-align:center;color:#666;margin-bottom:20px'>Please sign in to continue</p>"
-        f'<form class="f" method="POST" action="/login?next={nxt}">'
-        '<div><label>Username</label><input name="username" autocomplete="username" required></div>'
-        '<div><label>Password</label><input name="password" type="password" autocomplete="current-password" required></div>'
-        '<div><button type="submit">Sign In</button></div>'
-        f'<div class="err">{error}</div>'
-        "</form>"
-        "</body></html>"
-    )
-    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+@main_bp.route("/login/google")
+def login_google():
+    """Initiates Google OAuth flow when the user clicks 'Sign in with Google'."""
+    if is_authenticated():
+        return redirect("/")
+        
+    # Redirect to Google OAuth authorization endpoint
+    redirect_uri = url_for("main.google_auth_callback", _external=True)
+    return current_app.oauth.google.authorize_redirect(redirect_uri)
+
+
+@main_bp.route("/auth")
+def google_auth_callback():
+    """Callback route that handles the response from Google Identity."""
+    try:
+        token = current_app.oauth.google.authorize_access_token()
+        user_info = token.get("userinfo")
+        
+        if not user_info:
+            return "Failed to fetch user information from Google.", 400
+            
+        # 1. Enforce Domain Restriction
+        email = user_info.get("email", "")
+        if not email.endswith("@pivotwealth.com.au"):
+            return "Unauthorized domain. You must use a @pivotwealth.com.au account.", 403
+            
+        # 2. Grant Access
+        session["is_authenticated"] = True
+        session["user"] = {
+            "name": user_info.get("name"),
+            "email": email,
+            "picture": user_info.get("picture"),
+        }
+        
+    except Exception as e:
+        logger.error(f"Google OAuth Error: {e}")
+        return "Authentication failed. Please try again.", 400
+
+    # Retrieve where they were trying to go
+    nxt = session.pop("next", "/")
+    return redirect(nxt)
+
+
+@main_bp.route("/login_bypass", methods=["POST"])
+def login_bypass():
+    """Bypass route to simulate a logged-in Pivot Wealth user (for development)."""
+    session["is_authenticated"] = True
+    session["user"] = {
+        "name": "Dev User (Bypass)",
+        "email": "dev@pivotwealth.com.au",
+        "picture": "https://ui-avatars.com/api/?name=Dev+User&background=F08354&color=fff",
+    }
+    nxt = request.args.get("next") or "/"
+    return redirect(nxt)
 
 
 # ---- Chat notification helper ----
@@ -1394,7 +1435,8 @@ def allocation_webhook():
             return jsonify({"error": "Failed to store allocation data"}), 500
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        logging.error("Failed to store webhook allocation: %s", e)
+        return jsonify({"error": "Internal server error"}), 500
 
 
 @main_bp.route("/allocations/history")
@@ -1768,7 +1810,7 @@ def availability_earliest():
         )
     except Exception as e:
         logging.error(f"Failed to compute earliest availability: {e}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Internal server error"}), 500
 
 
 @main_bp.route("/availability/schedule")
@@ -1821,8 +1863,9 @@ def availability_schedule():
                     advisers.append(user)
 
     except Exception as e:
+        logging.error(f"Failed to load advisers: {e}")
         return (
-            f"<p>Failed to load advisers: {e}</p>",
+            "<p>Failed to load advisers: Internal server error</p>",
             500,
             {"Content-Type": "text/html; charset=utf-8"},
         )
@@ -1885,8 +1928,9 @@ def availability_schedule():
                     }
                 )
         except Exception as e:
+            logging.error(f"Failed to compute schedule for {selected}: {e}")
             return (
-                f"<p>Failed to compute schedule for {selected}: {e}</p>",
+                f"<p>Failed to compute schedule for {selected}: Internal server error</p>",
                 500,
                 {"Content-Type": "text/html; charset=utf-8"},
             )
@@ -1935,8 +1979,9 @@ def availability_meetings():
 
             advisers.append(user)
     except Exception as e:
+        logging.error(f"Failed to load advisers: {e}")
         return (
-            f"<p>Failed to load advisers: {e}</p>",
+            "<p>Failed to load advisers: Internal server error</p>",
             500,
             {"Content-Type": "text/html; charset=utf-8"},
         )
@@ -1990,7 +2035,8 @@ def availability_meetings():
             try:
                 target_user = get_user_meeting_details(target_user, start_ts)
             except Exception as e:
-                error_msg = f"Failed to fetch meetings for {selected}: {e}"
+                logging.error(f"Failed to fetch meetings for {selected}: {e}")
+                error_msg = "Failed to fetch meetings: Internal server error"
             else:
                 meetings_raw = (target_user.get("meetings") or {}).get("results", [])
                 parsed = []
@@ -2094,10 +2140,9 @@ def availability_matrix():
                 """
             <div style=\"padding: 20px; text-align: center;\">
                 <h3>❌ Error Loading Availability Matrix</h3>
-                <p>{{ error }}</p>
+                <p>Internal server error</p>
             </div>
             """,
-                error=str(e),
             ),
             500,
         )
@@ -2143,11 +2188,12 @@ def update_meeting_owner():
             }
         )
     except requests.exceptions.HTTPError as e:
+        logging.error(f"Meeting owner update HTTP error: {e}")
         status = resp.status_code if "resp" in locals() else 500
-        return jsonify({"error": str(e), "details": getattr(resp, "text", "")}), status
+        return jsonify({"error": "Internal server error", "details": "See server logs for details"}), status
     except Exception as e:
         logging.error("Failed to update meeting owner: %s", e)
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Internal server error"}), 500
 
 
 # Healthcheck
@@ -2155,14 +2201,6 @@ def update_meeting_owner():
 def warmup():
     """Healthcheck endpoint for platform warmup probes."""
     return ("", 200)
-
-
-if __name__ == "__main__":
-    from dotenv import load_dotenv
-
-    # Load variables from .env into environment
-    load_dotenv()
-    app.run(host="0.0.0.0", debug=True, port=int(os.environ.get("PORT", "8080")))  # noqa: F821
 
 
 # ===== APP INITIALIZATION =====
@@ -2176,11 +2214,40 @@ CHAT_WEBHOOK_URL = get_secret("PIVOT-DIGITAL-CHAT-WEBHOOK-URL-ADVISER-ALGO") or 
 from pathlib import Path as _Path
 
 _main_dir = _Path(__file__).parent.parent.parent
-app = Flask(
-    __name__, template_folder=str(_main_dir / "templates"), static_folder=str(_main_dir / "static")
-)
-app.secret_key = get_secret("SESSION_SECRET") or "change-me-please"
 
-app.register_blueprint(main_bp)
-app.register_blueprint(init_webhooks(db))
-app.register_blueprint(skills_bp)
+def create_app(config_overrides=None):
+    app = Flask(
+        __name__, template_folder=str(_main_dir / "templates"), static_folder=str(_main_dir / "static")
+    )
+
+    # App configuration
+    app.secret_key = get_secret("SESSION_SECRET") or "change-me-please"
+    
+    # Initialize Google OAuth Authlib
+    app.oauth = OAuth(app)
+    app.oauth.register(
+        name='google',
+        client_id=os.environ.get("GOOGLE_CLIENT_ID", "mock_client_id"),
+        client_secret=os.environ.get("GOOGLE_CLIENT_SECRET", "mock_client_secret"),
+        server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
+        client_kwargs={
+            'scope': 'openid email profile'
+        }
+    )
+
+    if config_overrides:
+        app.config.update(config_overrides)
+
+    app.register_blueprint(main_bp)
+    app.register_blueprint(init_webhooks(db))
+    app.register_blueprint(skills_bp)
+
+    return app
+
+# Default instance for WSGI and tests
+app = create_app()
+
+if __name__ == "__main__":
+    # Load variables from .env into environment
+    load_dotenv()
+    app.run(host="0.0.0.0", debug=True, port=int(os.environ.get("PORT", "8080")))

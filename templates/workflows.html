@@ -4,7 +4,7 @@
 {% block content %}
 <div class="topbar">
   <div style="display:flex;align-items:center;gap:16px;">
-    <a href="/" style="color:#d0d7e2;text-decoration:none;font-size:0.9em;">← Home</a>
+    <a href="/" style="color:var(--muted);text-decoration:none;font-size:0.9em;">← Home</a>
     <h2>Automation Workflows</h2>
   </div>
   <div class="datebox">
@@ -20,52 +20,53 @@
       <p class="muted">Detailed diagrams covering allocation and capacity.</p>
     </header>
     <div class="actions">
-      <a class="primary" href="{{ url_for('main.allocation_history_ui') }}">
-        View Allocation Dashboard
+      <a href="{{ url_for('main.allocation_history_ui') }}" style="text-decoration: none;">
+        <button>View Allocation Dashboard</button>
       </a>
-      <a class="secondary" href="{{ url_for('main.serve_docs', filename='adviser_allocation_explanation.md') }}">
-        Read Allocation Guide
+      <a href="{{ url_for('main.serve_docs', filename='adviser_allocation_explanation.md') }}"
+        style="text-decoration: none;">
+        <button class="secondary">Read Allocation Guide</button>
       </a>
     </div>
     <div class="diagram">
       <div class="diagram-title">Adviser Allocation Workflow (high-level flow)</div>
       <div class="mermaid">
-flowchart TD
-    subgraph HubSpot_Workflow
+        flowchart TD
+        subgraph HubSpot_Workflow
         W1["Deal enters pipeline"]
         W2["POST /post/allocate"]
         W3["Update HubSpot owner"]
-    end
-    subgraph Allocation_Service
-        S1["Fetch deal data<br/>Service & matrix APIs"]
-        S2["Compute adviser match<br/>Household fit, capacity, preferences"]
-        S3["Persist allocation record<br/>Firestore & HubSpot update"]
-        S4["Optional chat alert<br/>Google Chat webhook"]
-    end
-    W1 --> W2 --> S1 --> S2 --> S3 --> W3 --> S4 --> E["End"]
+        end
+        subgraph Allocation_Service
+        S1["Fetch deal data<br />Service & matrix APIs"]
+        S2["Compute adviser match<br />Household fit, capacity, preferences"]
+        S3["Persist allocation record<br />Firestore & HubSpot update"]
+        S4["Optional chat alert<br />Google Chat webhook"]
+        end
+        W1 --> W2 --> S1 --> S2 --> S3 --> W3 --> S4 --> E["End"]
       </div>
     </div>
     <div class="diagram">
       <div class="diagram-title">Adviser Allocation Capacity Model (capacity scoring details)</div>
       <div class="mermaid">
-flowchart TD
-    A["Load pipeline and adviser profiles<br/>HubSpot deals & matrix cache"]
-    B["Fetch fortnight schedule grid<br/>HubSpot meetings & Firestore history"]
-    C["Compute clarify targets<br/>Service package & pod rules"]
-    D["Fetch leave and closures<br/>Employment Hero & global closures"]
-    E["Fetch clarify backlog<br/>Deals without clarify from HubSpot"]
-    F["Apply schedule adjustments<br/>Leaves, closures, backlog"]
-    G["Calculate capacity score<br/>Remaining clarifies vs target"]
-    H["Select adviser and week<br/>Score ranking with tie-breaks"]
-    I["Persist allocation record<br/>Firestore audit trail"]
-    A --> B --> C --> D --> E --> F --> G --> H --> I
+        flowchart TD
+        A["Load pipeline and adviser profiles<br />HubSpot deals & matrix cache"]
+        B["Fetch fortnight schedule grid<br />HubSpot meetings & Firestore history"]
+        C["Compute clarify targets<br />Service package & pod rules"]
+        D["Fetch leave and closures<br />Employment Hero & global closures"]
+        E["Fetch clarify backlog<br />Deals without clarify from HubSpot"]
+        F["Apply schedule adjustments<br />Leaves, closures, backlog"]
+        G["Calculate capacity score<br />Remaining clarifies vs target"]
+        H["Select adviser and week<br />Score ranking with tie-breaks"]
+        I["Persist allocation record<br />Firestore audit trail"]
+        A --> B --> C --> D --> E --> F --> G --> H --> I
       </div>
     </div>
-  <div class="actions" style="margin-top:12px;">
-    <a class="secondary" href="{{ url_for('main.workflows_adviser_allocation') }}">
-      Adviser Allocation Automation Guide →
-    </a>
-  </div>
+    <div class="actions" style="margin-top:12px;">
+      <a href="{{ url_for('main.workflows_adviser_allocation') }}" style="text-decoration: none;">
+        <button class="secondary">Adviser Allocation Automation Guide &rarr;</button>
+      </a>
+    </div>
   </article>
 </div>
 {% endblock %}
@@ -104,6 +105,7 @@ flowchart TD
     padding: 16px;
     overflow-x: auto;
   }
+
   .diagram-title {
     font-weight: 600;
     margin-bottom: 6px;
@@ -111,6 +113,18 @@ flowchart TD
 </style>
 <script type="module">
   import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
-  mermaid.initialize({ startOnLoad: true, theme: "neutral" });
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: "base",
+    themeVariables: {
+      primaryColor: '#F8FAFC',
+      primaryTextColor: '#1E293B',
+      primaryBorderColor: '#E2E8F0',
+      lineColor: '#94A3B8',
+      secondaryColor: '#EEF2FF',
+      tertiaryColor: '#FFFFFF',
+      fontFamily: 'Inter, sans-serif'
+    }
+  });
 </script>
 {% endblock %}
