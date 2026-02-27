@@ -1,4 +1,5 @@
 repos:
+  # Standard pre-commit hooks
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.5.0
     hooks:
@@ -10,30 +11,47 @@ repos:
         args: ['--maxkb=500']
       - id: check-merge-conflict
       - id: debug-statements
+      - id: no-commit-to-branch
+        name: No direct commits to main (Law 3)
+        args: ['--branch', 'main']
 
-  - repo: https://github.com/psf/black
-    rev: 24.2.0
+  # Ruff - replaces black + flake8 + isort
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.3.0
     hooks:
-      - id: black
-        language_version: python3.11
+      - id: ruff
+        args: ['--fix']
+      - id: ruff-format
 
+  # Secret scanning (Law 1: No secrets in git)
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        name: Detect secrets (Law 1)
+        args: ['--baseline', '.secrets.baseline']
+        exclude: 'poetry.lock|package-lock.json'
+
+  # Custom coding law hooks
   - repo: local
     hooks:
-      - id: flake8
-        name: flake8
-        entry: flake8
-        language: system
+      - id: check-todo-format
+        name: Check TODO format (Coding Law)
+        entry: python scripts/check_todo_format.py
+        language: python
         types: [python]
-        args: [src/, tests/]
-        pass_filenames: false
+        pass_filenames: true
 
-  - repo: https://github.com/PyCQA/isort
-    rev: 5.13.2
-    hooks:
-      - id: isort
+      - id: check-generic-names
+        name: Check generic variable names (warning)
+        entry: python scripts/check_generic_names.py
+        language: python
+        types: [python]
+        pass_filenames: true
+        verbose: true
 
 default_language_version:
-  python: python3.11
+  python: python3.12
 
 exclude: |
   (?x)^(
