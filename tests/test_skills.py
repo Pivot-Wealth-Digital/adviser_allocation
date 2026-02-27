@@ -1,7 +1,6 @@
 """Unit tests for the test skill framework."""
 
 import pytest
-
 from adviser_allocation.skills.decorator import register_test_skill
 from adviser_allocation.skills.executor import SkillExecutor, SkillResult
 from adviser_allocation.skills.registry import SkillRegistry

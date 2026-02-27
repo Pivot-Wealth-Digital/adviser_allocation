@@ -98,7 +98,9 @@ class APIEndpointTests(unittest.TestCase):
             sess["is_authenticated"] = True
 
         response = self.client.post(
-            "/post/allocate", json={}, content_type="application/json"  # Empty data
+            "/post/allocate",
+            json={},
+            content_type="application/json",  # Empty data
         )
 
         # Webhook accepts empty payloads (returns 200 to prevent HubSpot retries)

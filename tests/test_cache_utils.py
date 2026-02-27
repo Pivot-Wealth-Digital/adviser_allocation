@@ -18,7 +18,9 @@ class CacheUtilsTests(unittest.TestCase):
     def test_cache_entry_expired(self):
         """Test cache entry that has expired."""
         entry = CacheEntry(
-            value="test_value", timestamp=time.time() - 400, ttl=300  # 400 seconds ago
+            value="test_value",
+            timestamp=time.time() - 400,
+            ttl=300,  # 400 seconds ago
         )
         self.assertTrue(entry.is_expired())
         self.assertFalse(entry.is_valid())
