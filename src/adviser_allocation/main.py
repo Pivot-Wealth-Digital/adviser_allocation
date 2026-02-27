@@ -10,10 +10,12 @@ from functools import lru_cache
 from urllib.parse import urlencode
 
 import requests
+from authlib.integrations.flask_client import OAuth  # Added for Authlib
 from dotenv import load_dotenv
 from flask import (
     Blueprint,
     Flask,
+    current_app,  # Added current_app for Authlib
     jsonify,
     redirect,
     render_template,
@@ -22,10 +24,8 @@ from flask import (
     send_from_directory,
     session,
     url_for,
-    current_app, # Added current_app for Authlib
 )
-from requests.exceptions import RequestException # Added for Authlib
-from authlib.integrations.flask_client import OAuth # Added for Authlib
+from requests.exceptions import RequestException  # Added for Authlib
 
 # Import skill definitions to register all skills in the system
 import adviser_allocation.skills.definitions
@@ -112,14 +112,14 @@ def login_required(view_func):
                 nxt = request.path
                 return redirect(f"/login?next={nxt}")
             return jsonify({"error": "Unauthorized"}), 401
-            
+
         # Optional: Additional check to ensure it's specifically a Google domain user
         user = session.get("user")
         if user and user.get("email") and not user["email"].endswith("@pivotwealth.com.au"):
-             # Technically shouldn't happen if auth/callback protects it, but as a secondary guard
-             session.clear()
-             return redirect("/login")
-             
+            # Technically shouldn't happen if auth/callback protects it, but as a secondary guard
+            session.clear()
+            return redirect("/login")
+
         return view_func(*args, **kwargs)
 
     return wrapper
@@ -1073,7 +1073,7 @@ def login():
     nxt = request.args.get("next") or "/"
     if is_authenticated():
         return redirect(nxt)
-    
+
     # Store 'next' in session for safety during OAuth redirect
     session["next"] = nxt
     return render_template("login.html")
@@ -1084,7 +1084,7 @@ def login_google():
     """Initiates Google OAuth flow when the user clicks 'Sign in with Google'."""
     if is_authenticated():
         return redirect("/")
-        
+
     # Redirect to Google OAuth authorization endpoint
     redirect_uri = url_for("main.google_auth_callback", _external=True)
     return current_app.oauth.google.authorize_redirect(redirect_uri)
@@ -1096,15 +1096,15 @@ def google_auth_callback():
     try:
         token = current_app.oauth.google.authorize_access_token()
         user_info = token.get("userinfo")
-        
+
         if not user_info:
             return "Failed to fetch user information from Google.", 400
-            
+
         # 1. Enforce Domain Restriction
         email = user_info.get("email", "")
         if not email.endswith("@pivotwealth.com.au"):
             return "Unauthorized domain. You must use a @pivotwealth.com.au account.", 403
-            
+
         # 2. Grant Access
         session["is_authenticated"] = True
         session["user"] = {
@@ -1112,7 +1112,7 @@ def google_auth_callback():
             "email": email,
             "picture": user_info.get("picture"),
         }
-        
+
     except Exception as e:
         logger.error(f"Google OAuth Error: {e}")
         return "Authentication failed. Please try again.", 400
@@ -2190,7 +2190,9 @@ def update_meeting_owner():
     except requests.exceptions.HTTPError as e:
         logging.error(f"Meeting owner update HTTP error: {e}")
         status = resp.status_code if "resp" in locals() else 500
-        return jsonify({"error": "Internal server error", "details": "See server logs for details"}), status
+        return jsonify(
+            {"error": "Internal server error", "details": "See server logs for details"}
+        ), status
     except Exception as e:
         logging.error("Failed to update meeting owner: %s", e)
         return jsonify({"error": "Internal server error"}), 500
@@ -2215,24 +2217,25 @@ from pathlib import Path as _Path
 
 _main_dir = _Path(__file__).parent.parent.parent
 
+
 def create_app(config_overrides=None):
     app = Flask(
-        __name__, template_folder=str(_main_dir / "templates"), static_folder=str(_main_dir / "static")
+        __name__,
+        template_folder=str(_main_dir / "templates"),
+        static_folder=str(_main_dir / "static"),
     )
 
     # App configuration
     app.secret_key = get_secret("SESSION_SECRET") or "change-me-please"
-    
+
     # Initialize Google OAuth Authlib
     app.oauth = OAuth(app)
     app.oauth.register(
-        name='google',
+        name="google",
         client_id=os.environ.get("GOOGLE_CLIENT_ID", "mock_client_id"),
         client_secret=os.environ.get("GOOGLE_CLIENT_SECRET", "mock_client_secret"),
-        server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
-        client_kwargs={
-            'scope': 'openid email profile'
-        }
+        server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
+        client_kwargs={"scope": "openid email profile"},
     )
 
     if config_overrides:
@@ -2243,6 +2246,7 @@ def create_app(config_overrides=None):
     app.register_blueprint(skills_bp)
 
     return app
+
 
 # Default instance for WSGI and tests
 app = create_app()
