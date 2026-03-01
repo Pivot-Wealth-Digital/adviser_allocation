@@ -4,7 +4,6 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 import requests
-
 from adviser_allocation.utils.http_client import (
     DEFAULT_TIMEOUT,
     create_session_with_retries,
