@@ -122,10 +122,9 @@ Exceeding soft limit? Add a comment explaining why. Exceeding hard limit? Split 
 
 | Tool | Config | Command |
 |------|--------|---------|
-| black | 100 char lines | `uv run black .` |
-| flake8 | `.flake8` | `uv run flake8` |
+| ruff format | 100 char lines | `uv run ruff format .` |
+| ruff check | `pyproject.toml` | `uv run ruff check .` |
 | mypy | `pyproject.toml` | `uv run mypy src/` |
-| isort | `pyproject.toml` | `uv run isort .` |
 
 Run all checks: `pre-commit run --all-files`
 

@@ -317,7 +317,7 @@ def test_allocation_finds_earliest_adviser(mock_firestore):
 
 Before pushing, ensure:
 - [ ] All 65 tests pass: `pytest tests/ -v`
-- [ ] No linting errors: `flake8 .` (if enabled)
+- [ ] No linting errors: `uv run ruff check .`
 - [ ] Coverage maintained: `pytest --cov=. --cov-report=term-missing`
 - [ ] Code follows style guide
 - [ ] Documentation updated if needed

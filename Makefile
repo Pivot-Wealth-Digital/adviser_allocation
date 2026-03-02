@@ -1,13 +1,11 @@
 .PHONY: lint format check test
 
 lint:
-	black --check src/ tests/
-	isort --check-only src/ tests/
-	flake8 src/ tests/
+	uv run ruff format --check src/ tests/
+	uv run ruff check src/ tests/
 
 format:
-	black src/ tests/
-	isort src/ tests/
+	uv run ruff format src/ tests/
 
 check:
 	pre-commit run --all-files

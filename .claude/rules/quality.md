@@ -27,7 +27,6 @@ globs:
 - If no ticket exists, don't leave the TODO
 
 ## Formatting
-- black with 100 char line length
-- isort for imports
-- flake8 for linting
+- ruff format (100 char line length)
+- ruff check (linting + import sorting)
 - Run `pre-commit run --all-files` to check
