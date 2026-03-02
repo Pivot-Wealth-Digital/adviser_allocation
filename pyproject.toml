@@ -109,15 +109,6 @@ max-statements = 50    # Law: max ~50 lines per function
 quote-style = "double"
 indent-style = "space"
 
-# Keep for backwards compatibility
-[tool.black]
-line-length = 100
-target-version = ["py312"]
-
-[tool.isort]
-profile = "black"
-line_length = 100
-
 [tool.coverage.run]
 source = ["src/adviser_allocation"]
 omit = ["*/tests/*", "*/.venv/*"]
