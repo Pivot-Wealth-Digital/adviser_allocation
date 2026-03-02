@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import re
@@ -7,8 +8,6 @@ from collections import Counter
 from datetime import date, datetime, timedelta
 from functools import lru_cache
 from urllib.parse import urlencode
-
-from cachetools import TTLCache
 
 import requests
 from authlib.integrations.flask_client import OAuth  # Added for Authlib
@@ -32,7 +31,6 @@ from requests.exceptions import RequestException  # Added for Authlib
 import adviser_allocation.skills.definitions
 from adviser_allocation.api.skills_routes import skills_bp
 from adviser_allocation.api.webhooks import init_webhooks
-from adviser_allocation.db import get_db_engine
 from adviser_allocation.core.allocation import (
     build_service_household_matrix,
     compute_user_schedule_by_email,
@@ -2197,145 +2195,6 @@ def update_meeting_owner():
         ), status
     except Exception as e:
         logging.error("Failed to update meeting owner: %s", e)
-        return jsonify({"error": "Internal server error"}), 500
-
-
-@main_bp.route("/availability/clarify-chart")
-def availability_clarify_chart():
-    """UI to visualise clarify dates in a stacked bar chart."""
-    try:
-        users = get_user_ids_adviser()
-        advisers = []
-        for user in users:
-            props = user.get("properties") or {}
-            taking_on_clients_value = props.get("taking_on_clients")
-            if taking_on_clients_value is None or str(taking_on_clients_value).strip() == "":
-                continue
-            advisers.append(user)
-    except Exception as e:
-        logging.error(f"Failed to load advisers for clarify chart: {e}")
-        return (
-            "<p>Failed to load advisers: Internal server error</p>",
-            500,
-            {"Content-Type": "text/html; charset=utf-8"},
-        )
-
-    def pretty_name(email: str) -> str:
-        local = (email or "").split("@")[0]
-        return (
-            " ".join(
-                part.capitalize() for part in local.replace(".", " ").replace("_", " ").split()
-            )
-            or email
-        )
-
-    display_advisers = []
-    for user in advisers:
-        props = user.get("properties") or {}
-        email = props.get("hs_email") or ""
-        if not email:
-            continue
-        display_advisers.append({"email": email, "name": pretty_name(email)})
-
-    return render_template(
-        "availability_clarify_chart.html",
-        advisers=sorted(display_advisers, key=lambda a: a["name"].lower()),
-        today=sydney_today().isoformat(),
-        week_num=f"{sydney_today().isocalendar()[1]:02d}",
-    )
-
-
-# TTL cache for clarify chart data (5 minute cache, max 10 entries for different filters)
-_clarify_chart_cache = TTLCache(maxsize=10, ttl=300)
-
-
-def _compute_clarify_chart_data_cached(adviser_filter: str = ""):
-    """Query clarify chart data from CloudSQL view with caching.
-
-    Uses the `clarify_chart_data` view which aggregates booked clarify meetings
-    and simulated clarify dates (deals awaiting clarify booking).
-
-    Results are cached for 5 minutes.
-    """
-    from sqlalchemy import text
-
-    cache_key = adviser_filter or "__all__"
-
-    if cache_key in _clarify_chart_cache:
-        logging.debug("Returning cached clarify chart data for %s", cache_key)
-        return _clarify_chart_cache[cache_key]
-
-    logging.info("Querying clarify chart data from CloudSQL (cache miss) for %s", cache_key)
-
-    try:
-        engine = get_db_engine()
-    except Exception as e:
-        logging.error("Failed to connect to CloudSQL: %s", e)
-        return {"labels": [], "booked": [], "simulated": [], "weeks": [], "error": str(e)}
-
-    # Query the clarify_chart_data view
-    if adviser_filter:
-        query = text("""
-            SELECT week_commencing, SUM(booked_clarifies) as booked, SUM(simulated_clarifies) as simulated
-            FROM clarify_chart_data
-            WHERE adviser_email = :email
-            GROUP BY week_commencing
-            ORDER BY week_commencing
-        """)
-        params = {"email": adviser_filter}
-    else:
-        query = text("""
-            SELECT week_commencing, SUM(booked_clarifies) as booked, SUM(simulated_clarifies) as simulated
-            FROM clarify_chart_data
-            GROUP BY week_commencing
-            ORDER BY week_commencing
-        """)
-        params = {}
-
-    try:
-        with engine.connect() as conn:
-            result_set = conn.execute(query, params)
-            rows = result_set.fetchall()
-    except Exception as e:
-        logging.error("Failed to query clarify_chart_data view: %s", e)
-        return {"labels": [], "booked": [], "simulated": [], "weeks": [], "error": str(e)}
-
-    if not rows:
-        result = {"labels": [], "booked": [], "simulated": [], "weeks": []}
-        _clarify_chart_cache[cache_key] = result
-        return result
-
-    result = {
-        "labels": [row[0].strftime("%d %b") for row in rows],
-        "booked": [int(row[1] or 0) for row in rows],
-        "simulated": [int(row[2] or 0) for row in rows],
-        "weeks": [row[0].isoformat() for row in rows],
-    }
-
-    _clarify_chart_cache[cache_key] = result
-    return result
-
-
-@main_bp.route("/api/clarify-chart-data")
-def api_clarify_chart_data():
-    """API endpoint returning clarify data for the stacked bar chart.
-
-    Results are cached for 5 minutes to improve response time.
-    Use ?refresh=1 to bypass cache.
-    """
-    try:
-        adviser_filter = request.args.get("adviser", "").strip().lower()
-        refresh = request.args.get("refresh", "").strip() == "1"
-
-        # Clear cache if refresh requested
-        if refresh and (adviser_filter or "__all__") in _clarify_chart_cache:
-            del _clarify_chart_cache[adviser_filter or "__all__"]
-
-        result = _compute_clarify_chart_data_cached(adviser_filter)
-        return jsonify(result)
-
-    except Exception as e:
-        logging.error(f"Failed to compute clarify chart data: {e}")
         return jsonify({"error": "Internal server error"}), 500
 
 
