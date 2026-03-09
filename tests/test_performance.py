@@ -260,7 +260,7 @@ class ErrorRecoveryPerformanceTests(unittest.TestCase):
         with self.client.session_transaction() as sess:
             sess["is_authenticated"] = True
 
-        with patch("adviser_allocation.main.get_firestore_client") as mock_db:
+        with patch("adviser_allocation.main.get_cloudsql_db") as mock_db:
             import requests
 
             mock_db.side_effect = requests.Timeout()
