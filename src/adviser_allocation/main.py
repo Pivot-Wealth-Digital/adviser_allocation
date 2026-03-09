@@ -61,6 +61,7 @@ from adviser_allocation.utils.firestore_helpers import (
 # Load variables from .env into environment
 load_dotenv()
 
+from adviser_allocation.utils.auth import require_api_key, require_oidc_token
 from adviser_allocation.utils.secrets import get_secret
 
 LOG_LEVEL_NAME = (os.environ.get("LOG_LEVEL") or "INFO").upper()
@@ -91,10 +92,6 @@ db = get_firestore_client()
 
 # Application metadata
 APP_VERSION = os.environ.get("APP_VERSION", "1.0.0")
-
-# ---- Admin auth config (for managing closures) ----
-ADMIN_USERNAME = get_secret("ADMIN_USERNAME") or os.environ.get("ADMIN_USERNAME")
-ADMIN_PASSWORD = get_secret("ADMIN_PASSWORD") or os.environ.get("ADMIN_PASSWORD")
 
 
 def is_authenticated():
@@ -144,12 +141,13 @@ def require_login():
     ]
 
     # List of routes that don't require authentication (by path)
+    # These paths bypass session auth — secured by their own decorators
     public_paths = [
-        "/webhook/allocation",  # HubSpot webhook for testing
         "/_ah/warmup",  # Cloud Run warmup
-        "/post/allocate",  # Hubspot webhook
-        "/sync/employees",  # Cloud Scheduler sync
-        "/sync/leave_requests",  # Cloud Scheduler sync
+        "/post/allocate",  # Secured by @require_hubspot_signature (HUBSPOT_CLIENT_SECRET)
+        "/webhook/allocation",  # Secured by @require_api_key (ADVISER_ALLOCATION_WEBHOOK_API_KEY)
+        "/sync/employees",  # Secured by @require_oidc_token
+        "/sync/leave_requests",  # Secured by @require_oidc_token
     ]
 
     # Check if current route is public
@@ -595,6 +593,7 @@ def get_leave_requests_by_email():
 
 # Lightweight sync endpoints to be triggered by a scheduler
 @main_bp.route("/sync/employees", methods=["POST", "GET"])
+@require_oidc_token
 def sync_employees():
     """Trigger an on-demand employee sync (suitable for schedulers)."""
     try:
@@ -606,6 +605,7 @@ def sync_employees():
 
 
 @main_bp.route("/sync/leave_requests", methods=["POST", "GET"])
+@require_oidc_token
 def sync_leave_requests():
     """Trigger an on-demand leave requests sync (suitable for schedulers)."""
     try:
@@ -1124,7 +1124,11 @@ def google_auth_callback():
 
 @main_bp.route("/login_bypass", methods=["POST"])
 def login_bypass():
-    """Bypass route to simulate a logged-in Pivot Wealth user (for development)."""
+    """Bypass route to simulate a logged-in Pivot Wealth user (local dev only)."""
+    if not current_app.debug:
+        logger.warning("login_bypass attempted in non-debug mode from %s", request.remote_addr)
+        return jsonify({"error": "Not found"}), 404
+
     session["is_authenticated"] = True
     session["user"] = {
         "name": "Dev User (Bypass)",
@@ -1407,6 +1411,7 @@ def leave_requests_ui():
 
 
 @main_bp.route("/webhook/allocation", methods=["POST"])
+@require_api_key
 def allocation_webhook():
     """Webhook endpoint to receive and store allocation requests."""
     try:

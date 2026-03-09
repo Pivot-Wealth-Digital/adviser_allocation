@@ -13,11 +13,13 @@ env_variables:
   PYTHONPATH: src
   # Secret Manager references (App Engine will fetch these automatically)
   HUBSPOT_TOKEN: projects/pivot-digital-466902/secrets/HUBSPOT_TOKEN/versions/latest
+  HUBSPOT_CLIENT_SECRET: projects/pivot-digital-466902/secrets/HUBSPOT_CLIENT_SECRET/versions/latest
   EH_CLIENT_ID: projects/pivot-digital-466902/secrets/EH_CLIENT_ID/versions/latest
   EH_CLIENT_SECRET: projects/pivot-digital-466902/secrets/EH_CLIENT_SECRET/versions/latest
   SESSION_SECRET: projects/pivot-digital-466902/secrets/HUBSPOT_SESSION_SECRET/versions/latest
-  ADMIN_USERNAME: projects/pivot-digital-466902/secrets/ADMIN_USERNAME/versions/latest
-  ADMIN_PASSWORD: projects/pivot-digital-466902/secrets/ADMIN_PASSWORD/versions/latest
+  # ADMIN_USERNAME and ADMIN_PASSWORD removed — admin auth uses Google OAuth only
+  ADVISER_ALLOCATION_WEBHOOK_API_KEY: projects/pivot-digital-466902/secrets/ADVISER_ALLOCATION_WEBHOOK_API_KEY/versions/latest
+  SCHEDULER_SERVICE_ACCOUNT: projects/pivot-digital-466902/secrets/SCHEDULER_SERVICE_ACCOUNT/versions/latest
   # Google Chat webhook for allocation alerts
   CHAT_WEBHOOK_URL: projects/pivot-digital-466902/secrets/CHAT_WEBHOOK_URL/versions/latest
   # Non-secret environment variables
