@@ -46,16 +46,9 @@ from adviser_allocation.core.allocation import (
 from adviser_allocation.services.allocation_service import store_allocation_record
 from adviser_allocation.utils.common import (
     SYDNEY_TZ,
-    USE_FIRESTORE,
-    get_firestore_client,
+    get_cloudsql_db,
     sydney_now,
     sydney_today,
-)
-from adviser_allocation.utils.firestore_helpers import (
-    get_employee_id as get_employee_id_from_firestore,
-)
-from adviser_allocation.utils.firestore_helpers import (
-    get_employee_leaves as get_employee_leaves_from_firestore,
 )
 
 # Load variables from .env into environment
@@ -85,9 +78,6 @@ except (ImportError, Exception):
 
 # Initialize logger
 logger = logging.getLogger(__name__)
-
-# Initialize Firestore
-db = get_firestore_client()
 
 # Application metadata
 APP_VERSION = os.environ.get("APP_VERSION", "1.0.0")
@@ -150,6 +140,8 @@ def require_login():
         "/post/allocate",  # Hubspot webhook
         "/sync/employees",  # Cloud Scheduler sync
         "/sync/leave_requests",  # Cloud Scheduler sync
+        "/sync/calendar_closures",  # Cloud Scheduler sync
+        "/jobs/compute-simulated-clarifies",  # Cloud Scheduler job
     ]
 
     # Check if current route is public
@@ -233,58 +225,13 @@ def ensure_eh_config():
         )
 
 
-# ---- Simple token store: Firestore (per session); swap to your user key strategy ----
-def token_key():
-    """Return the key used to store OAuth tokens.
-
-    Prefers a per-session/user key from Flask session; falls back to a fixed
-    development key when unavailable.
-
-    Returns:
-        str: Token partition key.
-    """
-    # Prefer a per-user/session key; fall back to a fixed dev key
-    # ideally session.get("user_key") or "e268304d2ad0444c"
-    return "e268304d2ad0444c"
-
-
-def save_tokens(tokens: dict):
-    """Persist OAuth tokens and compute absolute expiry.
-
-    Stores tokens in Firestore when configured, otherwise in Flask session.
-
-    Args:
-        tokens (dict): Token response containing access/refresh and expires_in.
-    """
-    tokens = dict(tokens)
-    # Track absolute expiry (subtract 60s for clock skew)
-    tokens["_expires_at"] = time.time() + max(0, int(tokens.get("expires_in", 0)) - 60)
-    if USE_FIRESTORE and db:
-        db.collection("eh_tokens").document(token_key()).set(tokens)
-    else:
-        session["eh_tokens"] = tokens
-
-
-def load_tokens():
-    """Load stored OAuth tokens from Firestore or session.
-
-    Returns:
-        dict | None: Token payload if found, else None.
-    """
-    return (
-        db.collection("eh_tokens").document(token_key()).get().to_dict()
-        if db
-        else session.get("eh_tokens")
-    )
-
-
-def update_tokens(tokens: dict):
-    """Update stored tokens by delegating to save_tokens.
-
-    Args:
-        tokens (dict): New token payload to persist.
-    """
-    save_tokens(tokens)  # same logic
+# ---- Token management using CloudSQL ----
+from adviser_allocation.services.oauth_service import (
+    load_tokens,
+    save_tokens,
+    token_key,
+    update_tokens,
+)
 
 
 # ---- OAuth flow ----
@@ -436,7 +383,7 @@ def get_org_id(headers):
 
 @main_bp.route("/get/employees")
 def get_employees():
-    """Fetch employees for the organisation and persist to Firestore.
+    """Fetch employees for the organisation and persist to CloudSQL.
 
     Returns:
         tuple: (list of employee dicts, HTTP status, headers)
@@ -458,6 +405,7 @@ def get_employees():
         raise RuntimeError(f"Refresh failed: {r_emps.status_code} {r_emps.text}")
 
     employees = []
+    cloudsql_db = get_cloudsql_db()
 
     for emp in r_emps.json()["data"]["items"]:
         item = {
@@ -466,9 +414,7 @@ def get_employees():
             "company_email": emp.get("company_email"),
             "account_email": emp.get("account_email"),
         }
-        if not db:
-            raise RuntimeError("Firestore is not configured; cannot persist employees.")
-        db.collection("employees").document(item["id"]).set(item)
+        cloudsql_db.upsert_employee_dict(item)
         employees.append(item)
 
     return (employees, r_emps.status_code, {"Content-Type": "application/json"})
@@ -489,7 +435,8 @@ def get_employee_id():
     if not search_email:
         return {"error": "Email parameter is missing"}, 400
 
-    employee_id = get_employee_id_from_firestore(search_email)
+    cloudsql_db = get_cloudsql_db()
+    employee_id = cloudsql_db.get_employee_id_by_email(search_email)
 
     if employee_id:
         return {"employee_id": employee_id}, 200
@@ -499,7 +446,7 @@ def get_employee_id():
 
 @main_bp.route("/get/leave_requests")
 def get_leave_requests():
-    """Fetch future approved leave requests and persist under each employee.
+    """Fetch future approved leave requests and persist to CloudSQL.
 
     Returns:
         tuple: (list of leave requests, HTTP status, headers)
@@ -513,6 +460,7 @@ def get_leave_requests():
     total_pages = 9
 
     org_id = get_org_id(headers)
+    cloudsql_db = get_cloudsql_db()
 
     leave_requests = []
     while page <= total_pages:
@@ -534,18 +482,13 @@ def get_leave_requests():
             if (leave_request["status"] == "Approved") and (start_date_obj > now_date):
                 item = {
                     "leave_request_id": leave_request.get("id"),
-                    "employee_id": leave_request.get("employee_id"),  # Using 'full_name' for 'name'
+                    "employee_id": leave_request.get("employee_id"),
                     "start_date": leave_request.get("start_date"),
                     "end_date": leave_request.get("end_date"),
+                    "status": "approved",
                 }
                 leave_requests.append(item)
-                if not db:
-                    raise RuntimeError(
-                        "Firestore is not configured; cannot persist leave requests."
-                    )
-                db.collection("employees").document(item["employee_id"]).collection(
-                    "leave_requests"
-                ).document(item["leave_request_id"]).set(item)
+                cloudsql_db.upsert_leave_request_dict(item)
 
         page += 1
         total_pages = e.json()["data"]["total_pages"]
@@ -555,7 +498,7 @@ def get_leave_requests():
 
 @main_bp.route("/get/employee_leave_requests")
 def get_employee_leave_requests():
-    """HTTP endpoint to list leave requests by employee ID from Firestore.
+    """HTTP endpoint to list leave requests by employee ID from CloudSQL.
 
     Query Param:
         employee_id (str): The employee document ID.
@@ -568,7 +511,8 @@ def get_employee_leave_requests():
     if not employee_id:
         return {"error": "Employee ID parameter is missing"}, 400
 
-    leaves = get_employee_leaves_from_firestore(employee_id)
+    cloudsql_db = get_cloudsql_db()
+    leaves = cloudsql_db.get_employee_leaves_as_dicts(employee_id)
 
     # Return the list with a 200 OK status, even if it's empty
     return {"leave_requests": leaves}, 200
@@ -578,18 +522,20 @@ def get_employee_leave_requests():
 def get_leave_requests_by_email():
     """HTTP endpoint to list leave requests by employee email.
 
-    Uses existing Firestore data; does not trigger sync work.
+    Uses existing CloudSQL data; does not trigger sync work.
     """
     email = request.args.get("email")
     if not email:
         return {"error": "Email parameter is missing"}, 400
 
+    cloudsql_db = get_cloudsql_db()
+
     # Look up in existing data only; populate via /sync endpoints or a scheduler
-    employee_id = get_employee_id_from_firestore(email)
+    employee_id = cloudsql_db.get_employee_id_by_email(email)
     if not employee_id:
         return {"error": "Employee not found in store. Run /sync/employees."}, 404
 
-    employee_leaves = get_employee_leaves_from_firestore(employee_id)
+    employee_leaves = cloudsql_db.get_employee_leaves_as_dicts(employee_id)
     return {"leave_requests": employee_leaves}, 200
 
 
@@ -616,24 +562,75 @@ def sync_leave_requests():
         return jsonify({"error": "Internal server error"}), 500
 
 
+@main_bp.route("/sync/calendar_closures", methods=["POST", "GET"])
+def sync_calendar_closures():
+    """Sync office closures from Google Calendar (suitable for schedulers).
+
+    Reads events from the Pivot closures calendar and optionally the
+    Australian public holidays calendar, then upserts into aa_office_closures.
+    """
+    calendar_id = os.environ.get("GOOGLE_CALENDAR_ID")
+    if not calendar_id:
+        logging.error("GOOGLE_CALENDAR_ID environment variable not set")
+        return jsonify({"error": "GOOGLE_CALENDAR_ID not configured"}), 500
+
+    try:
+        from adviser_allocation.services.calendar_sync_service import (
+            DEFAULT_HOLIDAYS_CALENDAR_ID,
+            sync_calendar_closures as _sync,
+        )
+
+        # Build list of (calendar_id, source_tag) tuples
+        sources = [(calendar_id, None)]
+        holidays_id = os.environ.get(
+            "GOOGLE_HOLIDAYS_CALENDAR_ID", DEFAULT_HOLIDAYS_CALENDAR_ID,
+        )
+        if holidays_id:
+            sources.append((holidays_id, "Public Holiday"))
+
+        cloudsql_db = get_cloudsql_db()
+        result = _sync(calendar_sources=sources, db=cloudsql_db)
+        return jsonify(result), 200
+    except Exception as e:
+        logging.error("Failed to sync calendar closures: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@main_bp.route("/jobs/compute-simulated-clarifies", methods=["POST", "GET"])
+def job_compute_simulated_clarifies():
+    """Compute simulated clarifies using capacity algorithm.
+
+    This job places deals without Clarify meetings into capacity-respecting weeks.
+    Run daily via Cloud Scheduler or manually to update the clarify chart data.
+    """
+    try:
+        from adviser_allocation.jobs.compute_simulated_clarifies import run_computation
+
+        advisers_processed, deals_assigned = run_computation()
+        return jsonify({
+            "ok": True,
+            "advisers_processed": advisers_processed,
+            "deals_assigned": deals_assigned,
+            "timestamp": sydney_now().isoformat(),
+        }), 200
+    except Exception as e:
+        logging.error("Failed to compute simulated clarifies: %s", e, exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
 # ---- Global Closures (Holidays) ----
 @main_bp.route("/closures", methods=["GET", "POST"])
 def closures():
     """Manage global office closures/holidays.
 
-    GET: List closures from Firestore collection 'office_closures'.
+    GET: List closures from CloudSQL.
     POST: Add a closure. JSON body: { start_date: YYYY-MM-DD, end_date?: YYYY-MM-DD, description?: str, tags?: [str] | str }
     """
-    if not db:
-        return jsonify({"error": "Firestore is not configured"}), 400
+    cloudsql_db = get_cloudsql_db()
 
     if request.method == "GET":
         try:
-            items = []
-            for doc in db.collection("office_closures").stream():
-                d = doc.to_dict() or {}
-                d["id"] = doc.id
-                items.append(d)
+            items = cloudsql_db.get_global_closures()
             return jsonify({"count": len(items), "closures": items}), 200
         except Exception as e:
             logging.error(f"Failed to list closures: {e}")
@@ -663,24 +660,21 @@ def closures():
             return jsonify({"error": "start_date is required (YYYY-MM-DD)"}), 400
         # Basic format sanity (YYYY-MM-DD)
         try:
-            datetime.strptime(start_date, "%Y-%m-%d")
-            datetime.strptime(end_date, "%Y-%m-%d")
+            start_date_obj = datetime.strptime(start_date, "%Y-%m-%d").date()
+            end_date_obj = datetime.strptime(end_date, "%Y-%m-%d").date()
         except Exception:
             return jsonify({"error": "Invalid date format; use YYYY-MM-DD"}), 400
 
-        doc_ref = db.collection("office_closures").document()
-        doc_ref.set(
-            {
-                "start_date": start_date,
-                "end_date": end_date,
-                "description": description,
-                "tags": tags,
-            }
+        closure_id = cloudsql_db.insert_office_closure(
+            start_date=start_date_obj,
+            end_date=end_date_obj,
+            description=description,
+            tags=tags,
         )
         return (
             jsonify(
                 {
-                    "id": doc_ref.id,
+                    "id": closure_id,
                     "start_date": start_date,
                     "end_date": end_date,
                     "description": description,
@@ -697,14 +691,14 @@ def closures():
 @main_bp.route("/closures/<closure_id>", methods=["PUT", "DELETE"])
 def closures_item(closure_id):
     """Update or delete a specific closure document (admin only)."""
-    if not db:
-        return jsonify({"error": "Firestore is not configured"}), 400
     if not is_authenticated():
         return jsonify({"error": "Unauthorized"}), 401
 
+    cloudsql_db = get_cloudsql_db()
+
     if request.method == "DELETE":
         try:
-            db.collection("office_closures").document(closure_id).delete()
+            cloudsql_db.delete_office_closure(closure_id)
             return jsonify({"ok": True}), 200
         except Exception as e:
             logging.error(f"Failed to delete closure {closure_id}: {e}")
@@ -732,16 +726,18 @@ def closures_item(closure_id):
         if not start_date:
             return jsonify({"error": "start_date is required (YYYY-MM-DD)"}), 400
         try:
-            datetime.strptime(start_date, "%Y-%m-%d")
-            datetime.strptime(end_date, "%Y-%m-%d")
+            start_date_obj = datetime.strptime(start_date, "%Y-%m-%d").date()
+            end_date_obj = datetime.strptime(end_date, "%Y-%m-%d").date()
         except Exception:
             return jsonify({"error": "Invalid date format; use YYYY-MM-DD"}), 400
-        update_doc = {"start_date": start_date, "end_date": end_date}
-        if description is not None:
-            update_doc["description"] = description
-        if tags is not None:
-            update_doc["tags"] = tags
-        db.collection("office_closures").document(closure_id).set(update_doc, merge=True)
+
+        cloudsql_db.update_office_closure(
+            closure_id=closure_id,
+            start_date=start_date_obj,
+            end_date=end_date_obj,
+            description=description,
+            tags=tags,
+        )
         resp = {"id": closure_id, "start_date": start_date, "end_date": end_date}
         if description is not None:
             resp["description"] = description
@@ -755,19 +751,12 @@ def closures_item(closure_id):
 
 @main_bp.route("/capacity_overrides", methods=["GET", "POST"])
 def capacity_overrides():
-    """Manage adviser capacity overrides stored in Firestore."""
-    if not db:
-        return jsonify({"error": "Firestore is not configured"}), 400
-
-    collection = db.collection("adviser_capacity_overrides")
+    """Manage adviser capacity overrides stored in CloudSQL."""
+    cloudsql_db = get_cloudsql_db()
 
     if request.method == "GET":
         try:
-            items = []
-            for doc in collection.stream():
-                data = doc.to_dict() or {}
-                data["id"] = doc.id
-                items.append(data)
+            items = cloudsql_db.get_capacity_overrides()
             items.sort(
                 key=lambda item: (item.get("adviser_email") or "", item.get("effective_date") or "")
             )
@@ -793,7 +782,7 @@ def capacity_overrides():
     if not effective_date:
         return jsonify({"error": "effective_date is required (YYYY-MM-DD)"}), 400
     try:
-        datetime.strptime(effective_date, "%Y-%m-%d")
+        effective_date_obj = datetime.strptime(effective_date, "%Y-%m-%d").date()
     except Exception:
         return jsonify({"error": "Invalid effective_date; use YYYY-MM-DD"}), 400
 
@@ -805,20 +794,24 @@ def capacity_overrides():
     if client_limit_monthly <= 0:
         return jsonify({"error": "client_limit_monthly must be positive"}), 400
 
-    doc = {
-        "adviser_email": adviser_email,
-        "effective_date": effective_date,
-        "client_limit_monthly": client_limit_monthly,
-        "pod_type": pod_type,
-        "notes": notes,
-        "created_at": sydney_now().isoformat(),
-    }
-
     try:
-        doc_ref = collection.document()
-        doc_ref.set(doc)
+        override_id = cloudsql_db.insert_capacity_override(
+            adviser_email=adviser_email,
+            effective_date=effective_date_obj,
+            client_limit_monthly=client_limit_monthly,
+            pod_type=pod_type,
+            notes=notes,
+        )
         refresh_capacity_override_cache()
-        doc["id"] = doc_ref.id
+        doc = {
+            "id": override_id,
+            "adviser_email": adviser_email,
+            "effective_date": effective_date,
+            "client_limit_monthly": client_limit_monthly,
+            "pod_type": pod_type,
+            "notes": notes,
+            "created_at": sydney_now().isoformat(),
+        }
         return jsonify(doc), 201
     except Exception as exc:
         logging.error("Failed to create capacity override: %s", exc)
@@ -828,16 +821,14 @@ def capacity_overrides():
 @main_bp.route("/capacity_overrides/<override_id>", methods=["PUT", "DELETE"])
 def capacity_overrides_item(override_id: str):
     """Update or delete a specific adviser capacity override document."""
-    if not db:
-        return jsonify({"error": "Firestore is not configured"}), 400
     if not is_authenticated():
         return jsonify({"error": "Unauthorized"}), 401
 
-    collection = db.collection("adviser_capacity_overrides")
+    cloudsql_db = get_cloudsql_db()
 
     if request.method == "DELETE":
         try:
-            collection.document(override_id).delete()
+            cloudsql_db.delete_capacity_override(override_id)
             refresh_capacity_override_cache()
             return jsonify({"ok": True}), 200
         except Exception as exc:
@@ -848,23 +839,22 @@ def capacity_overrides_item(override_id: str):
         return jsonify({"error": "Expected application/json"}), 415
 
     payload = request.get_json() or {}
-    update_doc = {}
+    update_params = {}
 
     if "adviser_email" in payload:
         email = (payload.get("adviser_email") or "").strip().lower()
         if not email:
             return jsonify({"error": "adviser_email cannot be blank"}), 400
-        update_doc["adviser_email"] = email
+        update_params["adviser_email"] = email
 
     if "effective_date" in payload:
         effective_date = (payload.get("effective_date") or "").strip()
         if not effective_date:
             return jsonify({"error": "effective_date cannot be blank"}), 400
         try:
-            datetime.strptime(effective_date, "%Y-%m-%d")
+            update_params["effective_date"] = datetime.strptime(effective_date, "%Y-%m-%d").date()
         except Exception:
             return jsonify({"error": "Invalid effective_date; use YYYY-MM-DD"}), 400
-        update_doc["effective_date"] = effective_date
 
     if "client_limit_monthly" in payload:
         try:
@@ -873,24 +863,27 @@ def capacity_overrides_item(override_id: str):
             return jsonify({"error": "client_limit_monthly must be an integer"}), 400
         if limit_value <= 0:
             return jsonify({"error": "client_limit_monthly must be positive"}), 400
-        update_doc["client_limit_monthly"] = limit_value
+        update_params["client_limit_monthly"] = limit_value
 
     if "pod_type" in payload:
-        update_doc["pod_type"] = (payload.get("pod_type") or "").strip()
+        update_params["pod_type"] = (payload.get("pod_type") or "").strip()
 
     if "notes" in payload:
-        update_doc["notes"] = (payload.get("notes") or "").strip()
+        update_params["notes"] = (payload.get("notes") or "").strip()
 
-    if not update_doc:
+    if not update_params:
         return jsonify({"error": "No valid fields to update"}), 400
 
-    update_doc["updated_at"] = sydney_now().isoformat()
-
     try:
-        collection.document(override_id).set(update_doc, merge=True)
+        cloudsql_db.update_capacity_override(override_id=override_id, **update_params)
         refresh_capacity_override_cache()
-        response = {"id": override_id}
-        response.update(update_doc)
+        response = {"id": override_id, "updated_at": sydney_now().isoformat()}
+        # Convert date back to string for response
+        for key, value in update_params.items():
+            if hasattr(value, "isoformat"):
+                response[key] = value.isoformat()
+            else:
+                response[key] = value
         return jsonify(response), 200
     except Exception as exc:
         logging.error("Failed to update capacity override %s: %s", override_id, exc)
@@ -900,19 +893,11 @@ def capacity_overrides_item(override_id: str):
 @main_bp.route("/capacity_overrides/ui")
 def capacity_overrides_ui():
     """UI for managing adviser capacity overrides."""
-    if not db:
-        return (
-            "<html><body><p>Firestore is not configured; cannot manage capacity overrides.</p></body></html>",
-            400,
-            {"Content-Type": "text/html; charset=utf-8"},
-        )
+    cloudsql_db = get_cloudsql_db()
 
     overrides = []
     try:
-        for doc in db.collection("adviser_capacity_overrides").order_by("adviser_email").stream():
-            data = doc.to_dict() or {}
-            data["id"] = doc.id
-            overrides.append(data)
+        overrides = cloudsql_db.get_capacity_overrides()
     except Exception as exc:
         logging.warning("Failed to load capacity overrides for UI: %s", exc)
 
@@ -982,20 +967,14 @@ def capacity_overrides_ui():
 @main_bp.route("/closures/ui")
 def closures_ui():
     """Simple UI to create and list global office closures (holidays)."""
-    if not db:
-        return (
-            "<html><body><p>Firestore is not configured; cannot manage closures.</p></body></html>",
-            400,
-            {"Content-Type": "text/html; charset=utf-8"},
-        )
+    cloudsql_db = get_cloudsql_db()
 
     # Preload closures for display
     closures = []
     try:
-        for doc in db.collection("office_closures").order_by("start_date").stream():
-            d = doc.to_dict() or {}
-            d["id"] = doc.id
-            closures.append(d)
+        closures = cloudsql_db.get_global_closures()
+        # Sort by start_date
+        closures.sort(key=lambda c: c.get("start_date") or "")
     except Exception as e:
         logging.warning(f"Failed to load closures for UI: {e}")
 
@@ -1230,27 +1209,12 @@ def list_leave_requests():
 
 @main_bp.route("/employees/ui")
 def employees_ui():
-    """UI to view employees from Firestore with consistent styling."""
+    """UI to view employees from CloudSQL with consistent styling."""
     try:
-        if not db:
-            return (
-                render_template_string(
-                    """
-                <div style="padding: 20px; text-align: center;">
-                    <h3>⚠️ Firestore Not Configured</h3>
-                    <p>Database connection is not available.</p>
-                </div>
-            """
-                ),
-                500,
-            )
+        cloudsql_db = get_cloudsql_db()
 
-        # Fetch employees from Firestore
-        employees = []
-        for doc in db.collection("employees").stream():
-            emp_data = doc.to_dict()
-            emp_data["doc_id"] = doc.id
-            employees.append(emp_data)
+        # Fetch employees from CloudSQL
+        employees = cloudsql_db.get_all_employees(active_only=False)
 
         # Sort employees by name
         employees.sort(key=lambda x: (x.get("name") or "").lower())
@@ -1279,33 +1243,22 @@ def employees_ui():
 
 @main_bp.route("/leave_requests/ui")
 def leave_requests_ui():
-    """UI to view leave requests from Firestore with filtering and calendar view."""
+    """UI to view leave requests from CloudSQL with filtering and calendar view."""
     try:
-        if not db:
-            return (
-                render_template_string(
-                    """
-                <div style="padding: 20px; text-align: center;">
-                    <h3>⚠️ Firestore Not Configured</h3>
-                    <p>Database connection is not available.</p>
-                </div>
-            """
-                ),
-                500,
-            )
+        cloudsql_db = get_cloudsql_db()
 
         # Get filter parameters
         selected_employee = request.args.get("employee", "")
         status_filter = request.args.get("status", "")
 
-        # Fetch employees first for dropdown (optimized query)
+        # Fetch employees first for dropdown
+        all_employees = cloudsql_db.get_all_employees(active_only=False)
         employees = []
         employees_dict = {}
-        for emp_doc in db.collection("employees").stream():
-            emp_data = emp_doc.to_dict()
-            emp_id = emp_doc.id
-            emp_name = emp_data.get("name", "Unknown")
-            emp_email = emp_data.get("company_email", emp_data.get("account_email", ""))
+        for emp in all_employees:
+            emp_id = emp.get("employee_id")
+            emp_name = emp.get("name", "Unknown")
+            emp_email = emp.get("company_email", emp.get("account_email", ""))
 
             employees.append({"id": emp_id, "name": emp_name, "email": emp_email})
             employees_dict[emp_id] = {"name": emp_name, "email": emp_email}
@@ -1318,15 +1271,13 @@ def leave_requests_ui():
 
         if selected_employee:
             # Fetch only for selected employee (faster)
-            emp_ref = db.collection("employees").document(selected_employee)
             emp_data = employees_dict.get(selected_employee, {"name": "Unknown", "email": ""})
+            leaves = cloudsql_db.get_employee_leaves_as_dicts(selected_employee)
 
-            for leave_doc in emp_ref.collection("leave_requests").stream():
-                leave_data = leave_doc.to_dict()
-                leave_data["employee_id"] = selected_employee
+            for leave_data in leaves:
                 leave_data["employee_name"] = emp_data["name"]
                 leave_data["employee_email"] = emp_data["email"]
-                leave_data["doc_id"] = leave_doc.id
+                leave_data["doc_id"] = leave_data.get("leave_request_id")
 
                 # Apply status filter
                 if (
@@ -1347,16 +1298,14 @@ def leave_requests_ui():
                         }
                     )
         else:
-            # Fetch all leave requests (existing logic but optimized)
+            # Fetch all leave requests
             for emp_id, emp_data in employees_dict.items():
-                emp_ref = db.collection("employees").document(emp_id)
+                leaves = cloudsql_db.get_employee_leaves_as_dicts(emp_id)
 
-                for leave_doc in emp_ref.collection("leave_requests").stream():
-                    leave_data = leave_doc.to_dict()
-                    leave_data["employee_id"] = emp_id
+                for leave_data in leaves:
                     leave_data["employee_name"] = emp_data["name"]
                     leave_data["employee_email"] = emp_data["email"]
-                    leave_data["doc_id"] = leave_doc.id
+                    leave_data["doc_id"] = leave_data.get("leave_request_id")
 
                     # Apply status filter
                     if (
@@ -1410,9 +1359,6 @@ def leave_requests_ui():
 def allocation_webhook():
     """Webhook endpoint to receive and store allocation requests."""
     try:
-        if not db:
-            return jsonify({"error": "Firestore not configured"}), 500
-
         # Get request data
         data = request.get_json()
         if not data:
@@ -1423,7 +1369,7 @@ def allocation_webhook():
             "user_agent": request.headers.get("User-Agent", ""),
         }
         doc_id = store_allocation_record(
-            db, data, source="webhook", raw_request=data, extra_fields=extra
+            None, data, source="webhook", raw_request=data, extra_fields=extra
         )
 
         if doc_id:
@@ -1444,18 +1390,7 @@ def allocation_webhook():
 def allocation_history_ui():
     """Dashboard view of allocation history with pagination."""
     try:
-        if not db:
-            return (
-                render_template_string(
-                    """
-                <div style=\"padding: 20px; text-align: center;\">
-                    <h3>⚠️ Firestore Not Configured</h3>
-                    <p>Database connection is not available.</p>
-                </div>
-                """
-                ),
-                500,
-            )
+        cloudsql_db = get_cloudsql_db()
 
         status_filter = request.args.get("status", "")
         deal_filter = request.args.get("deal", "")
@@ -1470,17 +1405,24 @@ def allocation_history_ui():
 
         cutoff_date = sydney_now() - timedelta(days=days_filter)
 
-        allocations_ref = db.collection("allocation_requests")
+        # Fetch allocation history from CloudSQL
+        raw_allocations = cloudsql_db.get_allocation_history(
+            deal_id=deal_filter if deal_filter else None,
+            adviser_email=adviser_filter if adviser_filter else None,
+            limit=1000,  # Get more than needed for filtering
+        )
         allocations: list[dict] = []
 
-        for doc in allocations_ref.order_by("timestamp", direction="DESCENDING").stream():
-            row = doc.to_dict() or {}
-            row["doc_id"] = doc.id
-
+        for row in raw_allocations:
             ts_value = row.get("timestamp")
             if ts_value:
                 try:
-                    parsed_ts = datetime.fromisoformat(str(ts_value).replace("Z", "+00:00"))
+                    if isinstance(ts_value, str):
+                        parsed_ts = datetime.fromisoformat(ts_value.replace("Z", "+00:00"))
+                    else:
+                        parsed_ts = ts_value
+                    if parsed_ts.tzinfo is None:
+                        parsed_ts = parsed_ts.replace(tzinfo=SYDNEY_TZ)
                     if parsed_ts < cutoff_date:
                         continue
                 except Exception:
@@ -1488,17 +1430,6 @@ def allocation_history_ui():
 
             if status_filter and (row.get("status") or "").lower() != status_filter.lower():
                 continue
-            if deal_filter and str(row.get("deal_id") or "") != deal_filter:
-                continue
-            if adviser_filter:
-                searchable = " ".join(
-                    [
-                        row.get("adviser_name", ""),
-                        row.get("adviser_email", ""),
-                    ]
-                ).lower()
-                if adviser_filter.lower() not in searchable:
-                    continue
 
             allocations.append(row)
 
@@ -2103,6 +2034,89 @@ def availability_meetings():
     )
 
 
+@main_bp.route("/availability/clarify-chart")
+def availability_clarify_chart():
+    """UI page showing Clarify meetings chart by adviser and week."""
+    try:
+        # Get adviser list for dropdown
+        users = get_user_ids_adviser()
+        advisers = []
+        for user in users:
+            props = user.get("properties") or {}
+            email = props.get("hs_email") or ""
+            if not email:
+                continue
+            taking_on_clients_value = props.get("taking_on_clients")
+            if taking_on_clients_value is None or str(taking_on_clients_value).strip() == "":
+                continue
+            # Format name from email
+            local = email.split("@")[0]
+            name = " ".join(part.capitalize() for part in local.replace(".", " ").replace("_", " ").split())
+            advisers.append({"email": email, "name": name or email})
+
+        advisers.sort(key=lambda a: a["name"].lower())
+
+        return render_template(
+            "availability_clarify_chart.html",
+            advisers=advisers,
+            today=sydney_today().isoformat(),
+            week_num=f"{sydney_today().isocalendar()[1]:02d}",
+        )
+    except Exception as e:
+        logging.error("Failed to load clarify chart page: %s", e)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@main_bp.route("/api/clarify-chart-data")
+def api_clarify_chart_data():
+    """API endpoint for Clarify chart data.
+
+    Returns JSON in format expected by Chart.js: {labels, booked, simulated}
+    Optional query params:
+        - weeks: Number of weeks to show (default 12)
+        - adviser: Filter to specific adviser email
+    """
+    try:
+        weeks_param = request.args.get("weeks", "12")
+        try:
+            weeks = max(1, min(52, int(weeks_param)))
+        except ValueError:
+            weeks = 12
+
+        adviser_filter = request.args.get("adviser", "").strip().lower()
+
+        cloudsql_db = get_cloudsql_db()
+        rows = cloudsql_db.get_clarify_chart_data(weeks=weeks, adviser_email=adviser_filter or None)
+
+        # Aggregate by week (sum across advisers if no filter)
+        week_data = {}
+        for row in rows:
+            week = row.get("week_commencing")
+            if not week:
+                continue
+            week_str = week.isoformat() if hasattr(week, "isoformat") else str(week)
+            if week_str not in week_data:
+                week_data[week_str] = {"booked": 0, "simulated": 0}
+            week_data[week_str]["booked"] += int(row.get("booked_clarifies") or 0)
+            week_data[week_str]["simulated"] += int(row.get("simulated_clarifies") or 0)
+
+        # Sort by week and build arrays
+        sorted_weeks = sorted(week_data.keys())
+        labels = sorted_weeks
+        booked = [week_data[w]["booked"] for w in sorted_weeks]
+        simulated = [week_data[w]["simulated"] for w in sorted_weeks]
+
+        return jsonify({
+            "labels": labels,
+            "booked": booked,
+            "simulated": simulated,
+        })
+
+    except Exception as e:
+        logging.error("Failed to fetch clarify chart data: %s", e)
+        return jsonify({"error": "Internal server error"}), 500
+
+
 @main_bp.route("/availability/matrix")
 def availability_matrix():
     try:
@@ -2242,7 +2256,7 @@ def create_app(config_overrides=None):
         app.config.update(config_overrides)
 
     app.register_blueprint(main_bp)
-    app.register_blueprint(init_webhooks(db))
+    app.register_blueprint(init_webhooks(None))  # CloudSQL used internally
     app.register_blueprint(skills_bp)
 
     return app
