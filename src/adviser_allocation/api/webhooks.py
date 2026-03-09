@@ -460,7 +460,8 @@ def handle_calendar_notification():
 
     logger.info(
         "Calendar webhook: state=%s channel=%s",
-        resource_state, channel_id[:8] if channel_id else "none",
+        resource_state,
+        channel_id[:8] if channel_id else "none",
     )
 
     # Validate token
@@ -496,7 +497,8 @@ def handle_calendar_notification():
 
         sources = [(calendar_id, None)]
         holidays_id = os.environ.get(
-            "GOOGLE_HOLIDAYS_CALENDAR_ID", DEFAULT_HOLIDAYS_CALENDAR_ID,
+            "GOOGLE_HOLIDAYS_CALENDAR_ID",
+            DEFAULT_HOLIDAYS_CALENDAR_ID,
         )
         if holidays_id:
             sources.append((holidays_id, "Public Holiday"))

@@ -94,12 +94,8 @@ def _parse_event_dates(event: Dict[str, Any]) -> Optional[Tuple[date, date]]:
             # Google end date is exclusive for all-day events
             end = date.fromisoformat(end_raw["date"]) - timedelta(days=1)
         elif "dateTime" in start_raw:
-            start = datetime.fromisoformat(
-                start_raw["dateTime"].replace("Z", "+00:00")
-            ).date()
-            end = datetime.fromisoformat(
-                end_raw["dateTime"].replace("Z", "+00:00")
-            ).date()
+            start = datetime.fromisoformat(start_raw["dateTime"].replace("Z", "+00:00")).date()
+            end = datetime.fromisoformat(end_raw["dateTime"].replace("Z", "+00:00")).date()
         else:
             logger.warning("Event %s has no date or dateTime", event.get("id"))
             return None
@@ -161,7 +157,10 @@ def fetch_calendar_events(
 
     logger.info(
         "Fetched %d events from calendar %s (%s to %s)",
-        len(events), calendar_id, time_min[:10], time_max[:10],
+        len(events),
+        calendar_id,
+        time_min[:10],
+        time_max[:10],
     )
     return events
 
@@ -193,7 +192,10 @@ def sync_calendar_closures(
             events = fetch_calendar_events(calendar_id)
         except Exception as exc:
             logger.error(
-                "Failed to fetch events from %s: %s", calendar_id, exc, exc_info=True,
+                "Failed to fetch events from %s: %s",
+                calendar_id,
+                exc,
+                exc_info=True,
             )
             counts["errors"] += 1
             continue
@@ -230,7 +232,9 @@ def sync_calendar_closures(
             except Exception as exc:
                 logger.error(
                     "Failed to upsert closure for event %s: %s",
-                    event_id, exc, exc_info=True,
+                    event_id,
+                    exc,
+                    exc_info=True,
                 )
                 counts["errors"] += 1
 
@@ -241,7 +245,9 @@ def sync_calendar_closures(
             counts["deleted"] = deleted
         except Exception as exc:
             logger.error(
-                "Failed to delete stale closures: %s", exc, exc_info=True,
+                "Failed to delete stale closures: %s",
+                exc,
+                exc_info=True,
             )
             counts["errors"] += 1
     else:
@@ -249,6 +255,9 @@ def sync_calendar_closures(
 
     logger.info(
         "Calendar sync complete: upserted=%d deleted=%d errors=%d skipped=%d",
-        counts["upserted"], counts["deleted"], counts["errors"], counts["skipped"],
+        counts["upserted"],
+        counts["deleted"],
+        counts["errors"],
+        counts["skipped"],
     )
     return counts

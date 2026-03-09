@@ -75,10 +75,14 @@ def register_calendar_watch(
         "token": channel_token,
     }
 
-    response = service.events().watch(
-        calendarId=calendar_id,
-        body=watch_body,
-    ).execute()
+    response = (
+        service.events()
+        .watch(
+            calendarId=calendar_id,
+            body=watch_body,
+        )
+        .execute()
+    )
 
     expiration_ms = int(response.get("expiration", 0))
     resource_id = response.get("resourceId", "")
@@ -100,7 +104,9 @@ def register_calendar_watch(
     expiry_utc = datetime.fromtimestamp(expiration_ms / 1000, tz=timezone.utc)
     logger.info(
         "Registered watch for %s (channel=%s, expires=%s)",
-        calendar_id[:30], channel_id[:8], expiry_utc.isoformat(),
+        calendar_id[:30],
+        channel_id[:8],
+        expiry_utc.isoformat(),
     )
     return doc_data
 
@@ -116,10 +122,12 @@ def stop_calendar_watch(channel_id: str, resource_id: str) -> None:
         Resource ID returned by Google during registration.
     """
     service = _get_calendar_service_rw()
-    service.channels().stop(body={
-        "id": channel_id,
-        "resourceId": resource_id,
-    }).execute()
+    service.channels().stop(
+        body={
+            "id": channel_id,
+            "resourceId": resource_id,
+        }
+    ).execute()
     logger.info("Stopped watch channel %s", channel_id[:8])
 
 
@@ -180,13 +188,18 @@ def renew_expiring_watches(
         except Exception as exc:
             logger.error(
                 "Failed to renew/register watch for %s: %s",
-                calendar_id[:30], exc, exc_info=True,
+                calendar_id[:30],
+                exc,
+                exc_info=True,
             )
             counts["errors"] += 1
 
     logger.info(
         "Watch renewal complete: renewed=%d registered=%d skipped=%d errors=%d",
-        counts["renewed"], counts["registered"], counts["skipped"], counts["errors"],
+        counts["renewed"],
+        counts["registered"],
+        counts["skipped"],
+        counts["errors"],
     )
     return counts
 

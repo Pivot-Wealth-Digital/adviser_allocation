@@ -52,11 +52,17 @@ class TestCalendarWebhook(unittest.TestCase):
     @patch("adviser_allocation.api.webhooks._get_calendar_webhook_token")
     def test_no_token_configured_allows_request(self, mock_token):
         mock_token.return_value = None
-        with patch(
-            "adviser_allocation.services.calendar_sync_service.sync_calendar_closures"
-        ) as mock_sync, patch("adviser_allocation.main.get_cloudsql_db") as mock_db:
+        with (
+            patch(
+                "adviser_allocation.services.calendar_sync_service.sync_calendar_closures"
+            ) as mock_sync,
+            patch("adviser_allocation.main.get_cloudsql_db") as mock_db,
+        ):
             mock_sync.return_value = {
-                "upserted": 0, "deleted": 0, "errors": 0, "skipped": 0,
+                "upserted": 0,
+                "deleted": 0,
+                "errors": 0,
+                "skipped": 0,
             }
             mock_db.return_value = MagicMock()
             response = self._post_webhook()
@@ -71,7 +77,10 @@ class TestCalendarWebhook(unittest.TestCase):
         mock_token.return_value = None
         mock_db.return_value = MagicMock()
         mock_sync.return_value = {
-            "upserted": 3, "deleted": 1, "errors": 0, "skipped": 0,
+            "upserted": 3,
+            "deleted": 1,
+            "errors": 0,
+            "skipped": 0,
         }
 
         response = self._post_webhook()
@@ -90,7 +99,10 @@ class TestCalendarWebhook(unittest.TestCase):
         mock_token.return_value = None
         mock_db.return_value = MagicMock()
         mock_sync.return_value = {
-            "upserted": 0, "deleted": 0, "errors": 0, "skipped": 0,
+            "upserted": 0,
+            "deleted": 0,
+            "errors": 0,
+            "skipped": 0,
         }
 
         # First call triggers sync

@@ -81,7 +81,13 @@ class TestRegisterCalendarWatch(unittest.TestCase):
         register_calendar_watch("cal-id", "https://url.com/hook", "my-token")
 
         call_kwargs = mock_service.events().watch.call_args
-        watch_body = call_kwargs[1]["body"] if "body" in (call_kwargs[1] or {}) else call_kwargs[0][0] if call_kwargs[0] else {}
+        watch_body = (
+            call_kwargs[1]["body"]
+            if "body" in (call_kwargs[1] or {})
+            else call_kwargs[0][0]
+            if call_kwargs[0]
+            else {}
+        )
         # The watch() was called — that's the key assertion
         mock_service.events().watch.assert_called()
 

@@ -587,7 +587,8 @@ def sync_calendar_closures():
         # Build list of (calendar_id, source_tag) tuples
         sources = [(calendar_id, None)]
         holidays_id = os.environ.get(
-            "GOOGLE_HOLIDAYS_CALENDAR_ID", DEFAULT_HOLIDAYS_CALENDAR_ID,
+            "GOOGLE_HOLIDAYS_CALENDAR_ID",
+            DEFAULT_HOLIDAYS_CALENDAR_ID,
         )
         if holidays_id:
             sources.append((holidays_id, "Public Holiday"))
@@ -622,7 +623,8 @@ def renew_calendar_watches():
 
         sources = [(calendar_id, None)]
         holidays_id = os.environ.get(
-            "GOOGLE_HOLIDAYS_CALENDAR_ID", DEFAULT_HOLIDAYS_CALENDAR_ID,
+            "GOOGLE_HOLIDAYS_CALENDAR_ID",
+            DEFAULT_HOLIDAYS_CALENDAR_ID,
         )
         if holidays_id:
             sources.append((holidays_id, "Public Holiday"))
@@ -645,12 +647,14 @@ def job_compute_simulated_clarifies():
         from adviser_allocation.jobs.compute_simulated_clarifies import run_computation
 
         advisers_processed, deals_assigned = run_computation()
-        return jsonify({
-            "ok": True,
-            "advisers_processed": advisers_processed,
-            "deals_assigned": deals_assigned,
-            "timestamp": sydney_now().isoformat(),
-        }), 200
+        return jsonify(
+            {
+                "ok": True,
+                "advisers_processed": advisers_processed,
+                "deals_assigned": deals_assigned,
+                "timestamp": sydney_now().isoformat(),
+            }
+        ), 200
     except Exception as e:
         logging.error("Failed to compute simulated clarifies: %s", e, exc_info=True)
         return jsonify({"error": str(e)}), 500
@@ -2089,7 +2093,9 @@ def availability_clarify_chart():
                 continue
             # Format name from email
             local = email.split("@")[0]
-            name = " ".join(part.capitalize() for part in local.replace(".", " ").replace("_", " ").split())
+            name = " ".join(
+                part.capitalize() for part in local.replace(".", " ").replace("_", " ").split()
+            )
             advisers.append({"email": email, "name": name or email})
 
         advisers.sort(key=lambda a: a["name"].lower())
@@ -2144,11 +2150,13 @@ def api_clarify_chart_data():
         booked = [week_data[w]["booked"] for w in sorted_weeks]
         simulated = [week_data[w]["simulated"] for w in sorted_weeks]
 
-        return jsonify({
-            "labels": labels,
-            "booked": booked,
-            "simulated": simulated,
-        })
+        return jsonify(
+            {
+                "labels": labels,
+                "booked": booked,
+                "simulated": simulated,
+            }
+        )
 
     except Exception as e:
         logging.error("Failed to fetch clarify chart data: %s", e)
