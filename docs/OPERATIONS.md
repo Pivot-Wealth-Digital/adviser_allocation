@@ -40,6 +40,23 @@ Cloud Scheduler automatically runs sync jobs to keep Firestore data fresh. All j
 - Backoff: 5s minimum, up to 1 hour maximum
 - Attempt deadline: 180 seconds
 
+### Google Calendar Sync Jobs
+
+| Job ID | Schedule | Frequency | Endpoint | Target | Status |
+|--------|----------|-----------|----------|--------|--------|
+| `calendar-closures-sync` | `0 1 * * *` | Daily @ 1:00 AM AEST | `GET /sync/calendar_closures` | Cloud Run | ENABLED |
+| `calendar-watch-renew` | `0 3 * * *` | Daily @ 3:00 AM AEST | `POST /sync/calendar_watch_renew` | Cloud Run | ENABLED |
+
+**Purpose:**
+- `calendar-closures-sync`: Safety-net pull sync from Google Calendar into `aa_office_closures`
+- `calendar-watch-renew`: Renews Google Calendar push notification channels (expire every ~7 days)
+
+**Real-time sync:** Google Calendar push notifications POST to `/webhooks/calendar` on event changes (near-instant). The daily scheduler is a safety net.
+
+**Retry Policy:**
+- Max 1 retry for both jobs
+- Backoff: 5s minimum, up to 1 hour maximum
+
 ---
 
 ## View and Manage Jobs

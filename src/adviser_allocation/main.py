@@ -141,6 +141,8 @@ def require_login():
         "/sync/employees",  # Cloud Scheduler sync
         "/sync/leave_requests",  # Cloud Scheduler sync
         "/sync/calendar_closures",  # Cloud Scheduler sync
+        "/sync/calendar_watch_renew",  # Cloud Scheduler watch renewal
+        "/webhooks/calendar",  # Google Calendar push notifications
         "/jobs/compute-simulated-clarifies",  # Cloud Scheduler job
     ]
 
@@ -577,6 +579,8 @@ def sync_calendar_closures():
     try:
         from adviser_allocation.services.calendar_sync_service import (
             DEFAULT_HOLIDAYS_CALENDAR_ID,
+        )
+        from adviser_allocation.services.calendar_sync_service import (
             sync_calendar_closures as _sync,
         )
 
@@ -593,6 +597,40 @@ def sync_calendar_closures():
         return jsonify(result), 200
     except Exception as e:
         logging.error("Failed to sync calendar closures: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@main_bp.route("/sync/calendar_watch_renew", methods=["POST", "GET"])
+def renew_calendar_watches():
+    """Renew Google Calendar push notification channels approaching expiry.
+
+    Intended to run daily via Cloud Scheduler. Also registers watches
+    for any calendar not yet being watched.
+    """
+    calendar_id = os.environ.get("GOOGLE_CALENDAR_ID")
+    if not calendar_id:
+        logging.error("GOOGLE_CALENDAR_ID environment variable not set")
+        return jsonify({"error": "GOOGLE_CALENDAR_ID not configured"}), 500
+
+    try:
+        from adviser_allocation.services.calendar_sync_service import (
+            DEFAULT_HOLIDAYS_CALENDAR_ID,
+        )
+        from adviser_allocation.services.calendar_watch_service import (
+            renew_expiring_watches,
+        )
+
+        sources = [(calendar_id, None)]
+        holidays_id = os.environ.get(
+            "GOOGLE_HOLIDAYS_CALENDAR_ID", DEFAULT_HOLIDAYS_CALENDAR_ID,
+        )
+        if holidays_id:
+            sources.append((holidays_id, "Public Holiday"))
+
+        result = renew_expiring_watches(calendar_sources=sources)
+        return jsonify(result), 200
+    except Exception as exc:
+        logging.error("Failed to renew calendar watches: %s", exc, exc_info=True)
         return jsonify({"error": "Internal server error"}), 500
 
 
