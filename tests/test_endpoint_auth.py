@@ -1,5 +1,6 @@
-"""Tests for endpoint authentication (OIDC and API key)."""
+"""Tests for endpoint authentication (OIDC, HubSpot signature, and API key)."""
 
+import hashlib
 import os
 import unittest
 from unittest.mock import MagicMock, patch
@@ -7,6 +8,14 @@ from unittest.mock import MagicMock, patch
 os.environ.setdefault("USE_FIRESTORE", "false")
 
 from adviser_allocation.main import app
+
+TEST_HUBSPOT_SECRET = "test-hubspot-client-secret"
+
+
+def hubspot_v2_signature(client_secret, method, url, body=""):
+    """Compute HubSpot v2 signature: SHA-256(client_secret + method + url + body)."""
+    source = client_secret + method + url + body
+    return hashlib.sha256(source.encode("utf-8")).hexdigest()
 
 
 class OIDCSyncEndpointTests(unittest.TestCase):
@@ -105,8 +114,8 @@ class OIDCSyncEndpointTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
 
 
-class APIKeyWebhookTests(unittest.TestCase):
-    """Tests for API key-protected webhook endpoints."""
+class HubSpotSignatureTests(unittest.TestCase):
+    """Tests for HubSpot signature-protected /post/allocate endpoint."""
 
     def setUp(self):
         self.app = app
@@ -114,37 +123,50 @@ class APIKeyWebhookTests(unittest.TestCase):
         self.client = self.app.test_client()
 
     @patch("adviser_allocation.utils.auth.get_secret")
-    def test_allocate_rejects_no_api_key(self, mock_secret):
-        mock_secret.return_value = "correct-key"
+    def test_allocate_rejects_no_signature(self, mock_secret):
+        mock_secret.return_value = TEST_HUBSPOT_SECRET
+        response = self.client.post("/post/allocate", json={"test": True})
+        self.assertEqual(response.status_code, 401)
+
+    @patch("adviser_allocation.utils.auth.get_secret")
+    def test_allocate_rejects_wrong_signature(self, mock_secret):
+        mock_secret.return_value = TEST_HUBSPOT_SECRET
         response = self.client.post(
             "/post/allocate",
             json={"test": True},
+            headers={"X-HubSpot-Signature": "wrong-signature"},
         )
         self.assertEqual(response.status_code, 401)
 
     @patch("adviser_allocation.utils.auth.get_secret")
-    def test_allocate_rejects_wrong_api_key(self, mock_secret):
-        mock_secret.return_value = "correct-key"
-        response = self.client.post(
-            "/post/allocate?api_key=wrong-key",
-            json={"test": True},
-        )
-        self.assertEqual(response.status_code, 401)
-
-    @patch("adviser_allocation.utils.auth.get_secret")
-    def test_allocate_returns_500_when_key_not_configured(self, mock_secret):
+    def test_allocate_returns_500_when_secret_not_configured(self, mock_secret):
         mock_secret.return_value = None
         response = self.client.post(
-            "/post/allocate?api_key=any-key",
+            "/post/allocate",
             json={"test": True},
+            headers={"X-HubSpot-Signature": "any"},
         )
         self.assertEqual(response.status_code, 500)
 
     @patch("adviser_allocation.utils.auth.get_secret")
-    def test_allocate_get_with_valid_key(self, mock_secret):
-        mock_secret.return_value = "correct-key"
-        response = self.client.get("/post/allocate?api_key=correct-key")
+    def test_allocate_get_with_valid_signature(self, mock_secret):
+        mock_secret.return_value = TEST_HUBSPOT_SECRET
+        url = "http://localhost/post/allocate"
+        sig = hubspot_v2_signature(TEST_HUBSPOT_SECRET, "GET", url)
+        response = self.client.get(
+            "/post/allocate",
+            headers={"X-HubSpot-Signature": sig},
+        )
         self.assertEqual(response.status_code, 200)
+
+
+class APIKeyWebhookTests(unittest.TestCase):
+    """Tests for API key-protected /webhook/allocation endpoint."""
+
+    def setUp(self):
+        self.app = app
+        self.app.config["TESTING"] = True
+        self.client = self.app.test_client()
 
     @patch("adviser_allocation.utils.auth.get_secret")
     def test_webhook_allocation_rejects_no_api_key(self, mock_secret):

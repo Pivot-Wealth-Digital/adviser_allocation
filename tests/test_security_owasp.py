@@ -238,13 +238,28 @@ class CSRFSecurityTests(unittest.TestCase):
     def test_post_requests_require_csrf_token(self):
         """Test that POST requests require CSRF token.
 
-        Note: /post/allocate is a HubSpot webhook endpoint - intentionally
-        CSRF-exempt since external services can't provide CSRF tokens.
+        Note: /post/allocate is a HubSpot webhook endpoint secured by
+        @require_hubspot_signature — intentionally CSRF-exempt since
+        external services can't provide CSRF tokens.
         """
+        import hashlib
+
         with self.client.session_transaction() as sess:
             sess["is_authenticated"] = True
 
-        response = self.client.post("/post/allocate", json={"test": "data"})
+        body = '{"test": "data"}'
+        url = "http://localhost/post/allocate"
+        sig = hashlib.sha256(
+            ("test-hubspot-secret" + "POST" + url + body).encode("utf-8")
+        ).hexdigest()
+
+        with patch("adviser_allocation.utils.auth.get_secret", return_value="test-hubspot-secret"):
+            response = self.client.post(
+                "/post/allocate",
+                data=body,
+                content_type="application/json",
+                headers={"X-HubSpot-Signature": sig},
+            )
 
         # Webhook endpoints are CSRF-exempt
         self.assertEqual(response.status_code, 200)

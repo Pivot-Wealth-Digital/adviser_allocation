@@ -162,13 +162,9 @@ class WebhookSecurityTests(unittest.TestCase):
         # With valid signature, should process
         self.assertIsNotNone(response)
 
-    def test_webhook_invalid_signature_rejected(self):
-        """Test that webhooks with invalid signatures are rejected.
-
-        Note: The current implementation doesn't validate HubSpot signatures
-        (signature validation is optional for development). This test verifies
-        the endpoint is accessible.
-        """
+    @patch("adviser_allocation.utils.auth.get_secret", return_value="test-hubspot-secret")
+    def test_webhook_invalid_signature_rejected(self, _mock_secret):
+        """Test that webhooks with invalid HubSpot signatures are rejected."""
         payload = json.dumps({"deal_id": "deal123"})
         invalid_signature = "invalid_signature_abc123"
 
@@ -179,8 +175,8 @@ class WebhookSecurityTests(unittest.TestCase):
             headers={"X-HubSpot-Signature": invalid_signature},
         )
 
-        # Endpoint accepts requests (signature validation is optional)
-        self.assertEqual(response.status_code, 200)
+        # Invalid signature should be rejected
+        self.assertEqual(response.status_code, 401)
 
     def test_webhook_replay_attack_prevention(self):
         """Test that webhook replay attacks are prevented."""
