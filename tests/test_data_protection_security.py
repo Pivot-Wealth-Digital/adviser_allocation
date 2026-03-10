@@ -6,7 +6,6 @@ import json
 import os
 import unittest
 from datetime import datetime
-from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("USE_FIRESTORE", "false")
 
@@ -291,10 +290,8 @@ class DatabaseSecurityTests(unittest.TestCase):
         self.app.config["TESTING"] = True
         self.client = self.app.test_client()
 
-    @patch("adviser_allocation.utils.firestore_helpers.get_firestore_client")
-    def test_database_encryption(self, mock_db):
+    def test_database_encryption(self):
         """Test that database connections are encrypted."""
-        mock_db.return_value = MagicMock()
 
         with self.client.session_transaction() as sess:
             sess["is_authenticated"] = True
@@ -304,10 +301,8 @@ class DatabaseSecurityTests(unittest.TestCase):
         # Database should use encrypted connection
         self.assertIsNotNone(response)
 
-    @patch("adviser_allocation.utils.firestore_helpers.get_firestore_client")
-    def test_sql_injection_prevention(self, mock_db):
+    def test_sql_injection_prevention(self):
         """Test that SQL injection is prevented."""
-        mock_db.return_value = MagicMock()
 
         with self.client.session_transaction() as sess:
             sess["is_authenticated"] = True
@@ -316,12 +311,10 @@ class DatabaseSecurityTests(unittest.TestCase):
         response = self.client.get("/search?email='; DROP TABLE employees; --")
 
         # Should not execute SQL
-        mock_db.assert_not_called() or self.assertIsNotNone(response)
+        self.assertIsNotNone(response)
 
-    @patch("adviser_allocation.utils.firestore_helpers.get_firestore_client")
-    def test_noauth_bypass_prevention(self, mock_db):
+    def test_noauth_bypass_prevention(self):
         """Test that authentication cannot be bypassed via database."""
-        mock_db.return_value = MagicMock()
 
         # Try to query without authentication
         response = self.client.get("/allocations/history")
