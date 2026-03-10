@@ -55,8 +55,12 @@ class TestCalendarWebhook(unittest.TestCase):
             patch(
                 "adviser_allocation.services.calendar_sync_service.sync_calendar_closures"
             ) as mock_sync,
-            patch("adviser_allocation.main.get_cloudsql_db") as mock_db,
+            patch(
+                "adviser_allocation.services.calendar_sync_service.get_calendar_sources"
+            ) as mock_sources,
+            patch("adviser_allocation.utils.common.get_cloudsql_db") as mock_db,
         ):
+            mock_sources.return_value = [("test-cal@group.calendar.google.com", None)]
             mock_sync.return_value = {
                 "upserted": 0,
                 "deleted": 0,
@@ -68,13 +72,19 @@ class TestCalendarWebhook(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
 
     @patch("adviser_allocation.api.webhooks._get_calendar_webhook_token")
-    @patch("adviser_allocation.main.get_cloudsql_db")
+    @patch("adviser_allocation.utils.common.get_cloudsql_db")
+    @patch(
+        "adviser_allocation.services.calendar_sync_service.get_calendar_sources",
+    )
     @patch(
         "adviser_allocation.services.calendar_sync_service.sync_calendar_closures",
     )
-    def test_exists_state_triggers_sync(self, mock_sync, mock_db, mock_token):
+    def test_exists_state_triggers_sync(
+        self, mock_sync, mock_sources, mock_db, mock_token
+    ):
         mock_token.return_value = None
         mock_db.return_value = MagicMock()
+        mock_sources.return_value = [("test-cal@group.calendar.google.com", None)]
         mock_sync.return_value = {
             "upserted": 3,
             "deleted": 1,
@@ -90,13 +100,19 @@ class TestCalendarWebhook(unittest.TestCase):
         mock_sync.assert_called_once()
 
     @patch("adviser_allocation.api.webhooks._get_calendar_webhook_token")
-    @patch("adviser_allocation.main.get_cloudsql_db")
+    @patch("adviser_allocation.utils.common.get_cloudsql_db")
+    @patch(
+        "adviser_allocation.services.calendar_sync_service.get_calendar_sources",
+    )
     @patch(
         "adviser_allocation.services.calendar_sync_service.sync_calendar_closures",
     )
-    def test_debounce_prevents_rapid_resyncs(self, mock_sync, mock_db, mock_token):
+    def test_debounce_prevents_rapid_resyncs(
+        self, mock_sync, mock_sources, mock_db, mock_token
+    ):
         mock_token.return_value = None
         mock_db.return_value = MagicMock()
+        mock_sources.return_value = [("test-cal@group.calendar.google.com", None)]
         mock_sync.return_value = {
             "upserted": 0,
             "deleted": 0,
@@ -116,15 +132,21 @@ class TestCalendarWebhook(unittest.TestCase):
         self.assertEqual(mock_sync.call_count, 1)  # Still 1
 
     @patch("adviser_allocation.api.webhooks._get_calendar_webhook_token")
-    @patch("adviser_allocation.main.get_cloudsql_db")
+    @patch("adviser_allocation.utils.common.get_cloudsql_db")
+    @patch(
+        "adviser_allocation.services.calendar_sync_service.get_calendar_sources",
+    )
     @patch(
         "adviser_allocation.services.calendar_sync_service.sync_calendar_closures",
         side_effect=RuntimeError("DB connection failed"),
     )
-    def test_sync_error_returns_200(self, mock_sync, mock_db, mock_token):
+    def test_sync_error_returns_200(
+        self, mock_sync, mock_sources, mock_db, mock_token
+    ):
         """Google requires 200 even on errors to avoid retries."""
         mock_token.return_value = None
         mock_db.return_value = MagicMock()
+        mock_sources.return_value = [("test-cal@group.calendar.google.com", None)]
 
         response = self._post_webhook()
 
