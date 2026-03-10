@@ -98,8 +98,8 @@ class AdviserAllocationDB:
         emp = self.get_employee_by_email(email)
         return emp.employee_id if emp else None
 
-    def get_all_employees(self, active_only: bool = True) -> List[Employee]:
-        """Get all employees."""
+    def get_all_employees_models(self, active_only: bool = True) -> List[Employee]:
+        """Get all employees as Employee dataclass instances."""
         with self.engine.connect() as conn:
             query = """
                 SELECT employee_id, name, company_email, account_email,
