@@ -31,7 +31,6 @@ steps:
       - '--cov-report=term-missing'
       - '--timeout=60'
     env:
-      - 'USE_FIRESTORE=false'
       - 'PYTHONPATH=src'
     waitFor: ['push']
 

@@ -222,7 +222,7 @@ def ensure_eh_config():
         raise RuntimeError(
             "Missing required Employment Hero OAuth config: "
             + ", ".join(missing)
-            + ". In production, set env_variables in app.yaml (use Secret Manager resource paths for secrets). "
+            + ". In production, set env vars via Cloud Run config or Secret Manager. "
             "Locally, set values in .env."
         )
 
@@ -244,7 +244,7 @@ def index():
         "homepage.html",
         today=sydney_today().isoformat(),
         week_num=f"{sydney_today().isocalendar()[1]:02d}",
-        environment=os.environ.get("GAE_ENV", "development"),
+        environment=os.environ.get("K_SERVICE", "development"),
         sydney_time=sydney_now().strftime("%Y-%m-%d %H:%M:%S %Z"),
         app_version=APP_VERSION,
     )

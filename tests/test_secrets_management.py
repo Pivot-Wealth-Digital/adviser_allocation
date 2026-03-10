@@ -5,8 +5,6 @@ import os
 import unittest
 from unittest.mock import MagicMock, patch
 
-os.environ.setdefault("USE_FIRESTORE", "false")
-
 from adviser_allocation.utils.secrets import get_secret
 
 

@@ -1,4 +1,4 @@
-"""Setup script: Create 'Pivot Office Closures' Google Calendar and share with App Engine SA.
+"""Setup script: Create 'Pivot Office Closures' Google Calendar and share with Cloud Run SA.
 
 Usage:
     python scripts/setup_calendar.py
@@ -9,7 +9,7 @@ Requires:
     - User must be authenticated via `gcloud auth application-default login`
       with a Workspace admin account that can create calendars.
 
-Outputs the calendar ID to set in app.yaml as GOOGLE_CALENDAR_ID.
+Outputs the calendar ID to set as GOOGLE_CALENDAR_ID env var in Cloud Run.
 """
 
 import sys
@@ -142,10 +142,8 @@ def main():
     print("SETUP COMPLETE")
     print("=" * 60)
     print(f"\nCalendar ID: {calendar_id}")
-    print("\nSet in app.yaml:")
+    print("\nSet as Cloud Run env var:")
     print(f'  GOOGLE_CALENDAR_ID: "{calendar_id}"')
-    print("\nOr via gcloud:")
-    print("  gcloud app deploy app.yaml --project=pivot-digital-466902")
 
     return calendar_id
 

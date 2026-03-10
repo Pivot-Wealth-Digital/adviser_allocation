@@ -3,8 +3,6 @@ import unittest
 from datetime import date
 from unittest.mock import patch
 
-os.environ.setdefault("USE_FIRESTORE", "false")
-
 from adviser_allocation.core import allocation as allocate  # noqa: E402
 
 
