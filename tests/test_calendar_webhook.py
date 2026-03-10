@@ -79,9 +79,7 @@ class TestCalendarWebhook(unittest.TestCase):
     @patch(
         "adviser_allocation.services.calendar_sync_service.sync_calendar_closures",
     )
-    def test_exists_state_triggers_sync(
-        self, mock_sync, mock_sources, mock_db, mock_token
-    ):
+    def test_exists_state_triggers_sync(self, mock_sync, mock_sources, mock_db, mock_token):
         mock_token.return_value = None
         mock_db.return_value = MagicMock()
         mock_sources.return_value = [("test-cal@group.calendar.google.com", None)]
@@ -107,9 +105,7 @@ class TestCalendarWebhook(unittest.TestCase):
     @patch(
         "adviser_allocation.services.calendar_sync_service.sync_calendar_closures",
     )
-    def test_debounce_prevents_rapid_resyncs(
-        self, mock_sync, mock_sources, mock_db, mock_token
-    ):
+    def test_debounce_prevents_rapid_resyncs(self, mock_sync, mock_sources, mock_db, mock_token):
         mock_token.return_value = None
         mock_db.return_value = MagicMock()
         mock_sources.return_value = [("test-cal@group.calendar.google.com", None)]
@@ -140,9 +136,7 @@ class TestCalendarWebhook(unittest.TestCase):
         "adviser_allocation.services.calendar_sync_service.sync_calendar_closures",
         side_effect=RuntimeError("DB connection failed"),
     )
-    def test_sync_error_returns_200(
-        self, mock_sync, mock_sources, mock_db, mock_token
-    ):
+    def test_sync_error_returns_200(self, mock_sync, mock_sources, mock_db, mock_token):
         """Google requires 200 even on errors to avoid retries."""
         mock_token.return_value = None
         mock_db.return_value = MagicMock()
