@@ -5,8 +5,6 @@ import unittest
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
-os.environ.setdefault("USE_FIRESTORE", "false")
-
 from adviser_allocation.services.calendar_watch_service import (
     RENEWAL_BUFFER_HOURS,
     WATCH_COLLECTION,

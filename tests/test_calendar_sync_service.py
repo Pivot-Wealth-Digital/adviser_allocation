@@ -5,8 +5,6 @@ import unittest
 from datetime import date
 from unittest.mock import MagicMock, patch
 
-os.environ.setdefault("USE_FIRESTORE", "false")
-
 from adviser_allocation.services.calendar_sync_service import (
     CALENDAR_SYNC_TAG,
     _derive_tags,

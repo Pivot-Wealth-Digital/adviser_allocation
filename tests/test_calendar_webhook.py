@@ -4,7 +4,6 @@ import os
 import unittest
 from unittest.mock import MagicMock, patch
 
-os.environ.setdefault("USE_FIRESTORE", "false")
 os.environ.setdefault("GOOGLE_CALENDAR_ID", "test-cal@group.calendar.google.com")
 
 from adviser_allocation.main import create_app

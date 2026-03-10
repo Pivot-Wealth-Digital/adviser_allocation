@@ -7,8 +7,6 @@ import os
 import unittest
 from datetime import datetime
 
-os.environ.setdefault("USE_FIRESTORE", "false")
-
 from adviser_allocation.main import app
 
 
