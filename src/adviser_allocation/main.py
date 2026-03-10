@@ -2248,8 +2248,20 @@ def update_meeting_owner():
 # Healthcheck
 @main_bp.route("/_ah/warmup")
 def warmup():
-    """Healthcheck endpoint for platform warmup probes."""
-    return ("", 200)
+    """Healthcheck endpoint for platform warmup probes.
+
+    Verifies CloudSQL connectivity so unhealthy instances don't receive traffic.
+    """
+    try:
+        from sqlalchemy import text as _text
+
+        db = get_cloudsql_db()
+        with db.engine.connect() as conn:
+            conn.execute(_text("SELECT 1"))
+        return ("OK", 200)
+    except Exception as exc:
+        logging.error("Warmup health check failed: %s", exc)
+        return ("UNHEALTHY", 503)
 
 
 # ===== APP INITIALIZATION =====
@@ -2273,14 +2285,32 @@ def create_app(config_overrides=None):
     )
 
     # App configuration
-    app.secret_key = get_secret("SESSION_SECRET") or "change-me-please"
+    secret_key = get_secret("SESSION_SECRET")
+    if not secret_key and os.environ.get("K_SERVICE"):
+        raise RuntimeError("SESSION_SECRET must be set in production")
+    app.secret_key = secret_key or "dev-only-session-key"
+
+    # Secure session cookies (HTTPS-only in production)
+    is_production = bool(os.environ.get("K_SERVICE"))
+    app.config.update(
+        {
+            "SESSION_COOKIE_SECURE": is_production,
+            "SESSION_COOKIE_HTTPONLY": True,
+            "SESSION_COOKIE_SAMESITE": "Lax",
+            "PERMANENT_SESSION_LIFETIME": 3600,
+        }
+    )
 
     # Initialize Google OAuth Authlib
+    google_client_id = os.environ.get("GOOGLE_CLIENT_ID")
+    google_client_secret = os.environ.get("GOOGLE_CLIENT_SECRET")
+    if is_production and (not google_client_id or not google_client_secret):
+        raise RuntimeError("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set in production")
     app.oauth = OAuth(app)
     app.oauth.register(
         name="google",
-        client_id=os.environ.get("GOOGLE_CLIENT_ID", "mock_client_id"),
-        client_secret=os.environ.get("GOOGLE_CLIENT_SECRET", "mock_client_secret"),
+        client_id=google_client_id or "mock_client_id",
+        client_secret=google_client_secret or "mock_client_secret",
         server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
         client_kwargs={"scope": "openid email profile"},
     )
