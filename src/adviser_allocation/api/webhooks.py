@@ -425,4 +425,95 @@ def handle_allocation():
         return jsonify({"message": "Internal Server Error"}), 500
 
 
+# ---------------------------------------------------------------------------
+# Google Calendar push notification webhook
+# ---------------------------------------------------------------------------
+
+_CALENDAR_WEBHOOK_TOKEN = None
+_last_calendar_sync_utc: Optional[datetime] = None
+DEBOUNCE_INTERVAL_SECONDS = 30
+
+
+def _get_calendar_webhook_token() -> Optional[str]:
+    """Lazy-load the calendar webhook verification token."""
+    global _CALENDAR_WEBHOOK_TOKEN
+    if _CALENDAR_WEBHOOK_TOKEN is None:
+        _CALENDAR_WEBHOOK_TOKEN = get_secret("CALENDAR_WEBHOOK_TOKEN") or ""
+    return _CALENDAR_WEBHOOK_TOKEN or None
+
+
+@webhooks_bp.route("/webhooks/calendar", methods=["POST"])
+def handle_calendar_notification():
+    """Receive Google Calendar push notifications and trigger closure sync.
+
+    Google sends a POST with headers (no meaningful body):
+        X-Goog-Channel-ID: channel UUID
+        X-Goog-Resource-State: sync | exists | not_exists
+        X-Goog-Channel-Token: verification token
+        X-Goog-Resource-ID: opaque resource identifier
+    """
+    global _last_calendar_sync_utc
+
+    channel_id = request.headers.get("X-Goog-Channel-ID", "")
+    resource_state = request.headers.get("X-Goog-Resource-State", "")
+    token = request.headers.get("X-Goog-Channel-Token", "")
+
+    logger.info(
+        "Calendar webhook: state=%s channel=%s",
+        resource_state,
+        channel_id[:8] if channel_id else "none",
+    )
+
+    # Validate token
+    expected_token = _get_calendar_webhook_token()
+    if expected_token and token != expected_token:
+        logger.warning("Calendar webhook token mismatch (channel=%s)", channel_id[:8])
+        return jsonify({"message": "Forbidden"}), 403
+
+    # Initial sync notification — just acknowledge
+    if resource_state == "sync":
+        logger.info("Calendar watch channel established (channel=%s)", channel_id[:8])
+        return jsonify({"message": "sync acknowledged"}), 200
+
+    # Debounce: skip if we synced recently
+    now_utc = datetime.now(tz=None)
+    if _last_calendar_sync_utc is not None:
+        elapsed_seconds = (now_utc - _last_calendar_sync_utc).total_seconds()
+        if elapsed_seconds < DEBOUNCE_INTERVAL_SECONDS:
+            logger.info("Calendar sync debounced (%.0fs since last)", elapsed_seconds)
+            return jsonify({"message": "debounced"}), 200
+
+    # Trigger full sync (reuses existing sync logic)
+    try:
+        from adviser_allocation.services.calendar_sync_service import (
+            DEFAULT_HOLIDAYS_CALENDAR_ID,
+            sync_calendar_closures,
+        )
+
+        calendar_id = os.environ.get("GOOGLE_CALENDAR_ID")
+        if not calendar_id:
+            logger.error("GOOGLE_CALENDAR_ID not set; cannot sync from webhook")
+            return jsonify({"message": "not configured"}), 200
+
+        sources = [(calendar_id, None)]
+        holidays_id = os.environ.get(
+            "GOOGLE_HOLIDAYS_CALENDAR_ID",
+            DEFAULT_HOLIDAYS_CALENDAR_ID,
+        )
+        if holidays_id:
+            sources.append((holidays_id, "Public Holiday"))
+
+        from adviser_allocation.main import get_cloudsql_db
+
+        cloudsql_db = get_cloudsql_db()
+        result = sync_calendar_closures(calendar_sources=sources, db=cloudsql_db)
+        _last_calendar_sync_utc = now_utc
+
+        logger.info("Calendar webhook sync complete: %s", result)
+        return jsonify({"message": "synced", **result}), 200
+    except Exception as exc:
+        logger.error("Calendar webhook sync failed: %s", exc, exc_info=True)
+        return jsonify({"message": "sync error"}), 200  # Return 200 to avoid Google retries
+
+
 __all__ = ["webhooks_bp", "init_webhooks"]

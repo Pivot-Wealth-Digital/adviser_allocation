@@ -37,8 +37,10 @@ class AdministratorWorkflowTests(unittest.TestCase):
         with self.client.session_transaction() as sess:
             self.assertIsNotNone(sess)
 
-    def test_admin_office_closure_management(self):
+    @patch("adviser_allocation.main.get_cloudsql_db")
+    def test_admin_office_closure_management(self, mock_db):
         """Test admin managing office closures."""
+        mock_db.return_value = MagicMock()
         with self.client.session_transaction() as sess:
             sess["is_authenticated"] = True
             sess["role"] = "admin"
@@ -60,8 +62,10 @@ class AdministratorWorkflowTests(unittest.TestCase):
         response = self.client.get("/closures/ui")
         self.assertIsNotNone(response)
 
-    def test_admin_capacity_override_workflow(self):
+    @patch("adviser_allocation.main.get_cloudsql_db")
+    def test_admin_capacity_override_workflow(self, mock_db):
         """Test admin managing capacity overrides."""
+        mock_db.return_value = MagicMock()
         with self.client.session_transaction() as sess:
             sess["is_authenticated"] = True
             sess["role"] = "admin"
@@ -259,13 +263,13 @@ class WorkflowErrorHandlingTests(unittest.TestCase):
         self.app.config["TESTING"] = True
         self.client = self.app.test_client()
 
-    def test_firestore_unavailable_graceful_degradation(self):
-        """Test graceful degradation when Firestore unavailable."""
+    def test_db_unavailable_graceful_degradation(self):
+        """Test graceful degradation when database unavailable."""
         with self.client.session_transaction() as sess:
             sess["is_authenticated"] = True
 
-        with patch("adviser_allocation.main.get_firestore_client") as mock_db:
-            mock_db.side_effect = Exception("Firestore unavailable")
+        with patch("adviser_allocation.main.get_cloudsql_db") as mock_db:
+            mock_db.side_effect = RuntimeError("Database unavailable")
 
             response = self.client.get("/availability/earliest")
 
@@ -382,8 +386,10 @@ class MultiStepWorkflowTests(unittest.TestCase):
         response3 = self.client.get("/allocations/history")
         self.assertNotEqual(response3.status_code, 404)
 
-    def test_admin_setup_workflow(self):
+    @patch("adviser_allocation.main.get_cloudsql_db")
+    def test_admin_setup_workflow(self, mock_db):
         """Test complete admin setup workflow."""
+        mock_db.return_value = MagicMock()
         with self.client.session_transaction() as sess:
             sess["is_authenticated"] = True
             sess["role"] = "admin"
