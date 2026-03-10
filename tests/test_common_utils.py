@@ -5,8 +5,6 @@ import unittest
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-os.environ.setdefault("USE_FIRESTORE", "false")
-
 from adviser_allocation.utils.common import (
     SYDNEY_TZ,
     sydney_datetime_from_date,

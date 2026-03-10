@@ -8,26 +8,16 @@ from typing import Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 import requests
+from cachetools import TTLCache
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from adviser_allocation.utils.common import (
     SYDNEY_TZ,
+    get_cloudsql_db,
     sydney_datetime_from_date,
     sydney_now,
     sydney_today,
-)
-from adviser_allocation.utils.firestore_helpers import (
-    get_capacity_overrides as get_capacity_overrides_from_firestore,
-)
-from adviser_allocation.utils.firestore_helpers import (
-    get_employee_id as get_employee_id_from_firestore,
-)
-from adviser_allocation.utils.firestore_helpers import (
-    get_employee_leaves as get_employee_leaves_from_firestore,
-)
-from adviser_allocation.utils.firestore_helpers import (
-    get_global_closures as get_global_closures_from_firestore,
 )
 from adviser_allocation.utils.secrets import get_secret
 
@@ -71,7 +61,8 @@ def _parse_iso_date(value: str) -> Optional[date]:
 def _capacity_override_cache() -> Dict[str, List[Dict]]:
     """Cache adviser capacity overrides grouped by email."""
     overrides_map: dict[str, list[dict]] = {}
-    raw_items = get_capacity_overrides_from_firestore()
+    db = get_cloudsql_db()
+    raw_items = db.get_capacity_overrides()
     for raw in raw_items:
         email = (raw.get("adviser_email") or "").strip().lower()
         if not email:
@@ -1128,7 +1119,18 @@ def display_data(data):
     logger.debug("Capacity table:\n%s", "\n".join(lines))
 
 
+# TTL cache for HubSpot users (2 minute cache to reduce API calls)
+_USER_IDS_CACHE = TTLCache(maxsize=1, ttl=120)
+_USER_IDS_CACHE_KEY = "users"
+
+
 def get_user_ids_adviser():
+    """Fetch HubSpot adviser users with 2-minute TTL caching."""
+    # Return cached result if available
+    if _USER_IDS_CACHE_KEY in _USER_IDS_CACHE:
+        logger.debug("Returning cached HubSpot users")
+        return _USER_IDS_CACHE[_USER_IDS_CACHE_KEY]
+
     url = (
         "https://api.hubapi.com/crm/v3/objects/users"
         "?properties=taking_on_clients,hs_email,hubspot_owner_id,adviser_start_date,"
@@ -1140,11 +1142,13 @@ def get_user_ids_adviser():
     session = create_requests_session()
 
     try:
-        logger.info("Loading HubSpot users")
+        logger.info("Loading HubSpot users (cache miss)")
         response = session.get(url, headers=HEADERS, timeout=30)
         response.raise_for_status()
         users = response.json().get("results", [])
         logger.info("Loaded %d HubSpot users", len(users))
+        # Cache the result
+        _USER_IDS_CACHE[_USER_IDS_CACHE_KEY] = users
         return users
 
     except requests.exceptions.ConnectionError as e:
@@ -1222,7 +1226,8 @@ def get_adviser(service_package, agreement_start_date=None, household_type=None)
     )
 
     # Load global closures once
-    global_closures = classify_leave_weeks(get_global_closures_from_firestore())
+    db = get_cloudsql_db()
+    global_closures = classify_leave_weeks(db.get_global_closures())
 
     # Convert agreement_start_date from milliseconds to week ordinal
     agreement_start_week = None
@@ -1245,11 +1250,11 @@ def get_adviser(service_package, agreement_start_date=None, household_type=None)
         logger.info("Processing adviser %d/%d: %s", i + 1, len(users_list), user_email)
 
         # get user approved leave requests from EH
-        employee_id = get_employee_id_from_firestore(user_email)
+        employee_id = db.get_employee_id_by_email(user_email)
         if not employee_id:
             employee_leaves = []
         else:
-            employee_leaves = get_employee_leaves_from_firestore(employee_id)
+            employee_leaves = db.get_employee_leaves_as_dicts(employee_id)
         user["leave_requests"] = employee_leaves
 
         # get week number of approved leave requests
@@ -1578,15 +1583,16 @@ def get_users_earliest_availability(agreement_start_date=None, include_no=True):
     )
 
     # Load global closures once for this computation
-    global_closures = classify_leave_weeks(get_global_closures_from_firestore())
+    db = get_cloudsql_db()
+    global_closures = classify_leave_weeks(db.get_global_closures())
 
     for idx, user in enumerate(users_list, start=1):
         try:
             user_email = user["properties"].get("hs_email")
             logging.info("Processing adviser %d/%d: %s", idx, len(users_list), user_email)
-            # Pull EH leave (from Firestore cache if available)
-            employee_id = get_employee_id_from_firestore(user_email)
-            employee_leaves = get_employee_leaves_from_firestore(employee_id) if employee_id else []
+            # Pull EH leave from CloudSQL
+            employee_id = db.get_employee_id_by_email(user_email)
+            employee_leaves = db.get_employee_leaves_as_dicts(employee_id) if employee_id else []
             user["leave_requests"] = employee_leaves
             logging.debug("  Leave records retrieved: %d", len(employee_leaves))
 
@@ -1736,9 +1742,10 @@ def compute_user_schedule_by_email(user_email: str, agreement_start_date=None):
     if not user:
         raise ValueError("User not found or not taking on clients")
 
-    # Load EH leave
-    employee_id = get_employee_id_from_firestore(user_email)
-    employee_leaves = get_employee_leaves_from_firestore(employee_id) if employee_id else []
+    # Load EH leave from CloudSQL
+    db = get_cloudsql_db()
+    employee_id = db.get_employee_id_by_email(user_email)
+    employee_leaves = db.get_employee_leaves_as_dicts(employee_id) if employee_id else []
     user["leave_requests"] = employee_leaves
     logging.debug("  Leave records retrieved: %d", len(employee_leaves))
 
@@ -1775,7 +1782,7 @@ def compute_user_schedule_by_email(user_email: str, agreement_start_date=None):
     logging.debug("  Deals without clarify: %d", len(user["deals_no_clarify"]))
 
     # Global closures
-    user["global_closure_weeks"] = classify_leave_weeks(get_global_closures_from_firestore())
+    user["global_closure_weeks"] = classify_leave_weeks(db.get_global_closures())
 
     # Merge + compute capacity
     user = get_merged_schedule(user)

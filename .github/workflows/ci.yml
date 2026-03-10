@@ -65,7 +65,6 @@ jobs:
 
       - name: Run tests
         env:
-          USE_FIRESTORE: "false"
           PYTHONPATH: src
         run: |
           pytest tests/ -v --cov=src/adviser_allocation --cov-report=term-missing --timeout=60 --ignore=tests/test_app_e2e.py

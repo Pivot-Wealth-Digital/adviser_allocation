@@ -5,8 +5,6 @@ import unittest
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
-os.environ.setdefault("USE_FIRESTORE", "false")
-
 from adviser_allocation.main import app
 
 
@@ -325,7 +323,7 @@ class OAuthSecurityTests(unittest.TestCase):
         self.app.config["TESTING"] = True
         self.client = self.app.test_client()
 
-    @patch("adviser_allocation.services.oauth_service.requests.post")
+    @patch("adviser_allocation.services.oauth_service.post_with_retries")
     def test_oauth_state_parameter_validation(self, mock_post):
         """Test that OAuth state parameter is validated."""
         mock_response = MagicMock()
@@ -338,7 +336,7 @@ class OAuthSecurityTests(unittest.TestCase):
         # Should fail without state parameter
         self.assertIsNotNone(response)
 
-    @patch("adviser_allocation.services.oauth_service.requests.post")
+    @patch("adviser_allocation.services.oauth_service.post_with_retries")
     def test_oauth_redirect_uri_validation(self, mock_post):
         """Test that OAuth redirect URI is validated."""
         mock_response = MagicMock()
@@ -351,7 +349,7 @@ class OAuthSecurityTests(unittest.TestCase):
         # Should validate redirect URI
         self.assertIsNotNone(response)
 
-    @patch("adviser_allocation.services.oauth_service.requests.post")
+    @patch("adviser_allocation.services.oauth_service.post_with_retries")
     def test_oauth_token_stored_securely(self, mock_post):
         """Test that OAuth tokens are stored securely."""
         mock_response = MagicMock()

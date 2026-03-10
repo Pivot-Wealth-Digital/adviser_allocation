@@ -5,8 +5,6 @@ import os
 import unittest
 from unittest.mock import MagicMock, patch
 
-os.environ.setdefault("USE_FIRESTORE", "false")
-
 from adviser_allocation.main import app
 
 
@@ -44,10 +42,10 @@ class APIEndpointTests(unittest.TestCase):
             response.status_code, [401, 403], "Authenticated user should access /workflows"
         )
 
-    @patch("adviser_allocation.main.get_firestore_client")
+    @patch("adviser_allocation.main.get_cloudsql_db")
     def test_availability_endpoint_returns_valid_response(self, mock_db):
         """Test that availability endpoint returns valid data."""
-        mock_db.return_value = None  # Firestore unavailable
+        mock_db.return_value = MagicMock()
 
         with self.client.session_transaction() as sess:
             sess["is_authenticated"] = True
@@ -181,10 +179,10 @@ class APIErrorHandlingTests(unittest.TestCase):
         # Just verify we get a response
         self.assertIsNotNone(response.status_code)
 
-    @patch("adviser_allocation.main.get_firestore_client")
-    def test_500_when_firestore_unavailable(self, mock_db):
+    @patch("adviser_allocation.main.get_cloudsql_db")
+    def test_500_when_db_unavailable(self, mock_db):
         """Test that database errors are handled."""
-        mock_db.side_effect = Exception("Database connection failed")
+        mock_db.side_effect = RuntimeError("Database connection failed")
 
         with self.client.session_transaction() as sess:
             sess["is_authenticated"] = True

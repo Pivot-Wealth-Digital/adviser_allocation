@@ -1,14 +1,14 @@
 """OAuth token management and Employment Hero authentication service."""
 
 import logging
+import os
 import time
 from typing import Dict, Optional
 from urllib.parse import urlencode
 
-import requests
 from flask import session
 
-from adviser_allocation.utils.common import USE_FIRESTORE
+from adviser_allocation.utils.common import get_cloudsql_db
 from adviser_allocation.utils.http_client import LONG_TIMEOUT, post_with_retries
 from adviser_allocation.utils.secrets import get_secret
 
@@ -21,20 +21,32 @@ EH_CLIENT_ID = None
 EH_CLIENT_SECRET = None
 REDIRECT_URI = None
 
-_db = None
+# Token encryption key for CloudSQL storage
+_TOKEN_ENCRYPTION_KEY = None
+
+
+def _get_encryption_key() -> str:
+    """Get the token encryption key from environment or secrets."""
+    global _TOKEN_ENCRYPTION_KEY
+    if _TOKEN_ENCRYPTION_KEY is None:
+        _TOKEN_ENCRYPTION_KEY = (
+            get_secret("AA_TOKEN_ENCRYPTION_KEY")
+            or os.environ.get("AA_TOKEN_ENCRYPTION_KEY")
+            or "default-dev-key-change-in-production"  # Fallback for dev
+        )
+    return _TOKEN_ENCRYPTION_KEY
 
 
 def init_oauth_service(db=None, config: Optional[Dict] = None):
-    """Initialize OAuth service with configuration and database.
+    """Initialize OAuth service with configuration.
 
     Args:
-        db: Firestore database client (optional)
+        db: Legacy parameter (ignored) - CloudSQL is used automatically.
         config: Dict with keys: EH_AUTHORIZE_URL, EH_TOKEN_URL, EH_CLIENT_ID,
                 EH_CLIENT_SECRET, REDIRECT_URI
     """
-    global _db, EH_AUTHORIZE_URL, EH_TOKEN_URL, EH_CLIENT_ID, EH_CLIENT_SECRET, REDIRECT_URI
+    global EH_AUTHORIZE_URL, EH_TOKEN_URL, EH_CLIENT_ID, EH_CLIENT_SECRET, REDIRECT_URI
 
-    _db = db
     if config:
         EH_AUTHORIZE_URL = config.get("EH_AUTHORIZE_URL")
         EH_TOKEN_URL = config.get("EH_TOKEN_URL")
@@ -69,36 +81,50 @@ def token_key() -> str:
 
 
 def save_tokens(tokens: Dict) -> None:
-    """Persist OAuth tokens with absolute expiry time.
+    """Persist OAuth tokens with absolute expiry time to CloudSQL.
 
     Args:
         tokens: Token response dict with access_token, refresh_token, expires_in
     """
     tokens = dict(tokens)
     # Track absolute expiry (subtract 60s for clock skew)
-    tokens["_expires_at"] = time.time() + max(0, int(tokens.get("expires_in", 0)) - 60)
+    expires_at = time.time() + max(0, int(tokens.get("expires_in", 0)) - 60)
+    tokens["_expires_at"] = expires_at
 
-    if USE_FIRESTORE and _db:
-        _db.collection("eh_tokens").document(token_key()).set(tokens)
-    else:
+    try:
+        cloudsql_db = get_cloudsql_db()
+        cloudsql_db.save_tokens(
+            token_key=token_key(),
+            provider="employment_hero",
+            tokens=tokens,
+            encryption_key=_get_encryption_key(),
+        )
+        logger.info("OAuth tokens saved to CloudSQL (expires at %s)", expires_at)
+    except Exception as exc:
+        logger.error("Failed to save tokens to CloudSQL: %s", exc)
+        # Fallback to session storage
         session["eh_tokens"] = tokens
-
-    logger.info("OAuth tokens saved (expires at %s)", tokens.get("_expires_at"))
+        logger.info("Tokens saved to session as fallback")
 
 
 def load_tokens() -> Optional[Dict]:
-    """Load stored OAuth tokens.
+    """Load stored OAuth tokens from CloudSQL.
 
     Returns:
         Dict with tokens if found, None otherwise
     """
-    if USE_FIRESTORE and _db:
-        try:
-            doc = _db.collection("eh_tokens").document(token_key()).get()
-            return doc.to_dict() if doc.exists else None
-        except Exception as exc:
-            logger.warning("Failed to load tokens from Firestore: %s", exc)
-            return None
+    try:
+        cloudsql_db = get_cloudsql_db()
+        tokens = cloudsql_db.load_tokens(
+            token_key=token_key(),
+            encryption_key=_get_encryption_key(),
+        )
+        if tokens:
+            return tokens
+    except Exception as exc:
+        logger.warning("Failed to load tokens from CloudSQL: %s", exc)
+
+    # Fallback to session storage
     return session.get("eh_tokens")
 
 

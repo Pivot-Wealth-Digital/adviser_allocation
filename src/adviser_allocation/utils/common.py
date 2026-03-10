@@ -3,6 +3,7 @@
 import logging
 import os
 from datetime import date, datetime
+from typing import Optional
 from zoneinfo import ZoneInfo
 
 # Sydney timezone constant
@@ -24,24 +25,28 @@ def sydney_datetime_from_date(d: date) -> datetime:
     return datetime.combine(d, datetime.min.time(), SYDNEY_TZ)
 
 
-# Optional: persist tokens in Firestore (recommended on Cloud Run)
-USE_FIRESTORE = os.environ.get("USE_FIRESTORE", "true").lower() == "true"
-db = None
+# CloudSQL database instance (singleton)
+_cloudsql_db: Optional["AdviserAllocationDB"] = None  # noqa: F821
 
 
-def init_firestore():
-    """Initialize Firestore client if enabled."""
-    global db
-    if USE_FIRESTORE and not db:
+def get_cloudsql_db() -> "AdviserAllocationDB":  # noqa: F821
+    """Get or initialize the CloudSQL database repository.
+
+    Returns:
+        AdviserAllocationDB instance for database operations.
+
+    Raises:
+        RuntimeError: If database connection fails.
+    """
+    global _cloudsql_db
+    if _cloudsql_db is None:
+        from adviser_allocation.db import AdviserAllocationDB, get_db_engine
+
         try:
-            from google.cloud import firestore
-
-            db = firestore.Client()  # Uses default credentials
+            engine = get_db_engine()
+            _cloudsql_db = AdviserAllocationDB(engine)
+            logging.info("CloudSQL database initialized")
         except Exception as e:
-            logging.warning(f"Firestore client init failed: {e}")
-    return db
-
-
-def get_firestore_client():
-    """Get the Firestore client instance."""
-    return db or init_firestore()
+            logging.error("Failed to initialize CloudSQL: %s", e)
+            raise RuntimeError(f"CloudSQL initialization failed: {e}") from e
+    return _cloudsql_db

@@ -7,8 +7,6 @@ from unittest.mock import MagicMock, call, patch
 
 import requests
 
-os.environ.setdefault("USE_FIRESTORE", "false")
-
 
 class HubSpotIntegrationTests(unittest.TestCase):
     """Tests for HubSpot CRM integration."""
