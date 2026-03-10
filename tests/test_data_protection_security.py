@@ -6,6 +6,7 @@ import json
 import os
 import unittest
 from datetime import datetime
+from unittest.mock import patch
 
 from adviser_allocation.main import app
 

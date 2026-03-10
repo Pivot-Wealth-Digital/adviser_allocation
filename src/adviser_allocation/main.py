@@ -563,6 +563,7 @@ def sync_leave_requests():
 
 
 @main_bp.route("/sync/calendar_closures", methods=["POST", "GET"])
+@require_oidc_token
 def sync_calendar_closures():
     """Sync office closures from Google Calendar (suitable for schedulers).
 
@@ -590,6 +591,7 @@ def sync_calendar_closures():
 
 
 @main_bp.route("/sync/calendar_watch_renew", methods=["POST", "GET"])
+@require_oidc_token
 def renew_calendar_watches():
     """Renew Google Calendar push notification channels approaching expiry.
 
@@ -616,6 +618,7 @@ def renew_calendar_watches():
 
 
 @main_bp.route("/jobs/compute-simulated-clarifies", methods=["POST", "GET"])
+@require_oidc_token
 def job_compute_simulated_clarifies():
     """Compute simulated clarifies using capacity algorithm.
 

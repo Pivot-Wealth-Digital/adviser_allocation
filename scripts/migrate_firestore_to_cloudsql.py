@@ -119,7 +119,7 @@ class FirestoreToCloudSQLMigrator:
 
         # CloudSQL
         try:
-            from src.adviser_allocation.db import get_db_engine, AdviserAllocationDB
+            from src.adviser_allocation.db import AdviserAllocationDB, get_db_engine
             engine = get_db_engine()
             self.sql_db = AdviserAllocationDB(engine)
             logger.info("Connected to CloudSQL")

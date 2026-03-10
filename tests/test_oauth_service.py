@@ -5,6 +5,8 @@ import unittest
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
+from flask import Flask
+
 from adviser_allocation.services.oauth_service import (
     build_authorization_url,
     exchange_code_for_tokens,
@@ -15,7 +17,6 @@ from adviser_allocation.services.oauth_service import (
     save_tokens,
     token_key,
 )
-from flask import Flask
 
 
 class OAuthServiceTests(unittest.TestCase):

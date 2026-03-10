@@ -5,12 +5,12 @@ Creates a HubSpot contact and a Box folder for testing.
 """
 
 import json
-import sys
 import logging
+import sys
 from pathlib import Path
 
 import requests
-from boxsdk import JWTAuth, Client
+from boxsdk import Client, JWTAuth
 from boxsdk.exception import BoxAPIException
 
 # Setup logging
