@@ -32,12 +32,38 @@ TITLE_TAG_RULES: List[Tuple[str, str]] = [
     ("closure", "Office Closure"),
 ]
 CALENDAR_SYNC_TAG = "Calendar Sync"
+PUBLIC_HOLIDAY_TAG = "Public Holiday"
 
 # Default Australian holidays calendar ID (Google's built-in).
 DEFAULT_HOLIDAYS_CALENDAR_ID = "en.australian#holiday@group.v.calendar.google.com"
 
 # How many months ahead to sync (rolling window).
 SYNC_MONTHS_AHEAD = 12
+
+
+def get_calendar_sources() -> List[Tuple[str, Optional[str]]]:
+    """Build list of (calendar_id, source_tag) tuples from environment.
+
+    Returns
+    -------
+    list
+        Calendar sources for sync. Empty if GOOGLE_CALENDAR_ID is not set.
+    """
+    calendar_id = os.environ.get("GOOGLE_CALENDAR_ID")
+    if not calendar_id:
+        logger.warning("GOOGLE_CALENDAR_ID not set — skipping calendar sync")
+        return []
+
+    sources: List[Tuple[str, Optional[str]]] = [(calendar_id, None)]
+
+    holidays_id = os.environ.get(
+        "GOOGLE_HOLIDAYS_CALENDAR_ID",
+        DEFAULT_HOLIDAYS_CALENDAR_ID,
+    )
+    if holidays_id:
+        sources.append((holidays_id, PUBLIC_HOLIDAY_TAG))
+
+    return sources
 
 
 def _get_calendar_service():

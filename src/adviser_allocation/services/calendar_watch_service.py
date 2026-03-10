@@ -212,11 +212,10 @@ def get_active_watches() -> list[dict[str, Any]]:
 
 
 def _build_webhook_url() -> str:
-    """Build the webhook URL from APP_BASE_URL or default App Engine URL."""
-    base_url = os.environ.get(
-        "APP_BASE_URL",
-        "https://pivot-digital-466902.ts.r.appspot.com",
-    )
+    """Build the webhook URL from APP_BASE_URL env var."""
+    base_url = os.environ.get("APP_BASE_URL")
+    if not base_url:
+        raise RuntimeError("APP_BASE_URL environment variable is required for calendar webhooks")
     return f"{base_url.rstrip('/')}/webhooks/calendar"
 
 

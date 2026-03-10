@@ -4,7 +4,7 @@ import json
 import logging
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 import requests
@@ -478,7 +478,7 @@ def handle_calendar_notification():
         return jsonify({"message": "sync acknowledged"}), 200
 
     # Debounce: skip if we synced recently
-    now_utc = datetime.now(tz=None)
+    now_utc = datetime.now(timezone.utc)
     if _last_calendar_sync_utc is not None:
         elapsed_seconds = (now_utc - _last_calendar_sync_utc).total_seconds()
         if elapsed_seconds < DEBOUNCE_INTERVAL_SECONDS:
@@ -488,24 +488,14 @@ def handle_calendar_notification():
     # Trigger full sync (reuses existing sync logic)
     try:
         from adviser_allocation.services.calendar_sync_service import (
-            DEFAULT_HOLIDAYS_CALENDAR_ID,
+            get_calendar_sources,
             sync_calendar_closures,
         )
+        from adviser_allocation.utils.common import get_cloudsql_db
 
-        calendar_id = os.environ.get("GOOGLE_CALENDAR_ID")
-        if not calendar_id:
-            logger.error("GOOGLE_CALENDAR_ID not set; cannot sync from webhook")
+        sources = get_calendar_sources()
+        if not sources:
             return jsonify({"message": "not configured"}), 200
-
-        sources = [(calendar_id, None)]
-        holidays_id = os.environ.get(
-            "GOOGLE_HOLIDAYS_CALENDAR_ID",
-            DEFAULT_HOLIDAYS_CALENDAR_ID,
-        )
-        if holidays_id:
-            sources.append((holidays_id, "Public Holiday"))
-
-        from adviser_allocation.main import get_cloudsql_db
 
         cloudsql_db = get_cloudsql_db()
         result = sync_calendar_closures(calendar_sources=sources, db=cloudsql_db)

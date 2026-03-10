@@ -108,9 +108,11 @@ class TestStopCalendarWatch(unittest.TestCase):
 class TestRenewExpiringWatches(unittest.TestCase):
     """Tests for renew_expiring_watches()."""
 
+    @patch("adviser_allocation.services.calendar_watch_service._build_webhook_url")
     @patch("adviser_allocation.services.calendar_watch_service._load_channel_token")
-    def test_no_token_returns_error(self, mock_token):
+    def test_no_token_returns_error(self, mock_token, mock_url):
         mock_token.return_value = None
+        mock_url.return_value = "https://example.com/webhooks/calendar"
         result = renew_expiring_watches([("cal-id", None)])
         self.assertEqual(result["errors"], 1)
 

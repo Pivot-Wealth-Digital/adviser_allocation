@@ -29,11 +29,15 @@ def _get_encryption_key() -> str:
     """Get the token encryption key from environment or secrets."""
     global _TOKEN_ENCRYPTION_KEY
     if _TOKEN_ENCRYPTION_KEY is None:
-        _TOKEN_ENCRYPTION_KEY = (
-            get_secret("AA_TOKEN_ENCRYPTION_KEY")
-            or os.environ.get("AA_TOKEN_ENCRYPTION_KEY")
-            or "default-dev-key-change-in-production"  # Fallback for dev
+        _TOKEN_ENCRYPTION_KEY = get_secret("AA_TOKEN_ENCRYPTION_KEY") or os.environ.get(
+            "AA_TOKEN_ENCRYPTION_KEY"
         )
+        if not _TOKEN_ENCRYPTION_KEY:
+            if os.environ.get("K_SERVICE"):
+                raise RuntimeError(
+                    "AA_TOKEN_ENCRYPTION_KEY must be set in production (Secret Manager or env var)"
+                )
+            _TOKEN_ENCRYPTION_KEY = "default-dev-key-not-for-production"
     return _TOKEN_ENCRYPTION_KEY
 
 
