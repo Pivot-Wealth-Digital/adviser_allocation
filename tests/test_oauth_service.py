@@ -53,7 +53,6 @@ class OAuthServiceTests(unittest.TestCase):
         self.assertEqual(key1, key2)
         self.assertIsInstance(key1, str)
 
-    @patch("adviser_allocation.services.oauth_service.USE_FIRESTORE", False)
     def test_save_and_load_tokens(self):
         """Test saving and loading tokens with Flask session."""
         init_oauth_service(db=None, config=self.oauth_config)
@@ -123,7 +122,6 @@ class OAuthServiceTests(unittest.TestCase):
 
         self.assertEqual(result["access_token"], "refreshed_access_token")
 
-    @patch("adviser_allocation.services.oauth_service.USE_FIRESTORE", False)
     def test_get_access_token_uses_cached_when_valid(self):
         """Test that get_access_token returns cached token if valid."""
         init_oauth_service(db=None, config=self.oauth_config)
@@ -141,7 +139,6 @@ class OAuthServiceTests(unittest.TestCase):
             result = get_access_token()
             self.assertEqual(result, "cached_token")
 
-    @patch("adviser_allocation.services.oauth_service.USE_FIRESTORE", False)
     @patch("adviser_allocation.services.oauth_service.post_with_retries")
     def test_get_access_token_refreshes_when_expired(self, mock_post):
         """Test that get_access_token refreshes expired token."""
