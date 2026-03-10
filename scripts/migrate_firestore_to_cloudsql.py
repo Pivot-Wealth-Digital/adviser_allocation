@@ -111,6 +111,7 @@ class FirestoreToCloudSQLMigrator:
         # Firestore
         try:
             from google.cloud import firestore
+
             self.fs_db = firestore.Client()
             logger.info("Connected to Firestore")
         except Exception as e:
@@ -120,6 +121,7 @@ class FirestoreToCloudSQLMigrator:
         # CloudSQL
         try:
             from src.adviser_allocation.db import AdviserAllocationDB, get_db_engine
+
             engine = get_db_engine()
             self.sql_db = AdviserAllocationDB(engine)
             logger.info("Connected to CloudSQL")
@@ -140,6 +142,7 @@ class FirestoreToCloudSQLMigrator:
             try:
                 if not self.dry_run:
                     from src.adviser_allocation.db.models import Employee
+
                     emp = Employee(
                         employee_id=emp_id,
                         name=emp_data.get("name", ""),
@@ -162,6 +165,7 @@ class FirestoreToCloudSQLMigrator:
                     try:
                         if not self.dry_run:
                             from src.adviser_allocation.db.models import LeaveRequest
+
                             leave = LeaveRequest(
                                 leave_request_id=leave_doc.id,
                                 employee_id=emp_id,
@@ -243,6 +247,7 @@ class FirestoreToCloudSQLMigrator:
             try:
                 if not self.dry_run:
                     from src.adviser_allocation.db.models import CapacityOverride
+
                     override = CapacityOverride(
                         adviser_email=data.get("adviser_email", ""),
                         effective_date=parse_date(data.get("effective_date")),
@@ -317,9 +322,7 @@ class FirestoreToCloudSQLMigrator:
     def migrate_oauth_tokens(self):
         """Migrate eh_tokens collection."""
         if not self.encryption_key:
-            logger.warning(
-                "Skipping OAuth tokens migration: AA_TOKEN_ENCRYPTION_KEY not set"
-            )
+            logger.warning("Skipping OAuth tokens migration: AA_TOKEN_ENCRYPTION_KEY not set")
             return
 
         logger.info("Migrating OAuth tokens...")
@@ -388,7 +391,9 @@ class FirestoreToCloudSQLMigrator:
         total_read = sum(s["read"] for s in self.stats.values())
         total_written = sum(s["written"] for s in self.stats.values())
         total_errors = sum(s["errors"] for s in self.stats.values())
-        logger.info("Total: read=%d, written=%d, errors=%d", total_read, total_written, total_errors)
+        logger.info(
+            "Total: read=%d, written=%d, errors=%d", total_read, total_written, total_errors
+        )
 
         if self.dry_run:
             logger.info("")
@@ -413,7 +418,13 @@ def main():
     parser.add_argument(
         "--collection",
         type=str,
-        choices=["employees", "office_closures", "capacity_overrides", "allocation_requests", "oauth_tokens"],
+        choices=[
+            "employees",
+            "office_closures",
+            "capacity_overrides",
+            "allocation_requests",
+            "oauth_tokens",
+        ],
         help="Migrate only this collection",
     )
 

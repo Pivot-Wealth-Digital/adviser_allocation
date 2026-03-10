@@ -53,7 +53,7 @@ def get_calendar_service():
             {
                 "installed": {
                     "client_id": "YOUR_CLIENT_ID.apps.googleusercontent.com",
-                    "client_secret": "YOUR_CLIENT_SECRET",
+                    "client_secret": "YOUR_CLIENT_SECRET",  # pragma: allowlist secret
                     "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                     "token_uri": "https://oauth2.googleapis.com/token",
                     "redirect_uris": ["http://localhost"],

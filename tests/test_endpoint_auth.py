@@ -9,7 +9,7 @@ os.environ.setdefault("USE_FIRESTORE", "false")
 
 from adviser_allocation.main import app
 
-TEST_HUBSPOT_SECRET = "test-hubspot-client-secret"
+TEST_HUBSPOT_SECRET = "test-hubspot-client-secret"  # pragma: allowlist secret
 
 
 def hubspot_v2_signature(client_secret, method, url, body=""):
