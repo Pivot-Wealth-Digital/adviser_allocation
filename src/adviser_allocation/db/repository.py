@@ -699,7 +699,13 @@ class AdviserAllocationDB:
                     {
                         "doc_id": str(row.request_id),
                         "timestamp": row.timestamp.isoformat() if row.timestamp else None,
-                        "request_data": json.loads(row.request_data) if row.request_data else {},
+                        "request_data": (
+                            row.request_data
+                            if isinstance(row.request_data, dict)
+                            else json.loads(row.request_data)
+                            if row.request_data
+                            else {}
+                        ),
                         "client_email": row.client_email,
                         "deal_id": row.deal_id,
                         "service_package": row.service_package,
