@@ -305,10 +305,10 @@ def test_allocation_finds_earliest_adviser(mock_firestore):
         {"email": "john@example.com", "capacity": 5},
         {"email": "jane@example.com", "capacity": 3},
     ]
-    
+
     # Execute
     result = get_adviser(advisers, service_package="Series A")
-    
+
     # Assert
     assert result["email"] == "jane@example.com"
 ```

@@ -6,6 +6,7 @@ Use descriptive names instead.
 
 This hook WARNS but does not block (existing code has violations).
 """
+
 import ast
 import sys
 from pathlib import Path

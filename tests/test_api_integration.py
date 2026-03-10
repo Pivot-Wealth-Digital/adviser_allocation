@@ -55,19 +55,31 @@ class APIEndpointTests(unittest.TestCase):
         # Should return 200 or 500 (but not 404)
         self.assertNotEqual(response.status_code, 404, "Availability endpoint should exist")
 
-    def test_post_endpoints_require_csrf_token(self):
+    @patch("adviser_allocation.utils.auth.get_secret", return_value="test-hubspot-secret")
+    def test_post_endpoints_require_csrf_token(self, _mock_secret):
         """Test that POST endpoints validate CSRF tokens.
 
         Note: /post/allocate is a HubSpot webhook endpoint and is intentionally
         CSRF-exempt (external service can't provide CSRF tokens).
         """
+        import hashlib
+
         with self.client.session_transaction() as sess:
             sess["is_authenticated"] = True
 
-        # /post/allocate is a webhook endpoint - CSRF exempt, accepts all POSTs
-        response = self.client.post("/post/allocate", json={"test": "data"})
+        body = '{"test": "data"}'
+        url = "http://localhost/post/allocate"
+        sig = hashlib.sha256(
+            ("test-hubspot-secret" + "POST" + url + body).encode("utf-8")
+        ).hexdigest()
 
-        # Webhook endpoints return 200 even for empty/invalid payloads (logs and returns success)
+        response = self.client.post(
+            "/post/allocate",
+            data=body,
+            content_type="application/json",
+            headers={"X-HubSpot-Signature": sig},
+        )
+
         self.assertEqual(
             response.status_code,
             200,
@@ -86,22 +98,31 @@ class APIEndpointTests(unittest.TestCase):
         # Should return error code (400 or 500 depending on handling)
         self.assertGreaterEqual(response.status_code, 400, "Invalid JSON should return error")
 
-    def test_missing_required_fields_returns_error(self):
+    @patch("adviser_allocation.utils.auth.get_secret", return_value="test-hubspot-secret")
+    def test_missing_required_fields_returns_error(self, _mock_secret):
         """Test that missing required fields returns error.
 
         Note: /post/allocate is a HubSpot webhook that accepts empty payloads
         gracefully (logs and returns success to avoid webhook retries).
         """
+        import hashlib
+
         with self.client.session_transaction() as sess:
             sess["is_authenticated"] = True
 
+        body = "{}"
+        url = "http://localhost/post/allocate"
+        sig = hashlib.sha256(
+            ("test-hubspot-secret" + "POST" + url + body).encode("utf-8")
+        ).hexdigest()
+
         response = self.client.post(
             "/post/allocate",
-            json={},
-            content_type="application/json",  # Empty data
+            data=body,
+            content_type="application/json",
+            headers={"X-HubSpot-Signature": sig},
         )
 
-        # Webhook accepts empty payloads (returns 200 to prevent HubSpot retries)
         self.assertEqual(response.status_code, 200, "Webhook accepts empty payload")
 
     def test_response_content_type_json(self):

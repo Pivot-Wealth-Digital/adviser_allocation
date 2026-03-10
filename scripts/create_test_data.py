@@ -5,18 +5,18 @@ Creates a HubSpot contact and a Box folder for testing.
 """
 
 import json
-import sys
 import logging
+import os
+import sys
 from pathlib import Path
 
 import requests
-from boxsdk import JWTAuth, Client
+from boxsdk import Client, JWTAuth
 from boxsdk.exception import BoxAPIException
 
 # Setup logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,9 @@ class HubSpotAPI:
             "Content-Type": "application/json",
         }
 
-    def create_contact(self, email: str, firstname: str = "Test", lastname: str = "Contact") -> dict:
+    def create_contact(
+        self, email: str, firstname: str = "Test", lastname: str = "Contact"
+    ) -> dict:
         """
         Create a HubSpot contact with the given email and name.
 
@@ -56,12 +58,7 @@ class HubSpotAPI:
         }
 
         logger.info(f"Creating HubSpot contact: {email}")
-        response = requests.post(
-            url,
-            headers=self.headers,
-            json=payload,
-            timeout=10
-        )
+        response = requests.post(url, headers=self.headers, json=payload, timeout=10)
 
         if response.status_code == 409:
             # Contact already exists, need to search for it
@@ -75,7 +72,7 @@ class HubSpotAPI:
                     "lastname": lastname,
                     "status": "existing",
                     "portal_id": self.portal_id,
-                    "url": f"https://app.hubspot.com/contacts/{self.portal_id}/record/0-1/{contact_id}"
+                    "url": f"https://app.hubspot.com/contacts/{self.portal_id}/record/0-1/{contact_id}",
                 }
             else:
                 raise ValueError(f"Contact exists but could not be retrieved: {email}")
@@ -93,7 +90,7 @@ class HubSpotAPI:
             "lastname": lastname,
             "status": "created",
             "portal_id": self.portal_id,
-            "url": f"https://app.hubspot.com/contacts/{self.portal_id}/record/0-1/{contact_id}"
+            "url": f"https://app.hubspot.com/contacts/{self.portal_id}/record/0-1/{contact_id}",
         }
 
     def _find_contact_by_email(self, email: str) -> str:
@@ -103,16 +100,8 @@ class HubSpotAPI:
             "limit": 1,
             "properties": ["email", "firstname", "lastname"],
             "filterGroups": [
-                {
-                    "filters": [
-                        {
-                            "propertyName": "email",
-                            "operator": "EQ",
-                            "value": email
-                        }
-                    ]
-                }
-            ]
+                {"filters": [{"propertyName": "email", "operator": "EQ", "value": email}]}
+            ],
         }
 
         try:
@@ -120,7 +109,7 @@ class HubSpotAPI:
                 url,
                 headers={**self.headers, "Content-Type": "application/json"},
                 json=params,
-                timeout=10
+                timeout=10,
             )
             response.raise_for_status()
             data = response.json()
@@ -146,7 +135,7 @@ class BoxAPI:
         """Authenticate with Box using JWT."""
         logger.info("Authenticating with Box API using JWT")
 
-        with open(self.jwt_config_path, 'r') as f:
+        with open(self.jwt_config_path, "r") as f:
             config = json.load(f)
 
         auth = JWTAuth.from_settings_dictionary(config)
@@ -226,7 +215,7 @@ class BoxAPI:
             "name": subfolder.name,
             "parent_id": parent_folder_id,
             "status": "created",
-            "url": f"https://app.box.com/folder/{subfolder.id}"
+            "url": f"https://app.box.com/folder/{subfolder.id}",
         }
 
     def create_folder_in_root(self, folder_name: str) -> dict:
@@ -251,7 +240,7 @@ class BoxAPI:
                 "name": subfolder.name,
                 "parent_id": "0",
                 "status": "created",
-                "url": f"https://app.box.com/folder/{subfolder.id}"
+                "url": f"https://app.box.com/folder/{subfolder.id}",
             }
         except BoxAPIException as e:
             if e.status == 409:
@@ -267,7 +256,7 @@ class BoxAPI:
                                 "name": item.name,
                                 "parent_id": "0",
                                 "status": "existing",
-                                "url": f"https://app.box.com/folder/{item.id}"
+                                "url": f"https://app.box.com/folder/{item.id}",
                             }
                 except BoxAPIException as search_error:
                     logger.error(f"Failed to find existing folder: {search_error}")
@@ -297,11 +286,7 @@ def main():
         logger.error(f"Box JWT config file not found: {BOX_JWT_CONFIG_PATH}")
         sys.exit(1)
 
-    result = {
-        "hubspot_contact": None,
-        "box_folder": None,
-        "errors": []
-    }
+    result = {"hubspot_contact": None, "box_folder": None, "errors": []}
 
     try:
         # Create HubSpot contact
@@ -313,7 +298,7 @@ def main():
         contact = hubspot_api.create_contact(
             email=TEST_CONTACT_EMAIL,
             firstname=TEST_CONTACT_FIRSTNAME,
-            lastname=TEST_CONTACT_LASTNAME
+            lastname=TEST_CONTACT_LASTNAME,
         )
         result["hubspot_contact"] = contact
         logger.info(f"✓ HubSpot Contact created: {contact['id']}")
@@ -367,9 +352,11 @@ def main():
         print("\n✓ HubSpot Contact Created:")
         print(f"  - Contact ID: {result['hubspot_contact']['id']}")
         print(f"  - Email: {result['hubspot_contact']['email']}")
-        print(f"  - Name: {result['hubspot_contact']['firstname']} {result['hubspot_contact']['lastname']}")
+        print(
+            f"  - Name: {result['hubspot_contact']['firstname']} {result['hubspot_contact']['lastname']}"
+        )
         print(f"  - Status: {result['hubspot_contact'].get('status', 'unknown')}")
-        if result['hubspot_contact'].get('url'):
+        if result["hubspot_contact"].get("url"):
             print(f"  - URL: {result['hubspot_contact']['url']}")
     else:
         print("\n✗ HubSpot Contact: FAILED")

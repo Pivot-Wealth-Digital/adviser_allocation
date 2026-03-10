@@ -1101,8 +1101,7 @@ def display_data(data):
     for week in sorted_weeks:
         row_data = [week_label_from_ordinal(week)] + [str(item) for item in data[week]]
         for i, item in enumerate(row_data):
-            if len(item) > column_widths[i]:
-                column_widths[i] = len(item)
+            column_widths[i] = max(column_widths[i], len(item))
 
     lines = []
     header_row = " | ".join(header.ljust(width) for header, width in zip(headers, column_widths))

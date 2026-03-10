@@ -126,8 +126,7 @@ def _parse_event_dates(event: Dict[str, Any]) -> Optional[Tuple[date, date]]:
             logger.warning("Event %s has no date or dateTime", event.get("id"))
             return None
 
-        if end < start:
-            end = start
+        end = max(end, start)
         return start, end
     except Exception as exc:
         logger.warning("Failed to parse dates for event %s: %s", event.get("id"), exc)

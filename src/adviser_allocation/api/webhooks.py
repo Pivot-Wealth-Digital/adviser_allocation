@@ -12,6 +12,7 @@ from flask import Blueprint, jsonify, request
 
 from adviser_allocation.core.allocation import get_adviser
 from adviser_allocation.services.allocation_service import store_allocation_record
+from adviser_allocation.utils.auth import require_hubspot_signature
 from adviser_allocation.utils.common import SYDNEY_TZ, sydney_now
 from adviser_allocation.utils.http_client import (
     DEFAULT_TIMEOUT,
@@ -163,6 +164,7 @@ def _fetch_deal_metadata(deal_id: str) -> Optional[dict]:
 
 
 @webhooks_bp.route("/post/allocate", methods=["POST", "GET"])
+@require_hubspot_signature
 def handle_allocation():
     """Handle HubSpot allocation webhook requests."""
     if request.method == "GET":
