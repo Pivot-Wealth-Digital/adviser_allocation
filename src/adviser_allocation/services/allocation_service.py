@@ -5,35 +5,32 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 
-from adviser_allocation.utils.common import sydney_now
+from adviser_allocation.utils.common import get_cloudsql_db, sydney_now
 
 logger = logging.getLogger(__name__)
 
 
 def store_allocation_record(
-    db,
+    db,  # Legacy parameter, ignored - uses CloudSQL
     data: Dict[str, Any],
     source: str = "webhook",
     extra_fields: Optional[Dict[str, Any]] = None,
     raw_request: Optional[Dict[str, Any]] = None,
 ) -> Optional[str]:
-    """Persist an allocation request document in Firestore.
+    """Persist an allocation request record in CloudSQL.
 
     Args:
-        db: Firestore client (may be None).
+        db: Legacy parameter (ignored) - CloudSQL is used automatically.
         data: Incoming allocation payload.
         source: Identifier for the caller (e.g., webhook name).
         extra_fields: Optional additional metadata to include in the record.
+        raw_request: Optional raw request data to store.
 
     Returns:
-        Firestore document id on success, otherwise ``None``.
+        Request ID on success, otherwise ``None``.
     """
-    if not db:
-        logger.error("Firestore not configured; allocation record not stored")
-        return None
-
     record = {
-        "timestamp": sydney_now().isoformat(),
+        "timestamp": sydney_now(),
         "request_data": raw_request if raw_request is not None else data,
         "client_email": data.get("client_email", ""),
         "adviser_email": data.get("adviser_email", ""),
@@ -49,7 +46,8 @@ def store_allocation_record(
         "agreement_start_date": data.get("agreement_start_date", ""),
         "agreement_start_raw": data.get("agreement_start_raw", ""),
         "allocation_result": data.get("allocation_result", ""),
-        "earliest_week": data.get("earliest_week", ""),
+        "earliest_week": data.get("earliest_week"),
+        "earliest_week_label": data.get("earliest_week_label", ""),
         "status": data.get("status", "received"),
         "source": source,
         "error_message": data.get("error_message", ""),
@@ -59,10 +57,10 @@ def store_allocation_record(
         record.update(extra_fields)
 
     try:
-        doc_ref = db.collection("allocation_requests").document()
-        doc_ref.set(record)
-        logger.debug("Stored allocation record %s", doc_ref.id)
-        return doc_ref.id
-    except Exception as exc:  # pragma: no cover
+        cloudsql_db = get_cloudsql_db()
+        request_id = cloudsql_db.store_allocation_record(record)
+        logger.debug("Stored allocation record %s", request_id)
+        return request_id
+    except Exception as exc:
         logger.error("Failed to store allocation record: %s", exc)
         return None
