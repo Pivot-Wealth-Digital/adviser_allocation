@@ -570,27 +570,17 @@ def sync_calendar_closures():
     Reads events from the Pivot closures calendar and optionally the
     Australian public holidays calendar, then upserts into aa_office_closures.
     """
-    calendar_id = os.environ.get("GOOGLE_CALENDAR_ID")
-    if not calendar_id:
-        logging.error("GOOGLE_CALENDAR_ID environment variable not set")
-        return jsonify({"error": "GOOGLE_CALENDAR_ID not configured"}), 500
-
     try:
         from adviser_allocation.services.calendar_sync_service import (
-            DEFAULT_HOLIDAYS_CALENDAR_ID,
+            get_calendar_sources,
         )
         from adviser_allocation.services.calendar_sync_service import (
             sync_calendar_closures as _sync,
         )
 
-        # Build list of (calendar_id, source_tag) tuples
-        sources = [(calendar_id, None)]
-        holidays_id = os.environ.get(
-            "GOOGLE_HOLIDAYS_CALENDAR_ID",
-            DEFAULT_HOLIDAYS_CALENDAR_ID,
-        )
-        if holidays_id:
-            sources.append((holidays_id, "Public Holiday"))
+        sources = get_calendar_sources()
+        if not sources:
+            return jsonify({"error": "GOOGLE_CALENDAR_ID not configured"}), 500
 
         cloudsql_db = get_cloudsql_db()
         result = _sync(calendar_sources=sources, db=cloudsql_db)
@@ -607,26 +597,17 @@ def renew_calendar_watches():
     Intended to run daily via Cloud Scheduler. Also registers watches
     for any calendar not yet being watched.
     """
-    calendar_id = os.environ.get("GOOGLE_CALENDAR_ID")
-    if not calendar_id:
-        logging.error("GOOGLE_CALENDAR_ID environment variable not set")
-        return jsonify({"error": "GOOGLE_CALENDAR_ID not configured"}), 500
-
     try:
         from adviser_allocation.services.calendar_sync_service import (
-            DEFAULT_HOLIDAYS_CALENDAR_ID,
+            get_calendar_sources,
         )
         from adviser_allocation.services.calendar_watch_service import (
             renew_expiring_watches,
         )
 
-        sources = [(calendar_id, None)]
-        holidays_id = os.environ.get(
-            "GOOGLE_HOLIDAYS_CALENDAR_ID",
-            DEFAULT_HOLIDAYS_CALENDAR_ID,
-        )
-        if holidays_id:
-            sources.append((holidays_id, "Public Holiday"))
+        sources = get_calendar_sources()
+        if not sources:
+            return jsonify({"error": "GOOGLE_CALENDAR_ID not configured"}), 500
 
         result = renew_expiring_watches(calendar_sources=sources)
         return jsonify(result), 200
