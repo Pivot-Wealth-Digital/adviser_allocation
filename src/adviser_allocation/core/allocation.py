@@ -3,7 +3,6 @@ import os
 import re
 import time
 from datetime import date, datetime, timedelta
-from functools import lru_cache
 from typing import Dict, List, Optional
 from zoneinfo import ZoneInfo
 
@@ -57,9 +56,21 @@ def _parse_iso_date(value: str) -> Optional[date]:
     return None
 
 
-@lru_cache(maxsize=1)
+_capacity_override_ttl_cache: TTLCache = TTLCache(maxsize=1, ttl=300)
+
+
 def _capacity_override_cache() -> Dict[str, List[Dict]]:
-    """Cache adviser capacity overrides grouped by email."""
+    """Cache adviser capacity overrides grouped by email (5-minute TTL)."""
+    cached = _capacity_override_ttl_cache.get("overrides")
+    if cached is not None:
+        return cached
+    result = _capacity_override_cache_load()
+    _capacity_override_ttl_cache["overrides"] = result
+    return result
+
+
+def _capacity_override_cache_load() -> Dict[str, List[Dict]]:
+    """Load adviser capacity overrides from CloudSQL."""
     overrides_map: dict[str, list[dict]] = {}
     db = get_cloudsql_db()
     raw_items = db.get_capacity_overrides()
