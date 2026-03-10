@@ -50,18 +50,3 @@ def get_cloudsql_db() -> "AdviserAllocationDB":  # noqa: F821
             logging.error("Failed to initialize CloudSQL: %s", e)
             raise RuntimeError(f"CloudSQL initialization failed: {e}") from e
     return _cloudsql_db
-
-
-# Legacy compatibility - these are deprecated
-USE_FIRESTORE = False  # CloudSQL is now the only backend
-db = None  # Legacy Firestore client - no longer used
-
-
-def init_firestore():
-    """Deprecated: Firestore is no longer used. Returns None."""
-    logging.warning("init_firestore() is deprecated - use get_cloudsql_db() instead")
-
-
-def get_firestore_client():
-    """Deprecated: Firestore is no longer used. Returns None."""
-    logging.warning("get_firestore_client() is deprecated - use get_cloudsql_db() instead")

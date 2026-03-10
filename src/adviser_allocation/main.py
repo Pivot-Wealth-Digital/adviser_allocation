@@ -367,7 +367,6 @@ def get_access_token():
     return tok["access_token"]
 
 
-# ---- Get Employee ID and email then store firestore ----
 def get_org_id(headers):
     """Fetch the first organisation ID from Employment Hero.
 
