@@ -1,0 +1,313 @@
+{% extends 'layout.html' %}
+{% set title = 'Clarify Dates Chart' %}
+
+{% block content %}
+<div class="topbar">
+  <div style="display: flex; align-items: center; gap: 16px;">
+    <a href="/" style="color: #d0d7e2; text-decoration: none; font-size: 0.9em;">&larr; Home</a>
+    <h2>Clarify Dates Chart</h2>
+  </div>
+  <div class="datebox"><span>Today: {{ today }}</span><span>Week: {{ week_num }}</span></div>
+</div>
+
+<div class="card guide-card">
+  <div class="card-header">
+    <h3>Clarify Schedule Overview</h3>
+  </div>
+  <p class="muted inline-guide-title">Quick guide</p>
+  <ul class="inline-guide">
+    <li><strong>Booked Clarifies</strong> are meetings already scheduled in HubSpot.</li>
+    <li><strong>Simulated Clarifies</strong> are deals that need a clarify meeting but haven't been booked yet.</li>
+    <li>Filter by adviser to see individual workload, or select "All Advisers" for the aggregate view.</li>
+  </ul>
+  <div class="row" style="margin-top: 16px;">
+    <div>
+      <label for="adviserFilter">Adviser</label>
+      <select id="adviserFilter">
+        <option value="">All Advisers</option>
+        {% for a in advisers %}
+        <option value="{{ a.email }}">{{ a.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <button id="refreshBtn">Refresh Chart</button>
+    </div>
+  </div>
+  <div id="loading" style="display:none;margin-top:12px;color:var(--muted);">
+    <span>&#128260; Loading clarify data...</span>
+  </div>
+</div>
+
+<div class="card" style="margin-top: 20px;">
+  <div class="card-header">
+    <h3>Clarify Dates by Week</h3>
+  </div>
+  <div id="chart-container" style="position: relative; height: 400px; width: 100%;">
+    <canvas id="clarifyChart"></canvas>
+  </div>
+  <div id="no-data" style="display: none; text-align: center; padding: 40px; color: var(--muted);">
+    <p>No clarify data available. Select an adviser or check that schedules have been computed.</p>
+  </div>
+</div>
+
+<div class="card" style="margin-top: 20px;">
+  <div class="card-header">
+    <h3>Summary</h3>
+  </div>
+  <div id="summary" style="display: flex; gap: 24px; flex-wrap: wrap;">
+    <div class="stat-box">
+      <span class="stat-label">Total Booked</span>
+      <span id="totalBooked" class="stat-value">-</span>
+    </div>
+    <div class="stat-box">
+      <span class="stat-label">Total Simulated</span>
+      <span id="totalSimulated" class="stat-value">-</span>
+    </div>
+    <div class="stat-box">
+      <span class="stat-label">Total Combined</span>
+      <span id="totalCombined" class="stat-value">-</span>
+    </div>
+    <div class="stat-box">
+      <span class="stat-label">Weeks Shown</span>
+      <span id="weeksShown" class="stat-value">-</span>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block head %}
+{{ super() }}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  .guide-card .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    margin-bottom: 12px;
+  }
+
+  .guide-card h3 {
+    margin: 0;
+  }
+
+  .inline-guide-title {
+    font-weight: 600;
+    margin: 0 0 6px 0;
+  }
+
+  .inline-guide {
+    margin: 0 0 12px 0;
+    padding-left: 1.2rem;
+    font-size: 0.9em;
+    color: var(--muted);
+  }
+
+  .inline-guide li {
+    margin-bottom: 0.35rem;
+  }
+
+  .inline-guide li:last-child {
+    margin-bottom: 0;
+  }
+
+  .stat-box {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 16px 24px;
+    text-align: center;
+    min-width: 120px;
+  }
+
+  .stat-label {
+    display: block;
+    font-size: 0.85em;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+
+  .stat-value {
+    display: block;
+    font-size: 1.5em;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  #chart-container {
+    background: var(--bg);
+    border-radius: var(--radius-sm);
+    padding: 16px;
+  }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (function () {
+    const adviserFilter = document.getElementById('adviserFilter');
+    const refreshBtn = document.getElementById('refreshBtn');
+    const loadingDiv = document.getElementById('loading');
+    const chartContainer = document.getElementById('chart-container');
+    const noDataDiv = document.getElementById('no-data');
+    const ctx = document.getElementById('clarifyChart').getContext('2d');
+
+    let chart = null;
+
+    async function loadChartData() {
+      const adviser = adviserFilter.value;
+      loadingDiv.style.display = 'block';
+      chartContainer.style.opacity = '0.5';
+
+      try {
+        const params = new URLSearchParams();
+        if (adviser) {
+          params.set('adviser', adviser);
+        }
+
+        const response = await fetch('/api/clarify-chart-data?' + params.toString());
+        const data = await response.json();
+
+        loadingDiv.style.display = 'none';
+        chartContainer.style.opacity = '1';
+
+        if (data.error) {
+          console.error('API error:', data.error);
+          noDataDiv.style.display = 'block';
+          chartContainer.style.display = 'none';
+          return;
+        }
+
+        if (!data.labels || data.labels.length === 0) {
+          noDataDiv.style.display = 'block';
+          chartContainer.style.display = 'none';
+          updateSummary([], []);
+          return;
+        }
+
+        noDataDiv.style.display = 'none';
+        chartContainer.style.display = 'block';
+
+        renderChart(data.labels, data.booked, data.simulated);
+        updateSummary(data.booked, data.simulated);
+
+      } catch (error) {
+        console.error('Failed to load chart data:', error);
+        loadingDiv.style.display = 'none';
+        chartContainer.style.opacity = '1';
+        noDataDiv.style.display = 'block';
+        chartContainer.style.display = 'none';
+      }
+    }
+
+    function renderChart(labels, booked, simulated) {
+      if (chart) {
+        chart.destroy();
+      }
+
+      chart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'Booked Clarifies',
+              data: booked,
+              backgroundColor: 'rgba(72, 187, 120, 0.8)',
+              borderColor: 'rgba(72, 187, 120, 1)',
+              borderWidth: 1,
+              stack: 'clarify'
+            },
+            {
+              label: 'Simulated Clarifies',
+              data: simulated,
+              backgroundColor: 'rgba(240, 131, 84, 0.8)',
+              borderColor: 'rgba(240, 131, 84, 1)',
+              borderWidth: 1,
+              stack: 'clarify'
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: 'top',
+              labels: {
+                color: '#d0d7e2',
+                font: {
+                  size: 12
+                }
+              }
+            },
+            tooltip: {
+              mode: 'index',
+              intersect: false,
+              callbacks: {
+                footer: function (tooltipItems) {
+                  let total = 0;
+                  tooltipItems.forEach(function (tooltipItem) {
+                    total += tooltipItem.raw;
+                  });
+                  return 'Total: ' + total;
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              stacked: true,
+              title: {
+                display: true,
+                text: 'Week Commencing',
+                color: '#a0aec0'
+              },
+              ticks: {
+                color: '#a0aec0'
+              },
+              grid: {
+                color: 'rgba(160, 174, 192, 0.1)'
+              }
+            },
+            y: {
+              stacked: true,
+              beginAtZero: true,
+              title: {
+                display: true,
+                text: 'Number of Clarifies',
+                color: '#a0aec0'
+              },
+              ticks: {
+                color: '#a0aec0',
+                stepSize: 1
+              },
+              grid: {
+                color: 'rgba(160, 174, 192, 0.1)'
+              }
+            }
+          }
+        }
+      });
+    }
+
+    function updateSummary(booked, simulated) {
+      const totalBooked = booked.reduce((a, b) => a + b, 0);
+      const totalSimulated = simulated.reduce((a, b) => a + b, 0);
+
+      document.getElementById('totalBooked').textContent = totalBooked;
+      document.getElementById('totalSimulated').textContent = totalSimulated;
+      document.getElementById('totalCombined').textContent = totalBooked + totalSimulated;
+      document.getElementById('weeksShown').textContent = booked.length;
+    }
+
+    // Event listeners
+    refreshBtn.addEventListener('click', loadChartData);
+    adviserFilter.addEventListener('change', loadChartData);
+
+    // Initial load
+    loadChartData();
+  })();
+</script>
+{% endblock %}
