@@ -32,36 +32,6 @@ class AdviserAllocationDB:
     # EMPLOYEES
     # =========================================================================
 
-    def get_employee_by_id(self, employee_id: str) -> Optional[Employee]:
-        """Get employee by EH employee ID."""
-        with self.engine.connect() as conn:
-            result = conn.execute(
-                text("""
-                    SELECT employee_id, name, company_email, account_email,
-                           client_limit_monthly, pod_type_effective, hubspot_owner_id,
-                           is_active, created_at, updated_at, last_synced
-                    FROM aa_employees
-                    WHERE employee_id = :employee_id
-                """),
-                {"employee_id": employee_id},
-            )
-            row = result.fetchone()
-            if not row:
-                return None
-            return Employee(
-                employee_id=row.employee_id,
-                name=row.name,
-                company_email=row.company_email,
-                account_email=row.account_email,
-                client_limit_monthly=row.client_limit_monthly or 6,
-                pod_type_effective=row.pod_type_effective,
-                hubspot_owner_id=row.hubspot_owner_id,
-                is_active=row.is_active,
-                created_at=row.created_at,
-                updated_at=row.updated_at,
-                last_synced=row.last_synced,
-            )
-
     def get_employee_by_email(self, email: str) -> Optional[Employee]:
         """Get employee by company email."""
         with self.engine.connect() as conn:
@@ -97,37 +67,6 @@ class AdviserAllocationDB:
         """Get employee ID by company email (for backwards compatibility)."""
         emp = self.get_employee_by_email(email)
         return emp.employee_id if emp else None
-
-    def get_all_employees_models(self, active_only: bool = True) -> List[Employee]:
-        """Get all employees as Employee dataclass instances."""
-        with self.engine.connect() as conn:
-            query = """
-                SELECT employee_id, name, company_email, account_email,
-                       client_limit_monthly, pod_type_effective, hubspot_owner_id,
-                       is_active, created_at, updated_at, last_synced
-                FROM aa_employees
-            """
-            if active_only:
-                query += " WHERE is_active = TRUE"
-            query += " ORDER BY name"
-
-            result = conn.execute(text(query))
-            return [
-                Employee(
-                    employee_id=row.employee_id,
-                    name=row.name,
-                    company_email=row.company_email,
-                    account_email=row.account_email,
-                    client_limit_monthly=row.client_limit_monthly or 6,
-                    pod_type_effective=row.pod_type_effective,
-                    hubspot_owner_id=row.hubspot_owner_id,
-                    is_active=row.is_active,
-                    created_at=row.created_at,
-                    updated_at=row.updated_at,
-                    last_synced=row.last_synced,
-                )
-                for row in result
-            ]
 
     def upsert_employee(self, emp: Employee) -> None:
         """Insert or update employee record."""
@@ -245,12 +184,6 @@ class AdviserAllocationDB:
                     "last_synced": leave.last_synced or datetime.utcnow(),
                 },
             )
-
-    def upsert_leave_requests(self, leaves: List[LeaveRequest]) -> int:
-        """Batch upsert leave requests. Returns count."""
-        for leave in leaves:
-            self.upsert_leave_request(leave)
-        return len(leaves)
 
     # =========================================================================
     # OFFICE CLOSURES
@@ -787,15 +720,6 @@ class AdviserAllocationDB:
                 logger.error("Failed to decrypt tokens for %s: %s", token_key, e)
                 return None
 
-    def delete_tokens(self, token_key: str) -> bool:
-        """Delete OAuth tokens. Returns True if deleted."""
-        with self.engine.begin() as conn:
-            result = conn.execute(
-                text("DELETE FROM aa_oauth_tokens WHERE token_key = :token_key"),
-                {"token_key": token_key},
-            )
-            return result.rowcount > 0
-
     # =========================================================================
     # CONVENIENCE / COMPATIBILITY METHODS
     # =========================================================================
@@ -1003,15 +927,6 @@ class AdviserAllocationDB:
                 }
                 for row in result
             ]
-
-    # Aliases for compatibility
-    def get_all_office_closures(self) -> List[Dict[str, Any]]:
-        """Alias for get_global_closures."""
-        return self.get_global_closures()
-
-    def get_all_capacity_overrides(self) -> List[Dict[str, Any]]:
-        """Alias for get_capacity_overrides."""
-        return self.get_capacity_overrides()
 
     def get_all_employees(self, active_only: bool = False) -> List[Dict[str, Any]]:
         """Get all employees as dictionaries."""

@@ -25,20 +25,16 @@ from adviser_allocation.utils.secrets import get_secret
 webhooks_bp = Blueprint("webhooks_api", __name__)
 logger = logging.getLogger(__name__)
 
-HUBSPOT_TOKEN = get_secret("HUBSPOT_TOKEN") or os.environ.get("HUBSPOT_TOKEN")
+HUBSPOT_TOKEN = get_secret("HUBSPOT_TOKEN")
 HUBSPOT_HEADERS = {
     "Authorization": f"Bearer {HUBSPOT_TOKEN}" if HUBSPOT_TOKEN else None,
     "Content-Type": "application/json",
 }
-CHAT_WEBHOOK_URL = get_secret("CHAT_WEBHOOK_URL") or os.environ.get("CHAT_WEBHOOK_URL")
-
-_db = None
+CHAT_WEBHOOK_URL = get_secret("CHAT_WEBHOOK_URL")
 
 
-def init_webhooks(db):
-    """Initialize webhooks blueprint with database connection."""
-    global _db
-    _db = db
+def init_webhooks():
+    """Return the webhooks blueprint for registration."""
     return webhooks_bp
 
 
@@ -113,54 +109,6 @@ def _hubspot_headers() -> dict:
     if not HUBSPOT_HEADERS.get("Authorization"):
         raise RuntimeError("HUBSPOT_TOKEN is not configured")
     return HUBSPOT_HEADERS
-
-
-def _fetch_deal_metadata(deal_id: str) -> Optional[dict]:
-    """Fetch deal metadata from HubSpot.
-
-    Args:
-        deal_id: HubSpot deal ID
-
-    Returns:
-        Dict with deal metadata or None if not found
-    """
-    try:
-        url = f"https://api.hubapi.com/crm/v3/objects/deals/{deal_id}"
-        params = {
-            "properties": [
-                "hs_deal_record_id",
-                "service_package",
-                "agreement_start_date",
-                "household_type",
-                "hs_spouse_id",
-                "hs_contact_id",
-                "deal_salutation",
-            ]
-        }
-        resp = get_with_retries(
-            url, headers=_hubspot_headers(), params=params, timeout=DEFAULT_TIMEOUT
-        )
-        if resp.status_code == 404:
-            logger.warning("HubSpot deal %s not found", deal_id)
-            return None
-        resp.raise_for_status()
-        deal_data = resp.json()
-        props = deal_data.get("properties", {})
-
-        metadata = {
-            "hs_deal_record_id": props.get("hs_deal_record_id"),
-            "service_package": props.get("service_package"),
-            "agreement_start_date": props.get("agreement_start_date"),
-            "household_type": props.get("household_type"),
-            "hs_spouse_id": props.get("hs_spouse_id"),
-            "hs_contact_id": props.get("hs_contact_id"),
-            "deal_salutation": props.get("deal_salutation"),
-        }
-        logger.info("Fetched deal metadata for %s: %s", deal_id, metadata)
-        return metadata
-    except requests.RequestException as exc:
-        logger.error("Failed to fetch deal metadata for %s: %s", deal_id, exc)
-        return None
 
 
 @webhooks_bp.route("/post/allocate", methods=["POST", "GET"])
@@ -241,7 +189,7 @@ def handle_allocation():
 
                 logger.info("Persisting allocation record for deal %s", deal_id)
                 store_allocation_record(
-                    _db,
+                    None,
                     {
                         "client_email": event.get("fields", {}).get("client_email", ""),
                         "adviser_email": chosen_email,
@@ -330,7 +278,7 @@ def handle_allocation():
                 logger.error("Response content: %s", response.text)
 
                 store_allocation_record(
-                    _db,
+                    None,
                     {
                         "client_email": event.get("fields", {}).get("client_email", ""),
                         "adviser_email": chosen_email,
@@ -361,7 +309,7 @@ def handle_allocation():
                 logger.error("An unexpected error occurred during deal update: %s", err)
 
                 store_allocation_record(
-                    _db,
+                    None,
                     {
                         "client_email": event.get("fields", {}).get("client_email", ""),
                         "adviser_email": chosen_email if chosen_email else "",

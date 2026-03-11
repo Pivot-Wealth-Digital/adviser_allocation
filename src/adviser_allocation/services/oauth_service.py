@@ -59,21 +59,6 @@ def init_oauth_service(db=None, config: Optional[Dict] = None):
         REDIRECT_URI = config.get("REDIRECT_URI")
 
 
-def get_oauth_config() -> Dict[str, str]:
-    """Get current OAuth configuration.
-
-    Returns:
-        Dict with oauth configuration
-    """
-    return {
-        "EH_AUTHORIZE_URL": EH_AUTHORIZE_URL,
-        "EH_TOKEN_URL": EH_TOKEN_URL,
-        "EH_CLIENT_ID": EH_CLIENT_ID,
-        "EH_CLIENT_SECRET": EH_CLIENT_SECRET,
-        "REDIRECT_URI": REDIRECT_URI,
-    }
-
-
 def token_key() -> str:
     """Get the token storage key.
 
@@ -262,7 +247,6 @@ def build_authorization_url(state: str) -> str:
 
 __all__ = [
     "init_oauth_service",
-    "get_oauth_config",
     "token_key",
     "save_tokens",
     "load_tokens",

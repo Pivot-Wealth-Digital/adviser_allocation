@@ -5,13 +5,6 @@ from typing import Any, Dict, Optional
 
 import requests
 from requests.adapters import HTTPAdapter
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    retry_if_result,
-    stop_after_attempt,
-    wait_exponential,
-)
 from urllib3.util.retry import Retry
 
 logger = logging.getLogger(__name__)
@@ -57,22 +50,7 @@ def get_with_retries(
     retries: int = 3,
     **kwargs,
 ) -> requests.Response:
-    """GET request with automatic retries and timeout.
-
-    Args:
-        url: The URL to request
-        headers: Optional headers dict
-        params: Optional query parameters
-        timeout: Request timeout in seconds
-        retries: Number of retry attempts
-        **kwargs: Additional arguments to pass to requests.get
-
-    Returns:
-        requests.Response object
-
-    Raises:
-        requests.RequestException: If all retries fail
-    """
+    """GET request with automatic retries and timeout."""
     session = create_session_with_retries(retries=retries)
     try:
         return session.get(url, headers=headers, params=params, timeout=timeout, **kwargs)
@@ -88,22 +66,7 @@ def post_with_retries(
     retries: int = 3,
     **kwargs,
 ) -> requests.Response:
-    """POST request with automatic retries and timeout.
-
-    Args:
-        url: The URL to request
-        json: Optional JSON payload
-        headers: Optional headers dict
-        timeout: Request timeout in seconds
-        retries: Number of retry attempts
-        **kwargs: Additional arguments to pass to requests.post
-
-    Returns:
-        requests.Response object
-
-    Raises:
-        requests.RequestException: If all retries fail
-    """
+    """POST request with automatic retries and timeout."""
     session = create_session_with_retries(retries=retries)
     try:
         return session.post(url, json=json, headers=headers, timeout=timeout, **kwargs)
@@ -120,23 +83,7 @@ def patch_with_retries(
     retries: int = 3,
     **kwargs,
 ) -> requests.Response:
-    """PATCH request with automatic retries and timeout.
-
-    Args:
-        url: The URL to request
-        json: Optional JSON payload
-        headers: Optional headers dict
-        data: Optional raw data payload
-        timeout: Request timeout in seconds
-        retries: Number of retry attempts
-        **kwargs: Additional arguments to pass to requests.patch
-
-    Returns:
-        requests.Response object
-
-    Raises:
-        requests.RequestException: If all retries fail
-    """
+    """PATCH request with automatic retries and timeout."""
     session = create_session_with_retries(retries=retries)
     try:
         if data is not None:
@@ -146,107 +93,11 @@ def patch_with_retries(
         session.close()
 
 
-def delete_with_retries(
-    url: str,
-    headers: Optional[Dict[str, str]] = None,
-    timeout: int = DEFAULT_TIMEOUT,
-    retries: int = 3,
-    **kwargs,
-) -> requests.Response:
-    """DELETE request with automatic retries and timeout.
-
-    Args:
-        url: The URL to request
-        headers: Optional headers dict
-        timeout: Request timeout in seconds
-        retries: Number of retry attempts
-        **kwargs: Additional arguments to pass to requests.delete
-
-    Returns:
-        requests.Response object
-
-    Raises:
-        requests.RequestException: If all retries fail
-    """
-    session = create_session_with_retries(retries=retries)
-    try:
-        return session.delete(url, headers=headers, timeout=timeout, **kwargs)
-    finally:
-        session.close()
-
-
-@retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=1, max=10),
-    retry=retry_if_exception_type(requests.RequestException),
-)
-def get_with_tenacity(
-    url: str,
-    headers: Optional[Dict[str, str]] = None,
-    params: Optional[Dict[str, Any]] = None,
-    timeout: int = DEFAULT_TIMEOUT,
-    **kwargs,
-) -> requests.Response:
-    """GET request with tenacity retry decorator.
-
-    Better for inline usage where you want retry logic without session creation.
-
-    Args:
-        url: The URL to request
-        headers: Optional headers dict
-        params: Optional query parameters
-        timeout: Request timeout in seconds
-        **kwargs: Additional arguments to pass to requests.get
-
-    Returns:
-        requests.Response object
-
-    Raises:
-        requests.RequestException: If all retries fail
-    """
-    return requests.get(url, headers=headers, params=params, timeout=timeout, **kwargs)
-
-
-@retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=1, max=10),
-    retry=retry_if_exception_type(requests.RequestException),
-)
-def post_with_tenacity(
-    url: str,
-    json: Optional[Dict[str, Any]] = None,
-    headers: Optional[Dict[str, str]] = None,
-    timeout: int = DEFAULT_TIMEOUT,
-    **kwargs,
-) -> requests.Response:
-    """POST request with tenacity retry decorator.
-
-    Better for inline usage where you want retry logic without session creation.
-
-    Args:
-        url: The URL to request
-        json: Optional JSON payload
-        headers: Optional headers dict
-        timeout: Request timeout in seconds
-        **kwargs: Additional arguments to pass to requests.post
-
-    Returns:
-        requests.Response object
-
-    Raises:
-        requests.RequestException: If all retries fail
-    """
-    return requests.post(url, json=json, headers=headers, timeout=timeout, **kwargs)
-
-
 __all__ = [
     "create_session_with_retries",
     "get_with_retries",
     "post_with_retries",
     "patch_with_retries",
-    "delete_with_retries",
-    "get_with_tenacity",
-    "post_with_tenacity",
     "DEFAULT_TIMEOUT",
     "LONG_TIMEOUT",
 ]

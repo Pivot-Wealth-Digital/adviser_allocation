@@ -9,7 +9,6 @@ from .models import (
     CapacityOverride,
     Employee,
     LeaveRequest,
-    OAuthToken,
     OfficeClosure,
 )
 from .repository import AdviserAllocationDB
@@ -22,6 +21,5 @@ __all__ = [
     "OfficeClosure",
     "CapacityOverride",
     "AllocationRequest",
-    "OAuthToken",
     "AdviserAllocationDB",
 ]

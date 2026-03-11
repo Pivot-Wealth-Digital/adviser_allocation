@@ -25,7 +25,6 @@ from flask import (
     session,
     url_for,
 )
-from requests.exceptions import RequestException  # Added for Authlib
 
 # Import skill definitions to register all skills in the system
 import adviser_allocation.skills.definitions
@@ -34,12 +33,10 @@ from adviser_allocation.api.webhooks import init_webhooks
 from adviser_allocation.core.allocation import (
     build_service_household_matrix,
     compute_user_schedule_by_email,
-    get_adviser,
     get_monday_from_weeks_ago,
     get_user_ids_adviser,
     get_user_meeting_details,
     get_users_earliest_availability,
-    get_users_taking_on_clients,
     refresh_capacity_override_cache,
     week_label_from_ordinal,
 )
@@ -166,16 +163,10 @@ EH_AUTHORIZE_URL = os.environ.get(
 EH_TOKEN_URL = os.environ.get("EH_TOKEN_URL", "https://oauth.employmenthero.com/oauth2/token")
 EH_CLIENT_ID = get_secret("EH_CLIENT_ID")
 EH_CLIENT_SECRET = get_secret("EH_CLIENT_SECRET")
-EH_SCOPES = os.environ.get(
-    "EH_SCOPES",
-    "urn:mainapp:organisations:read urn:mainapp:employees:read urn:mainapp:leave_requests:read",
-)
-
 # Your app's public callback URL, e.g. https://adviser-allocation-<PROJECT-NUM>.<REGION>.run.app/auth/callback
 REDIRECT_URI = os.environ.get("REDIRECT_URI")
 
-API_BASE = "https://api.employmenthero.com"  # HR API base
-# For Payroll classic (KeyPay), swap the token URL and API base accordingly.
+API_BASE = "https://api.employmenthero.com"
 
 HUBSPOT_TOKEN = get_secret("HUBSPOT_TOKEN")
 HUBSPOT_HEADERS = {"Authorization": f"Bearer {HUBSPOT_TOKEN}", "Content-Type": "application/json"}
@@ -228,7 +219,6 @@ def ensure_eh_config():
 from adviser_allocation.services.oauth_service import (
     load_tokens,
     save_tokens,
-    token_key,
     update_tokens,
 )
 
@@ -285,7 +275,6 @@ def auth_start():
         "client_id": EH_CLIENT_ID,
         "redirect_uri": REDIRECT_URI,
         "response_type": "code",
-        # "scope": EH_SCOPES,
         "state": state,
     }
     authorize_url = f"{EH_AUTHORIZE_URL}?{urlencode(params)}"
@@ -1163,76 +1152,10 @@ def _format_tag_list(raw) -> list[str]:
     return formatted
 
 
-def send_chat_alert(payload: dict):
-    """Send a notification to Google Chat about the allocation."""
-    if not CHAT_WEBHOOK_URL:
-        return
-
-    try:
-        resp = requests.post(CHAT_WEBHOOK_URL, json=payload, timeout=10)
-        if resp.status_code >= 400:
-            logging.error("Chat webhook returned %s: %s", resp.status_code, resp.text)
-    except Exception as exc:  # pragma: no cover
-        logging.error("Failed to send chat alert: %s", exc)
-
-
-def build_chat_card_payload(title: str, sections: list[dict]) -> dict:
-    """Return Google Chat card payload."""
-    card_sections = []
-    for section in sections:
-        card_sections.append(
-            {
-                "header": section.get("header"),
-                "widgets": [{"textParagraph": {"text": text}} for text in section.get("lines", [])]
-                or [],
-            }
-        )
-    return {"cards": [{"header": {"title": title}, "sections": card_sections}]}
-
-
-def format_agreement_start(agreement_value):
-    if not agreement_value:
-        return ""
-    try:
-        value = str(agreement_value).strip()
-        if not value:
-            return ""
-        if value.isdigit():
-            dt = datetime.fromtimestamp(int(value) / 1000, tz=SYDNEY_TZ)
-        else:
-            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-            if parsed.tzinfo is None:
-                parsed = parsed.replace(tzinfo=SYDNEY_TZ)
-            dt = parsed.astimezone(SYDNEY_TZ)
-        return dt.date().isoformat()
-    except Exception as exc:  # pragma: no cover
-        logging.warning("Failed to parse agreement_start_date '%s': %s", agreement_value, exc)
-        return ""
-
-
 @main_bp.route("/logout")
 def logout():
     session.pop("is_authenticated", None)
     return redirect("/login")
-
-
-# ---- Example API call ----
-@main_bp.route("/test/organisations")
-def list_orgs():
-    """List Employment Hero organisations for the connected account."""
-    access_token = get_access_token()
-    headers = {"Authorization": f"Bearer {access_token}"}
-    r = requests.get(f"{API_BASE}/api/v1/organisations", headers=headers, timeout=30)
-    return (r.text, r.status_code, {"Content-Type": "application/json"})
-
-
-@main_bp.route("/get/leave_requests_list")
-def list_leave_requests():
-    """List raw Employment Hero leave requests for the account."""
-    access_token = get_access_token()
-    headers = {"Authorization": f"Bearer {access_token}"}
-    r = requests.get(f"{API_BASE}/api/v1/leave_requests", headers=headers, timeout=30)
-    return (r.json(), r.status_code, {"Content-Type": "application/json"})
 
 
 @main_bp.route("/employees/ui")
@@ -1830,15 +1753,6 @@ def availability_schedule():
             {"Content-Type": "text/html; charset=utf-8"},
         )
 
-    def pretty_name(email: str) -> str:
-        local = (email or "").split("@")[0]
-        return (
-            " ".join(
-                part.capitalize() for part in local.replace(".", " ").replace("_", " ").split()
-            )
-            or email
-        )
-
     display_advisers = []
     for user in advisers:
         props = user.get("properties") or {}
@@ -1848,7 +1762,7 @@ def availability_schedule():
         display_advisers.append(
             {
                 "email": email,
-                "name": pretty_name(email),
+                "name": _format_display_name(email),
                 "service_packages": props.get("client_types") or "",
                 "household_type": props.get("household_type") or "",
             }
@@ -1946,15 +1860,6 @@ def availability_meetings():
             {"Content-Type": "text/html; charset=utf-8"},
         )
 
-    def pretty_name(email: str) -> str:
-        local = (email or "").split("@")[0]
-        return (
-            " ".join(
-                part.capitalize() for part in local.replace(".", " ").replace("_", " ").split()
-            )
-            or email
-        )
-
     display_advisers = []
     for user in advisers:
         props = user.get("properties") or {}
@@ -1964,7 +1869,7 @@ def availability_meetings():
         display_advisers.append(
             {
                 "email": email,
-                "name": pretty_name(email),
+                "name": _format_display_name(email),
                 "service_packages": props.get("client_types") or "",
                 "household_type": props.get("household_type") or "",
             }
@@ -2267,10 +2172,6 @@ def warmup():
 # ===== APP INITIALIZATION =====
 # Create Flask app and register blueprints
 # This MUST happen after all blueprint handlers and routes are defined
-CHAT_WEBHOOK_URL = get_secret("PIVOT-DIGITAL-CHAT-WEBHOOK-URL-ADVISER-ALGO") or os.environ.get(
-    "CHAT_WEBHOOK_URL"
-)
-
 # Calculate paths to templates and static (at project root, 3 levels up from main.py)
 from pathlib import Path as _Path
 
@@ -2319,7 +2220,7 @@ def create_app(config_overrides=None):
         app.config.update(config_overrides)
 
     app.register_blueprint(main_bp)
-    app.register_blueprint(init_webhooks(None))  # CloudSQL used internally
+    app.register_blueprint(init_webhooks())
     app.register_blueprint(skills_bp)
 
     return app
@@ -2329,6 +2230,4 @@ def create_app(config_overrides=None):
 app = create_app()
 
 if __name__ == "__main__":
-    # Load variables from .env into environment
-    load_dotenv()
     app.run(host="0.0.0.0", debug=True, port=int(os.environ.get("PORT", "8080")))

@@ -104,18 +104,3 @@ class AllocationRequest:
     candidates_summary: Optional[Dict[str, Any]] = None
     request_id: Optional[str] = None
     created_at: Optional[datetime] = None
-
-
-@dataclass
-class OAuthToken:
-    """OAuth token storage (encrypted in database)."""
-
-    token_key: str
-    provider: str
-    access_token: str
-    refresh_token: Optional[str] = None
-    expires_in: Optional[int] = None
-    expires_at: Optional[datetime] = None
-    token_type: str = "Bearer"
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
