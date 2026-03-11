@@ -153,7 +153,9 @@ def fetch_calendar_events(
     """
     service = _get_calendar_service()
 
-    today = date.today()
+    from adviser_allocation.utils.common import sydney_today
+
+    today = sydney_today()
     time_min = datetime(today.year, today.month, today.day).isoformat() + "Z"
     future = today + timedelta(days=months_ahead * 30)
     time_max = datetime(future.year, future.month, future.day).isoformat() + "Z"

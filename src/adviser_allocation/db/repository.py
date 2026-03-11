@@ -754,7 +754,7 @@ class AdviserAllocationDB:
                     "provider": provider,
                     "tokens_json": json.dumps(tokens),
                     "encryption_key": encryption_key,
-                    "expires_at": tokens.get("expires_at"),
+                    "expires_at": tokens.get("_expires_at"),
                     "token_type": tokens.get("token_type", "Bearer"),
                 },
             )

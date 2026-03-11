@@ -192,6 +192,24 @@ def handle_allocation():
             selected_user, candidate_list = get_adviser(
                 service_package, agreement_start_date, household_type
             )
+            if not selected_user:
+                deal_id = event.get("fields", {}).get("hs_deal_record_id", "")
+                logger.warning("No eligible adviser found for deal %s", deal_id)
+                store_allocation_record(
+                    _db,
+                    {
+                        "client_email": event.get("fields", {}).get("client_email", ""),
+                        "deal_id": deal_id,
+                        "service_package": service_package,
+                        "household_type": household_type,
+                        "agreement_start_date": agreement_start_date,
+                        "status": "failed",
+                        "error_message": "No eligible adviser found",
+                    },
+                    source="hubspot_webhook",
+                    raw_request=event,
+                )
+                return jsonify({"message": "No eligible adviser found"}), 200
             send_chat_alert_flag = str(request.args.get("send_chat_alert", "1")).lower() not in (
                 "0",
                 "false",
@@ -327,7 +345,8 @@ def handle_allocation():
                     logger.info("Skipping chat alert for deal %s due to request flag", deal_id)
             except requests.exceptions.HTTPError as http_err:
                 logger.error("HTTP error during deal update: %s", http_err)
-                logger.error("Response content: %s", response.text)
+                if hasattr(http_err, "response") and http_err.response is not None:
+                    logger.error("Response content: %s", http_err.response.text)
 
                 store_allocation_record(
                     _db,
