@@ -18,20 +18,6 @@ def test_allocation_logic():
 
 
 @register_test_skill(
-    name="cache_utils",
-    category="unit",
-    description="Unit tests for caching utilities (cache_utils.py)",
-    test_file_pattern="tests/test_cache_utils.py",
-    proficiency_level="intermediate",
-    required_for_deployment=True,
-    tags=["utilities", "performance"],
-)
-def test_cache_utils():
-    """Run unit tests for cache utilities."""
-    pass
-
-
-@register_test_skill(
     name="http_client",
     category="unit",
     description="Unit tests for HTTP client with retry logic",
@@ -68,7 +54,6 @@ def test_oauth_service():
     required_for_deployment=True,
     dependencies=[
         "unit/allocation_logic",
-        "unit/cache_utils",
         "unit/http_client",
         "unit/oauth_service",
     ],
