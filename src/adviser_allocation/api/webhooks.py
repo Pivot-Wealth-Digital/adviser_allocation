@@ -144,7 +144,7 @@ def handle_allocation():
                 deal_id = event.get("fields", {}).get("hs_deal_record_id", "")
                 logger.warning("No eligible adviser found for deal %s", deal_id)
                 store_allocation_record(
-                    _db,
+                    None,
                     {
                         "client_email": event.get("fields", {}).get("client_email", ""),
                         "deal_id": deal_id,
