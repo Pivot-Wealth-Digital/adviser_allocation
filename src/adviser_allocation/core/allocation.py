@@ -111,7 +111,7 @@ def _capacity_override_cache_load() -> Dict[str, List[Dict]]:
 
 def refresh_capacity_override_cache() -> None:
     """Clear the cached overrides; used after admin updates."""
-    _capacity_override_cache.cache_clear()
+    _capacity_override_ttl_cache.clear()
 
 
 def _capacity_schedule_for_email(email: str) -> List[Dict]:
