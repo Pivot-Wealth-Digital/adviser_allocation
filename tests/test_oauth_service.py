@@ -122,9 +122,13 @@ class OAuthServiceTests(unittest.TestCase):
 
         self.assertEqual(result["access_token"], "refreshed_access_token")
 
-    def test_get_access_token_uses_cached_when_valid(self):
+    @patch("adviser_allocation.services.oauth_service.get_cloudsql_db")
+    def test_get_access_token_uses_cached_when_valid(self, mock_get_db):
         """Test that get_access_token returns cached token if valid."""
         init_oauth_service(db=None, config=self.oauth_config)
+
+        # Mock DB so save/load use session fallback
+        mock_get_db.side_effect = Exception("No DB in test")
 
         with self.app.test_request_context():
             # Save a valid token that won't expire for 1 hour

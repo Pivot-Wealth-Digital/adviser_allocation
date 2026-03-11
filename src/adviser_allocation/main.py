@@ -88,6 +88,13 @@ def is_authenticated():
     return bool(session.get("is_authenticated"))
 
 
+def _safe_redirect_url(url: str) -> str:
+    """Ensure redirect URL is a safe relative path (prevent open redirect)."""
+    if not url or not url.startswith("/") or url.startswith("//"):
+        return "/"
+    return url
+
+
 def login_required(view_func):
     from functools import wraps
 
@@ -1073,7 +1080,7 @@ def closures_ui():
 @main_bp.route("/login")
 def login():
     """Site-wide login page (shows the login UI)."""
-    nxt = request.args.get("next") or "/"
+    nxt = _safe_redirect_url(request.args.get("next") or "/")
     if is_authenticated():
         return redirect(nxt)
 
@@ -1121,7 +1128,7 @@ def google_auth_callback():
         return "Authentication failed. Please try again.", 400
 
     # Retrieve where they were trying to go
-    nxt = session.pop("next", "/")
+    nxt = _safe_redirect_url(session.pop("next", "/"))
     return redirect(nxt)
 
 
@@ -1138,7 +1145,7 @@ def login_bypass():
         "email": "dev@pivotwealth.com.au",
         "picture": "https://ui-avatars.com/api/?name=Dev+User&background=F08354&color=fff",
     }
-    nxt = request.args.get("next") or "/"
+    nxt = _safe_redirect_url(request.args.get("next") or "/")
     return redirect(nxt)
 
 
@@ -1256,14 +1263,13 @@ def employees_ui():
         )
 
     except Exception as e:
+        logger.exception("Error loading employees UI")
         return (
             render_template_string(
-                f"""
-            <div style="padding: 20px; text-align: center;">
-                <h3>❌ Error Loading Employees</h3>
-                <p>{str(e)}</p>
-            </div>
-        """
+                '<div style="padding: 20px; text-align: center;">'
+                "<h3>Error Loading Employees</h3>"
+                "<p>{{ error }}</p></div>",
+                error=str(e),
             ),
             500,
         )
@@ -1370,14 +1376,13 @@ def leave_requests_ui():
         )
 
     except Exception as e:
+        logger.exception("Error loading leave requests UI")
         return (
             render_template_string(
-                f"""
-            <div style="padding: 20px; text-align: center;">
-                <h3>❌ Error Loading Leave Requests</h3>
-                <p>{str(e)}</p>
-            </div>
-        """
+                '<div style="padding: 20px; text-align: center;">'
+                "<h3>Error Loading Leave Requests</h3>"
+                "<p>{{ error }}</p></div>",
+                error=str(e),
             ),
             500,
         )
@@ -1424,8 +1429,14 @@ def allocation_history_ui():
         status_filter = request.args.get("status", "")
         deal_filter = request.args.get("deal", "")
         adviser_filter = request.args.get("adviser", "")
-        days_filter = int(request.args.get("days", 30) or 30)
-        page = max(1, int(request.args.get("page", 1) or 1))
+        try:
+            days_filter = int(request.args.get("days", 30) or 30)
+        except (ValueError, TypeError):
+            days_filter = 30
+        try:
+            page = max(1, int(request.args.get("page", 1) or 1))
+        except (ValueError, TypeError):
+            page = 1
         try:
             page_size = int(request.args.get("page_size", 25) or 25)
         except ValueError:

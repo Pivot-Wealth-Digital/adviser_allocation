@@ -44,5 +44,5 @@ def get_secret(name: str) -> Optional[str]:
             return resp.payload.data.decode("utf-8")
         return hint
     except Exception as e:  # pragma: no cover
-        logging.warning(f"get_secret fallback for {name}: {e}")
-        return hint
+        logging.error("Secret Manager failed for %s: %s", name, e)
+        return None

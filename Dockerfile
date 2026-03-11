@@ -21,4 +21,4 @@ EXPOSE 8080
 
 USER appuser
 
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--threads", "4", "--timeout", "120", "adviser_allocation.main:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--worker-class", "gthread", "--threads", "4", "--timeout", "120", "adviser_allocation.main:app"]

@@ -39,16 +39,23 @@ class SecretsLoadingTests(unittest.TestCase):
             # Should detect resource path and fetch from GCP
             self.assertIsNotNone(secret or True, "Should attempt to load from Secret Manager")
 
+    @patch("adviser_allocation.utils.secrets._SM_CLIENT", None)
     @patch.dict(os.environ, {"MALFORMED_SECRET": "projects/invalid/path"})
-    def test_get_secret_malformed_resource_path_handled_gracefully(self):
-        """Test that malformed resource paths are handled gracefully.
-
-        When _SM_CLIENT is None (no Secret Manager available), the code
-        returns the env var value directly without attempting to fetch.
-        """
+    def test_get_secret_sm_unavailable_returns_hint(self):
+        """When _SM_CLIENT is None, return the env var value directly."""
         secret = get_secret("MALFORMED_SECRET")
-        # Should fall back to returning the env value
-        self.assertEqual(secret, "projects/invalid/path", "Should return env value as fallback")
+        self.assertEqual(
+            secret, "projects/invalid/path", "Should return env value when SM unavailable"
+        )
+
+    @patch.dict(os.environ, {"MALFORMED_SECRET": "projects/invalid/path"})
+    def test_get_secret_sm_failure_returns_none(self):
+        """When SM client exists but call fails, return None (don't leak path as credential)."""
+        mock_client = MagicMock()
+        mock_client.access_secret_version.side_effect = Exception("SM error")
+        with patch("adviser_allocation.utils.secrets._SM_CLIENT", mock_client):
+            secret = get_secret("MALFORMED_SECRET")
+            self.assertIsNone(secret, "Should return None on SM failure, not the path string")
 
 
 class SecretsErrorHandlingTests(unittest.TestCase):
@@ -65,27 +72,26 @@ class SecretsErrorHandlingTests(unittest.TestCase):
 
     @patch("adviser_allocation.utils.secrets._SM_CLIENT")
     @patch.dict(os.environ, {"GCP_SECRET": "projects/my-project/secrets/my-secret/versions/latest"})
-    def test_secret_manager_permission_denied_fallback(self, mock_sm_client):
-        """Test fallback when Secret Manager denies access."""
+    def test_secret_manager_permission_denied_returns_none(self, mock_sm_client):
+        """Test that SM permission denied returns None (don't leak path as credential)."""
         mock_sm_client.access_secret_version.side_effect = PermissionError("Permission denied")
 
         with patch("adviser_allocation.utils.secrets._SM_CLIENT", mock_sm_client):
-            # Should fall back to returning env value
             secret = get_secret("GCP_SECRET")
-            self.assertIsNotNone(secret or True, "Should fall back on permission error")
+            self.assertIsNone(secret, "Should return None on SM permission error")
 
     @patch("adviser_allocation.utils.secrets._SM_CLIENT")
     @patch.dict(os.environ, {"GCP_SECRET": "projects/my-project/secrets/my-secret/versions/latest"})
-    def test_secret_manager_not_found_fallback(self, mock_sm_client):
-        """Test fallback when secret doesn't exist in Secret Manager."""
+    def test_secret_manager_not_found_returns_none(self, mock_sm_client):
+        """Test that SM not-found returns None (don't leak path as credential)."""
         from google.api_core.exceptions import NotFound
 
         mock_sm_client.access_secret_version.side_effect = NotFound("Secret not found")
 
         with patch("adviser_allocation.utils.secrets._SM_CLIENT", mock_sm_client):
-            with self.assertLogs(level=logging.WARNING):
+            with self.assertLogs(level=logging.ERROR):
                 secret = get_secret("GCP_SECRET")
-                self.assertIsNotNone(secret or True, "Should fall back when secret not found")
+                self.assertIsNone(secret, "Should return None when secret not found")
 
 
 class SecretsSecurityTests(unittest.TestCase):
