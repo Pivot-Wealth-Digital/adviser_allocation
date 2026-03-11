@@ -4,7 +4,6 @@ import re
 import time
 from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional
-from zoneinfo import ZoneInfo
 
 import requests
 from cachetools import TTLCache
@@ -295,43 +294,6 @@ def _find_prev_non_full_ooo_week(data, sorted_weeks, start_week: int) -> int:
 
 def ceil_div(a, b):
     return -(-a // b)  # integer ceil without math.ceil
-
-
-def get_first_monday_current_month(input_date=None, tz_name=None) -> int:
-    """
-    Return the epoch timestamp (milliseconds) for local midnight on the first Monday
-    of the month containing `input_date`. If `input_date` is None, use 'now' in tz.
-    Accepts a datetime (aware or naive) or a date.
-    """
-    # Use Sydney timezone by default
-    if tz_name is None:
-        tz = SYDNEY_TZ
-    else:
-        tz = ZoneInfo(tz_name)
-
-    if input_date is None:
-        dt = datetime.now(tz)
-    elif isinstance(input_date, datetime):
-        dt = input_date.astimezone(tz) if input_date.tzinfo else input_date.replace(tzinfo=tz)
-    elif isinstance(input_date, date):
-        dt = datetime(input_date.year, input_date.month, input_date.day, tzinfo=tz)
-    else:
-        raise TypeError("input_date must be a datetime, date, or None")
-
-    month_start = datetime(dt.year, dt.month, 1, tzinfo=tz)
-
-    # Calculate days to the next Monday (Monday = 0 in Python's weekday())
-    days_to_monday = (7 - month_start.weekday()) % 7
-    first_monday = month_start + timedelta(days=days_to_monday)
-
-    # Get the week number and convert the date to epoch milliseconds
-    week_number = first_monday.isocalendar()[1]
-    epoch_ms = int(
-        datetime(first_monday.year, first_monday.month, first_monday.day, tzinfo=tz).timestamp()
-        * 1000
-    )
-
-    return epoch_ms, week_number
 
 
 def get_monday_from_weeks_ago(input_date=None, n=1):

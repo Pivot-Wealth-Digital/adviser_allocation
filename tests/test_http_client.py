@@ -7,7 +7,6 @@ import requests
 from adviser_allocation.utils.http_client import (
     DEFAULT_TIMEOUT,
     create_session_with_retries,
-    delete_with_retries,
     get_with_retries,
     patch_with_retries,
     post_with_retries,
@@ -68,19 +67,6 @@ class HTTPClientTests(unittest.TestCase):
 
             # Test data
             result = patch_with_retries("http://example.com", data='{"key": "value"}')
-            self.assertIsNotNone(result)
-        except Exception:
-            pass
-
-    @patch("adviser_allocation.utils.http_client.requests.Session.delete")
-    def test_delete_with_retries(self, mock_delete):
-        """Test DELETE requests."""
-        mock_response = MagicMock()
-        mock_response.status_code = 204
-        mock_delete.return_value = mock_response
-
-        try:
-            result = delete_with_retries("http://example.com")
             self.assertIsNotNone(result)
         except Exception:
             pass
