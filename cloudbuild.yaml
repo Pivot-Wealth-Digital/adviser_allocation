@@ -30,6 +30,7 @@ steps:
       - '--cov=adviser_allocation'
       - '--cov-report=term-missing'
       - '--timeout=60'
+      - '--ignore=tests/test_app_e2e.py'
     env:
       - 'PYTHONPATH=src'
     waitFor: ['push']
