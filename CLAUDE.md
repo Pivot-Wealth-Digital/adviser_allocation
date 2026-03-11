@@ -58,6 +58,7 @@ Google Calendar → aa_office_closures (CloudSQL)
 - `aa_capacity_overrides` — per-adviser capacity limits
 - `aa_allocation_requests` — allocation history log
 - `aa_oauth_tokens` — Employment Hero OAuth tokens
+- `aa_simulated_clarifies` — simulated clarify meeting placements per adviser/week
 
 ## Rules
 

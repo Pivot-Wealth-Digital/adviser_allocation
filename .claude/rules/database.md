@@ -12,6 +12,7 @@ All data access goes through `AdviserAllocationDB` in `db/repository.py`.
 - `aa_capacity_overrides` — adviser capacity overrides
 - `aa_allocation_requests` — allocation history
 - `aa_oauth_tokens` — Employment Hero OAuth tokens
+- `aa_simulated_clarifies` — simulated clarify meeting placements per adviser/week
 
 ### This repo can READ (read-only):
 - `hubspot_deals` — via HubSpot API, not direct DB access

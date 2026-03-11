@@ -3,6 +3,7 @@
 import hashlib
 import hmac
 import logging
+import os
 from functools import wraps
 
 from flask import jsonify, request
@@ -49,7 +50,14 @@ def require_oidc_token(func):
             return jsonify({"error": "Unauthorized"}), 401
 
         expected_sa = get_secret("SCHEDULER_SERVICE_ACCOUNT")
-        if expected_sa:
+        if not expected_sa:
+            if os.environ.get("K_SERVICE"):
+                logger.error(
+                    "SCHEDULER_SERVICE_ACCOUNT not configured — rejecting OIDC request on %s",
+                    request.path,
+                )
+                return jsonify({"error": "Internal server error"}), 500
+        else:
             token_email = claims.get("email", "")
             if token_email != expected_sa:
                 logger.warning(
