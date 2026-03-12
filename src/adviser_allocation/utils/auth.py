@@ -93,8 +93,13 @@ def require_hubspot_signature(func):
 
         signature = request.headers.get("X-HubSpot-Signature", "")
         if not signature:
+            # Fallback: accept API key auth (for HubSpot custom code actions)
+            api_key = get_secret("ADVISER_ALLOCATION_WEBHOOK_API_KEY")
+            provided_key = request.headers.get("X-API-Key", "") or request.args.get("api_key", "")
+            if api_key and provided_key and hmac.compare_digest(provided_key, api_key):
+                return func(*args, **kwargs)
             logger.warning(
-                "HubSpot signature missing on %s from %s",
+                "HubSpot auth failed on %s from %s (no signature, no valid API key)",
                 request.path,
                 request.remote_addr,
             )
