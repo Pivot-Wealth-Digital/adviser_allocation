@@ -11,23 +11,62 @@
 
 <body>
   {% if session.get('is_authenticated') %}
-  <div
-    style="position: fixed; top: 16px; right: 20px; z-index: 1000; display: flex; align-items: center; gap: 10px; background: var(--card); padding: 6px 14px; border-radius: var(--radius-md); border: 1px solid var(--border); font-size: 0.85rem;">
-    {% if session.get('user') %}
-    <img src="{{ session['user'].get('picture', '') }}" alt=""
-      style="width: 28px; height: 28px; border-radius: var(--radius-sm); object-fit: cover;">
-    <span style="font-weight: 500; color: var(--text);">{{ session['user'].get('name', 'User') }}</span>
-    <a href="/logout" style="color: var(--muted); text-decoration: none; margin-left: 4px; font-size: 0.8rem;">Sign
-      out</a>
-    {% else %}
-    <a href="/logout" style="color: var(--muted); text-decoration: none; font-size: 0.8rem;">Logout</a>
-    {% endif %}
-  </div>
+  <nav class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-logo">AA</div>
+      <span class="sidebar-title">Adviser Allocation</span>
+    </div>
+    <div class="sidebar-links">
+      <a href="/" class="sidebar-link {% if request.path == '/' %}active{% endif %}">Home</a>
+      <div class="sidebar-section">Availability</div>
+      <a href="/availability/earliest" class="sidebar-link {% if request.path == '/availability/earliest' %}active{% endif %}">Earliest Availability</a>
+      <a href="/availability/schedule" class="sidebar-link {% if request.path == '/availability/schedule' %}active{% endif %}">Adviser Schedule</a>
+      <a href="/availability/matrix" class="sidebar-link {% if request.path == '/availability/matrix' %}active{% endif %}">Availability Matrix</a>
+      <a href="/availability/clarify-chart" class="sidebar-link {% if request.path == '/availability/clarify-chart' %}active{% endif %}">Clarify Dates Chart</a>
+      <div class="sidebar-section">Allocation</div>
+      <a href="/post/allocate" class="sidebar-link {% if request.path == '/post/allocate' %}active{% endif %}">Client Allocation</a>
+      <a href="/allocations/history" class="sidebar-link {% if request.path == '/allocations/history' %}active{% endif %}">Allocation History</a>
+      <a href="/workflows" class="sidebar-link {% if request.path.startswith('/workflows') %}active{% endif %}">Workflows</a>
+      <div class="sidebar-section">Configuration</div>
+      <a href="/closures/ui" class="sidebar-link {% if request.path == '/closures/ui' %}active{% endif %}">Closures</a>
+      <a href="/capacity_overrides/ui" class="sidebar-link {% if request.path == '/capacity_overrides/ui' %}active{% endif %}">Capacity Overrides</a>
+      <a href="/employees/ui" class="sidebar-link {% if request.path == '/employees/ui' %}active{% endif %}">Employees</a>
+      <a href="/leave_requests/ui" class="sidebar-link {% if request.path == '/leave_requests/ui' %}active{% endif %}">Leave Requests</a>
+    </div>
+    <div class="sidebar-user">
+      {% if session.get('user') %}
+      <img src="{{ session['user'].get('picture', '') }}" alt="" class="sidebar-avatar">
+      <span class="sidebar-username">{{ session['user'].get('name', 'User') }}</span>
+      <a href="/logout" class="sidebar-signout">Sign out</a>
+      {% else %}
+      <a href="/logout" class="sidebar-signout">Logout</a>
+      {% endif %}
+    </div>
+  </nav>
+  <button class="sidebar-toggle" id="sidebarToggle" aria-label="Toggle navigation">&#9776;</button>
   {% endif %}
-  <div class="container">
+  <div class="container {% if session.get('is_authenticated') %}has-sidebar{% endif %}">
     {% block content %}{% endblock %}
   </div>
   {% block scripts %}{% endblock %}
+  {% if session.get('is_authenticated') %}
+  <script>
+    (function() {
+      var toggle = document.getElementById('sidebarToggle');
+      var sidebar = document.getElementById('sidebar');
+      if (toggle && sidebar) {
+        toggle.addEventListener('click', function() {
+          sidebar.classList.toggle('open');
+        });
+        document.addEventListener('click', function(e) {
+          if (sidebar.classList.contains('open') && !sidebar.contains(e.target) && e.target !== toggle) {
+            sidebar.classList.remove('open');
+          }
+        });
+      }
+    })();
+  </script>
+  {% endif %}
 </body>
 
 </html>

@@ -4,7 +4,7 @@
 {% block content %}
 <div class="topbar">
   <div style="display:flex;align-items:center;gap:16px;">
-    <a href="{{ url_for('workflows') }}" style="color:#d0d7e2;text-decoration:none;font-size:0.9em;">← Workflows</a>
+    <a href="{{ url_for('main.workflows') }}" style="color:var(--muted);text-decoration:none;font-size:0.9em;">← Workflows</a>
     <h2>Adviser Allocation Automation Guide</h2>
   </div>
   <div class="datebox">
@@ -106,10 +106,10 @@
     <a class="secondary" href="{{ url_for('main.serve_docs', filename='adviser_allocation_explanation.md') }}" target="_blank">
       Full Algorithm Documentation →
     </a>
-    <a class="secondary" href="{{ url_for('availability_earliest') }}" target="_blank">
+    <a class="secondary" href="{{ url_for('main.availability_earliest') }}" target="_blank">
       Earliest Availability →
     </a>
-    <a class="secondary" href="{{ url_for('availability_schedule') }}" target="_blank">
+    <a class="secondary" href="{{ url_for('main.availability_schedule') }}" target="_blank">
       Adviser Schedule →
     </a>
   </div>

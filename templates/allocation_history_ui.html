@@ -210,6 +210,7 @@
 </div>
 
 {% if allocations %}
+<div class="table-wrapper">
 <table>
   <thead>
     <tr>
@@ -336,6 +337,7 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 {% endif %}
 
 {% if total_pages > 1 %}
@@ -380,11 +382,6 @@
   <p style="font-size: 0.9em; color: var(--muted);">
     POST requests with JSON data will be automatically stored and displayed here.
   </p>
-</div>
-
-<div class="floating-note">
-  <strong>Under construction</strong>
-  <span>The allocation history dashboard is still being assembled. Some metrics may be incomplete.</span>
 </div>
 
 <!-- Details Modal -->
@@ -519,27 +516,6 @@
     border-radius: 4px;
     font-family: monospace;
     color: var(--text);
-  }
-
-  .floating-note {
-    position: fixed;
-    bottom: 24px;
-    right: 24px;
-    background: rgba(15, 23, 42, 0.92);
-    color: #e2e8f0;
-    padding: 12px 18px;
-    border-radius: 12px;
-    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.35);
-    max-width: 280px;
-    font-size: 0.88em;
-    line-height: 1.45;
-    z-index: 45;
-  }
-
-  .floating-note strong {
-    display: block;
-    font-size: 0.95em;
-    margin-bottom: 4px;
   }
 
   /* Loading state */

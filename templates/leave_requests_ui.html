@@ -4,7 +4,7 @@
 {% block content %}
 <div class="topbar">
   <div style="display: flex; align-items: center; gap: 16px;">
-    <a href="/" style="color: #d0d7e2; text-decoration: none; font-size: 0.9em;">← Home</a>
+    <a href="/" style="color: var(--muted); text-decoration: none; font-size: 0.9em;">← Home</a>
     <h2>Leave Requests</h2>
   </div>
   <div class="datebox"><span>Today: {{ today }}</span><span>Week: {{ week_num }}</span></div>
@@ -167,7 +167,7 @@
     <a href="/sync/leave_requests" style="text-decoration: none;">
       <button class="secondary">🔄 Sync Leave Requests</button>
     </a>
-    <a href="/get/leave_requests_list" style="text-decoration: none;">
+    <a href="/get/leave_requests" style="text-decoration: none;">
       <button class="secondary">📊 Raw API Data</button>
     </a>
     <a href="/employees/ui" style="text-decoration: none;">

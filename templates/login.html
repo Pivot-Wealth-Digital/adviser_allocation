@@ -60,7 +60,8 @@
             Sign in with your @pivotwealth.com.au Google account.
         </p>
 
-        <!-- Developer Bypass -->
+        {% if config.get('DEV_LOGIN_ENABLED') %}
+        <!-- Developer Bypass — only shown when DEV_LOGIN_ENABLED is set -->
         <form method="POST"
             action="/login_bypass{% if request.args.get('next') %}?next={{ request.args.get('next') }}{% endif %}"
             style="margin-top: 24px; border-top: 1px dashed #E5E7EB; padding-top: 16px;">
@@ -70,6 +71,7 @@
                 Developer Bypass Login
             </button>
         </form>
+        {% endif %}
 
     </div>
 </div>
