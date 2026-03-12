@@ -2241,6 +2241,12 @@ def create_app(config_overrides=None):
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         return response
 
+    # Trust Cloud Run's reverse proxy headers so url_for() generates https:// URIs
+    if is_production:
+        from werkzeug.middleware.proxy_fix import ProxyFix
+
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+
     app.register_blueprint(main_bp)
     app.register_blueprint(init_webhooks())
     app.register_blueprint(skills_bp)
