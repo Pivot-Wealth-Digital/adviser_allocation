@@ -4,7 +4,7 @@
 {% block content %}
 <div class="topbar">
   <div style="display: flex; align-items: center; gap: 16px;">
-    <a href="/" style="color: #d0d7e2; text-decoration: none; font-size: 0.9em;">&larr; Home</a>
+    <a href="/" style="color: var(--muted); text-decoration: none; font-size: 0.9em;">&larr; Home</a>
     <h2>Adviser Earliest Availability</h2>
   </div>
   <div class="datebox"><span>Today: {{ today }}</span><span>Week: {{ week_num }}</span></div>
@@ -50,6 +50,7 @@
   </div>
 </div>
 
+<div class="table-wrapper">
 <table>
   <thead>
     <tr>
@@ -120,6 +121,7 @@
     {% endif %}
   </tbody>
 </table>
+</div>
 
 <div class="card faq-card">
   <h3 style="margin: 0 0 6px 0;">Adviser Allocation FAQ</h3>

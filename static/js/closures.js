@@ -44,7 +44,7 @@
       try{
         const res = await fetch('/closures',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({start_date:start,end_date:end,description:description,tags:tags})});
         const data = await res.json();
-        if(res.status===401){ location.href='/admin/login?next=/closures/ui'; return; }
+        if(res.status===401){ location.href='/login?next=/closures/ui'; return; }
         if(!res.ok){ show('err', data.error||'Failed to create'); return; }
         show('ok','Created');
         location.reload();
@@ -83,7 +83,7 @@
         try{
           const res = await fetch('/closures/'+id,{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({start_date:sVal,end_date:eVal,description:dVal,tags:tags})});
           const data = await res.json();
-          if(res.status===401){ location.href='/admin/login?next=/closures/ui'; return; }
+          if(res.status===401){ location.href='/login?next=/closures/ui'; return; }
           if(!res.ok){ show('err', data.error||'Failed to update'); return; }
           show('ok','Updated');
           location.reload();
@@ -94,7 +94,7 @@
         if(!confirm('Delete this closure?')) return;
         try{
           const res = await fetch('/closures/'+id,{method:'DELETE',credentials:'same-origin',headers:{'Accept':'application/json'}});
-          if(res.status===401){ location.href='/admin/login?next=/closures/ui'; return; }
+          if(res.status===401){ location.href='/login?next=/closures/ui'; return; }
           if(!res.ok){ show('err','Failed to delete'); return; }
           show('ok','Deleted');
           location.reload();

@@ -2211,6 +2211,7 @@ def create_app(config_overrides=None):
             "SESSION_COOKIE_SAMESITE": "Lax",
             "PERMANENT_SESSION_LIFETIME": 3600,
             "PREFERRED_URL_SCHEME": "https" if is_production else "http",
+            "DEV_LOGIN_ENABLED": not is_production,
         }
     )
 
