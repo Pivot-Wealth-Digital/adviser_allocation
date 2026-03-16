@@ -1,0 +1,14 @@
+{% extends 'layout.html' %}
+{% set title = 'Error ' ~ code %}
+
+{% block content %}
+<div style="display: flex; justify-content: center; align-items: center; min-height: 60vh;">
+  <div class="card" style="max-width: 480px; text-align: center;">
+    <h2 style="font-size: 3em; margin: 0 0 8px 0; color: var(--muted);">{{ code }}</h2>
+    <p style="font-size: 1.1em; margin: 0 0 24px 0;">{{ message }}</p>
+    <a href="/" style="text-decoration: none;">
+      <button>Return to Home</button>
+    </a>
+  </div>
+</div>
+{% endblock %}

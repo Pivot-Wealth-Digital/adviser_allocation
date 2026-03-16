@@ -29,13 +29,10 @@
 
   <div class="card">
     <h4>Allocation Management</h4>
-    <p class="muted">Allocate clients and view history</p>
+    <p class="muted">View allocation history and workflows</p>
     <div class="button-stack">
-      <a href="/post/allocate" style="text-decoration: none;">
-        <button class="full-width">Client Allocation</button>
-      </a>
       <a href="/allocations/history" style="text-decoration: none;">
-        <button class="secondary full-width">Allocation History</button>
+        <button class="full-width">Allocation History</button>
       </a>
       <a href="/workflows" style="text-decoration: none;">
         <button class="secondary full-width">Automation Workflows</button>
@@ -43,6 +40,7 @@
     </div>
   </div>
 
+  {% if is_admin %}
   <div class="card">
     <h4>System Configuration</h4>
     <p class="muted">Manage settings and overrides</p>
@@ -68,6 +66,7 @@
       </a>
     </div>
   </div>
+  {% endif %}
 </div>
 
 <div class="card info-card">

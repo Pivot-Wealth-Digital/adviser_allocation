@@ -35,8 +35,8 @@ class CloudSQLConnector:
         user: str,
         password: str,
         db: str,
-        pool_size: int = 5,
-        max_overflow: int = 2,
+        pool_size: int = 8,
+        max_overflow: int = 4,
         enable_iam_auth: bool = False,
     ):
         self.instance_connection_string = instance_connection_string
@@ -137,8 +137,8 @@ def get_db_engine(force_new: bool = False) -> Engine:
         )
         _engine = create_engine(
             connection_url,
-            pool_size=5,
-            max_overflow=2,
+            pool_size=8,
+            max_overflow=4,
             pool_timeout=30,
             pool_recycle=1800,
             pool_pre_ping=True,

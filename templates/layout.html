@@ -5,6 +5,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{{ title or 'Adviser App' }}</title>
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='images/favicon.svg') }}" />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}" />
   {% block head %}{% endblock %}
 </head>
@@ -16,22 +17,37 @@
       <div class="sidebar-logo">AA</div>
       <span class="sidebar-title">Adviser Allocation</span>
     </div>
+    {% if is_admin %}
+      {% set settings_paths = ['/availability/matrix', '/availability/clarify-chart', '/closures/ui', '/capacity_overrides/ui', '/employees/ui', '/leave_requests/ui'] %}
+    {% else %}
+      {% set settings_paths = ['/availability/matrix', '/availability/clarify-chart'] %}
+    {% endif %}
+    {% set settings_active = request.path in settings_paths %}
     <div class="sidebar-links">
       <a href="/" class="sidebar-link {% if request.path == '/' %}active{% endif %}">Home</a>
-      <div class="sidebar-section">Availability</div>
       <a href="/availability/earliest" class="sidebar-link {% if request.path == '/availability/earliest' %}active{% endif %}">Earliest Availability</a>
       <a href="/availability/schedule" class="sidebar-link {% if request.path == '/availability/schedule' %}active{% endif %}">Adviser Schedule</a>
-      <a href="/availability/matrix" class="sidebar-link {% if request.path == '/availability/matrix' %}active{% endif %}">Availability Matrix</a>
-      <a href="/availability/clarify-chart" class="sidebar-link {% if request.path == '/availability/clarify-chart' %}active{% endif %}">Clarify Dates Chart</a>
-      <div class="sidebar-section">Allocation</div>
-      <a href="/post/allocate" class="sidebar-link {% if request.path == '/post/allocate' %}active{% endif %}">Client Allocation</a>
       <a href="/allocations/history" class="sidebar-link {% if request.path == '/allocations/history' %}active{% endif %}">Allocation History</a>
       <a href="/workflows" class="sidebar-link {% if request.path.startswith('/workflows') %}active{% endif %}">Workflows</a>
-      <div class="sidebar-section">Configuration</div>
-      <a href="/closures/ui" class="sidebar-link {% if request.path == '/closures/ui' %}active{% endif %}">Closures</a>
-      <a href="/capacity_overrides/ui" class="sidebar-link {% if request.path == '/capacity_overrides/ui' %}active{% endif %}">Capacity Overrides</a>
-      <a href="/employees/ui" class="sidebar-link {% if request.path == '/employees/ui' %}active{% endif %}">Employees</a>
-      <a href="/leave_requests/ui" class="sidebar-link {% if request.path == '/leave_requests/ui' %}active{% endif %}">Leave Requests</a>
+      <div class="sidebar-collapsible {% if settings_active %}open{% endif %}" id="settingsSection">
+        <button class="sidebar-collapsible-toggle" type="button" aria-expanded="{{ 'true' if settings_active else 'false' }}">
+          <span>Settings & Tools</span>
+          <span class="sidebar-chevron">&#9662;</span>
+        </button>
+        <div class="sidebar-collapsible-content">
+          <div class="sidebar-sub-section">Visualizations</div>
+          <a href="/availability/matrix" class="sidebar-link {% if request.path == '/availability/matrix' %}active{% endif %}">Availability Matrix</a>
+          <a href="/availability/clarify-chart" class="sidebar-link {% if request.path == '/availability/clarify-chart' %}active{% endif %}">Clarify Dates Chart</a>
+          {% if is_admin %}
+          <div class="sidebar-sub-section">Admin</div>
+          <a href="/closures/ui" class="sidebar-link {% if request.path == '/closures/ui' %}active{% endif %}">Closures</a>
+          <a href="/capacity_overrides/ui" class="sidebar-link {% if request.path == '/capacity_overrides/ui' %}active{% endif %}">Capacity Overrides</a>
+          <div class="sidebar-sub-section">Data</div>
+          <a href="/employees/ui" class="sidebar-link {% if request.path == '/employees/ui' %}active{% endif %}">Employees</a>
+          <a href="/leave_requests/ui" class="sidebar-link {% if request.path == '/leave_requests/ui' %}active{% endif %}">Leave Requests</a>
+          {% endif %}
+        </div>
+      </div>
     </div>
     <div class="sidebar-user">
       {% if session.get('user') %}
@@ -55,18 +71,39 @@
       var toggle = document.getElementById('sidebarToggle');
       var sidebar = document.getElementById('sidebar');
       if (toggle && sidebar) {
+        if (localStorage.getItem('sidebar_open') === 'true') {
+          sidebar.classList.add('open');
+        }
         toggle.addEventListener('click', function() {
-          sidebar.classList.toggle('open');
+          var isOpen = sidebar.classList.toggle('open');
+          localStorage.setItem('sidebar_open', isOpen ? 'true' : 'false');
         });
         document.addEventListener('click', function(e) {
           if (sidebar.classList.contains('open') && !sidebar.contains(e.target) && e.target !== toggle) {
             sidebar.classList.remove('open');
+            localStorage.setItem('sidebar_open', 'false');
           }
+        });
+      }
+      var section = document.getElementById('settingsSection');
+      if (section) {
+        var btn = section.querySelector('.sidebar-collapsible-toggle');
+        var hasActive = section.classList.contains('open');
+        if (!hasActive) {
+          var saved = localStorage.getItem('sidebar_settings_open');
+          if (saved === 'true') section.classList.add('open');
+        }
+        btn.setAttribute('aria-expanded', section.classList.contains('open') ? 'true' : 'false');
+        btn.addEventListener('click', function() {
+          var isOpen = section.classList.toggle('open');
+          btn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+          if (!hasActive) localStorage.setItem('sidebar_settings_open', isOpen ? 'true' : 'false');
         });
       }
     })();
   </script>
   {% endif %}
+  <script src="{{ url_for('static', filename='js/toast.js') }}"></script>
 </body>
 
 </html>

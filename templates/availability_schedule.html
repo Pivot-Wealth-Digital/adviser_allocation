@@ -8,9 +8,6 @@
     <h2>Adviser Schedule</h2>
   </div>
   <div class="datebox"><span>Today: {{ today }}</span><span>Week: {{ week_num }}</span></div>
-  <div id="msg" class="msg" style="display:none"></div>
-  <div id="toast-ok" class="msg ok" style="display:none"></div>
-  <div id="toast-err" class="msg err" style="display:none"></div>
 </div>
 
 <div class="card guide-card">
@@ -213,12 +210,12 @@
         const agreementDate = agreementDateInput.value;
 
         if (!selectedAdviser) {
-          alert('Please select an adviser');
+          Toast.warn('Please select an adviser');
           return;
         }
 
         if (!agreementDate) {
-          alert('Please select an agreement start date');
+          Toast.warn('Please select an agreement start date');
           return;
         }
 

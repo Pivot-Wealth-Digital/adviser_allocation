@@ -328,7 +328,7 @@
         {% endif %}
       </td>
       <td>
-        <button onclick="viewDetails('{{ allocation.doc_id }}')" class="secondary"
+        <button onclick="_modalTrigger=this; viewDetails('{{ allocation.doc_id }}')" class="secondary"
           style="font-size: 0.8em; padding: 4px 8px;">
           👁️ Details
         </button>
@@ -385,9 +385,9 @@
 </div>
 
 <!-- Details Modal -->
-<div id="detailsModal" class="modal" style="display: none;">
-  <div class="modal-content">
-    <span class="close" onclick="closeDetails()">&times;</span>
+<div id="detailsModal" class="modal" role="dialog" aria-modal="true" aria-label="Allocation request details" style="display: none;">
+  <div class="modal-content" tabindex="-1">
+    <span class="close" onclick="closeDetails()" aria-label="Close">&times;</span>
     <h3>Allocation Request Details</h3>
     <div id="detailsContent">
       <!-- Details will be populated by JavaScript -->
@@ -695,26 +695,37 @@
     </div>
   `;
 
-    document.getElementById('detailsModal').style.display = 'block';
+    const modal = document.getElementById('detailsModal');
+    modal.style.display = 'block';
+    modal.querySelector('.modal-content').focus();
   }
+
+  var _modalTrigger = null;
 
   function closeDetails() {
     document.getElementById('detailsModal').style.display = 'none';
+    if (_modalTrigger) { _modalTrigger.focus(); _modalTrigger = null; }
   }
 
   // Close modal when clicking outside
   window.onclick = function (event) {
     const modal = document.getElementById('detailsModal');
-    if (event.target === modal) {
-      modal.style.display = 'none';
-    }
+    if (event.target === modal) { closeDetails(); }
   }
+
+  // Close modal on Escape key
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+      const modal = document.getElementById('detailsModal');
+      if (modal.style.display === 'block') { closeDetails(); }
+    }
+  });
 
   // Copy webhook URL
   function copyWebhookUrl() {
     const webhookUrl = document.getElementById('webhookUrl').textContent;
     navigator.clipboard.writeText(webhookUrl).then(() => {
-      alert('Webhook URL copied to clipboard!');
+      Toast.ok('Webhook URL copied to clipboard!');
     }).catch(() => {
       // Fallback for older browsers
       const textArea = document.createElement('textarea');
@@ -723,7 +734,7 @@
       textArea.select();
       document.execCommand('copy');
       document.body.removeChild(textArea);
-      alert('Webhook URL copied to clipboard!');
+      Toast.ok('Webhook URL copied to clipboard!');
     });
   }
 

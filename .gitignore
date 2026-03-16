@@ -55,4 +55,7 @@ target/
 # Generated test data
 test_data_output.json
 
+# Screenshots (Playwright QA)
+screenshots/
+
 # # client secrets and tokens
