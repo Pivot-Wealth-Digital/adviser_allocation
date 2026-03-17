@@ -53,13 +53,15 @@ def get_all_deals_without_clarify() -> Dict[str, List[Dict[str, Any]]]:
             deals = get_deals_no_clarify(email)
             for deal in deals:
                 deal_props = deal.get("properties") or {}
-                deals_by_adviser[email].append({
-                    "deal_id": deal.get("id"),
-                    "deal_name": deal_props.get("dealname"),
-                    "adviser_email": email,
-                    "agreement_start_date": deal_props.get("agreement_start_date"),
-                    "client_email": None,  # Could extract from associations if needed
-                })
+                deals_by_adviser[email].append(
+                    {
+                        "deal_id": deal.get("id"),
+                        "deal_name": deal_props.get("dealname"),
+                        "adviser_email": email,
+                        "agreement_start_date": deal_props.get("agreement_start_date"),
+                        "client_email": None,  # Could extract from associations if needed
+                    }
+                )
         except Exception as e:
             logger.warning("Failed to fetch deals for %s: %s", email, e)
 
@@ -136,8 +138,7 @@ def compute_simulated_placements_for_adviser(
 
     # Sort deals by agreement_start_date (FIFO queue)
     sorted_deals = sorted(
-        deals,
-        key=lambda d: parse_agreement_date(d.get("agreement_start_date")) or date.max
+        deals, key=lambda d: parse_agreement_date(d.get("agreement_start_date")) or date.max
     )
 
     # Walk weeks and assign deals respecting capacity
@@ -171,14 +172,16 @@ def compute_simulated_placements_for_adviser(
         while available > 0 and deal_queue:
             deal = deal_queue.pop(0)
             monday = date.fromordinal(week_ordinal)
-            assignments.append({
-                "deal_id": deal["deal_id"],
-                "adviser_email": email,
-                "projected_week": monday,
-                "agreement_start_date": parse_agreement_date(deal.get("agreement_start_date")),
-                "deal_name": deal.get("deal_name"),
-                "client_email": deal.get("client_email"),
-            })
+            assignments.append(
+                {
+                    "deal_id": deal["deal_id"],
+                    "adviser_email": email,
+                    "projected_week": monday,
+                    "agreement_start_date": parse_agreement_date(deal.get("agreement_start_date")),
+                    "deal_name": deal.get("deal_name"),
+                    "client_email": deal.get("client_email"),
+                }
+            )
             assigned_per_week[week_ordinal] += 1
             available -= 1
 
@@ -195,14 +198,18 @@ def compute_simulated_placements_for_adviser(
                 if not deal_queue:
                     break
                 deal = deal_queue.pop(0)
-                assignments.append({
-                    "deal_id": deal["deal_id"],
-                    "adviser_email": email,
-                    "projected_week": monday,
-                    "agreement_start_date": parse_agreement_date(deal.get("agreement_start_date")),
-                    "deal_name": deal.get("deal_name"),
-                    "client_email": deal.get("client_email"),
-                })
+                assignments.append(
+                    {
+                        "deal_id": deal["deal_id"],
+                        "adviser_email": email,
+                        "projected_week": monday,
+                        "agreement_start_date": parse_agreement_date(
+                            deal.get("agreement_start_date")
+                        ),
+                        "deal_name": deal.get("deal_name"),
+                        "client_email": deal.get("client_email"),
+                    }
+                )
 
     return assignments
 
@@ -220,14 +227,16 @@ def _naive_placements(deals: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         else:
             monday = sydney_today()
 
-        assignments.append({
-            "deal_id": deal["deal_id"],
-            "adviser_email": deal.get("adviser_email"),
-            "projected_week": monday,
-            "agreement_start_date": agreement_date,
-            "deal_name": deal.get("deal_name"),
-            "client_email": deal.get("client_email"),
-        })
+        assignments.append(
+            {
+                "deal_id": deal["deal_id"],
+                "adviser_email": deal.get("adviser_email"),
+                "projected_week": monday,
+                "agreement_start_date": agreement_date,
+                "deal_name": deal.get("deal_name"),
+                "client_email": deal.get("client_email"),
+            }
+        )
     return assignments
 
 

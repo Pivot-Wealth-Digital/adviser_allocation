@@ -111,7 +111,9 @@ def main():
             skipped += 1
             continue
 
-        logger.info("  %s: %s %s — %s", "WOULD ADD" if args.dry_run else "ADDING", description, start, end)
+        logger.info(
+            "  %s: %s %s — %s", "WOULD ADD" if args.dry_run else "ADDING", description, start, end
+        )
 
         if args.execute:
             try:

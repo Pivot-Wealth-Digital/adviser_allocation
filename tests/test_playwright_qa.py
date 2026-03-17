@@ -28,9 +28,11 @@ def record(page_name: str, url: str, status: str, issues: list[str]):
 
 def setup_console_listener(page: Page, page_name: str):
     """Capture JS console errors."""
+
     def on_console(msg):
         if msg.type == "error":
             console_errors.append({"page": page_name, "text": msg.text})
+
     page.on("console", on_console)
 
 
@@ -61,7 +63,9 @@ def take_screenshot(page: Page, name: str):
     except Exception:
         # Fallback: viewport-only screenshot
         try:
-            page.screenshot(path=str(SCREENSHOTS_DIR / f"{name}.png"), full_page=False, timeout=10000)
+            page.screenshot(
+                path=str(SCREENSHOTS_DIR / f"{name}.png"), full_page=False, timeout=10000
+            )
         except Exception:
             print(f"    [warn] Could not capture screenshot for {name}")
 
@@ -87,6 +91,7 @@ def visit_page(page: Page, name: str, path: str, expected_status: int = 200) -> 
 # Page-specific test functions
 # ---------------------------------------------------------------------------
 
+
 def test_login(page: Page):
     """Test login page (unauthenticated)."""
     name = "01_login"
@@ -102,7 +107,9 @@ def test_login(page: Page):
         issues.append("Missing Google sign-in button")
 
     # Check for dev bypass button
-    bypass_btn = page.locator("form[action='/login_bypass'], button:has-text('Bypass'), button:has-text('Dev')")
+    bypass_btn = page.locator(
+        "form[action='/login_bypass'], button:has-text('Bypass'), button:has-text('Dev')"
+    )
     if bypass_btn.count() == 0:
         issues.append("Missing dev bypass login button")
 
@@ -428,6 +435,7 @@ def test_leave_requests_ui(page: Page):
 # Sidebar & navigation tests
 # ---------------------------------------------------------------------------
 
+
 def test_sidebar(page: Page):
     """Test sidebar toggle, collapsible section, and admin links."""
     name = "15_sidebar"
@@ -464,7 +472,13 @@ def test_sidebar(page: Page):
     take_screenshot(page, f"{name}_open")
 
     # Check sidebar links
-    expected_links = ["Home", "Earliest Availability", "Adviser Schedule", "Allocation History", "Workflows"]
+    expected_links = [
+        "Home",
+        "Earliest Availability",
+        "Adviser Schedule",
+        "Allocation History",
+        "Workflows",
+    ]
     for link_text in expected_links:
         link = sidebar.locator(f"a:has-text('{link_text}')")
         if link.count() == 0:
@@ -509,6 +523,7 @@ def test_sidebar(page: Page):
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
 
 def print_report():
     print("\n" + "=" * 72)

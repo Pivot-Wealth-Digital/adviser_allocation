@@ -35,6 +35,9 @@ addopts = [
     "-v",
     "--tb=short",
     "--strict-markers",
+    "--ignore=tests/test_playwright_qa.py",
+    "--ignore=tests/test_prod_smoke.py",
+    "--ignore=tests/test_app_e2e.py",
 ]
 markers = [
     "unit: Unit tests for utilities and core functions",

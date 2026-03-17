@@ -30,6 +30,7 @@ def setup_console_listener(page: Page, page_name: str):
     def on_console(msg):
         if msg.type == "error":
             console_errors.append({"page": page_name, "text": msg.text})
+
     page.on("console", on_console)
 
 
@@ -58,7 +59,9 @@ def take_screenshot(page: Page, name: str):
         page.screenshot(path=str(SCREENSHOTS_DIR / f"{name}.png"), full_page=True, timeout=15000)
     except Exception:
         try:
-            page.screenshot(path=str(SCREENSHOTS_DIR / f"{name}.png"), full_page=False, timeout=10000)
+            page.screenshot(
+                path=str(SCREENSHOTS_DIR / f"{name}.png"), full_page=False, timeout=10000
+            )
         except Exception:
             print(f"    [warn] Could not capture screenshot for {name}")
 
@@ -82,6 +85,7 @@ def visit_page(page: Page, name: str, path: str) -> int:
 # Tests
 # ---------------------------------------------------------------------------
 
+
 def test_health(page: Page):
     """Check /health returns 200."""
     name = "00_health"
@@ -103,7 +107,9 @@ def test_login(page: Page):
     if google_btn.count() == 0:
         issues.append("Missing Google sign-in button")
 
-    bypass_btn = page.locator("form[action*='login_bypass'], button:has-text('Bypass'), button:has-text('Dev')")
+    bypass_btn = page.locator(
+        "form[action*='login_bypass'], button:has-text('Bypass'), button:has-text('Dev')"
+    )
     if bypass_btn.count() == 0:
         issues.append("Missing dev bypass login button")
 
@@ -341,6 +347,7 @@ def test_sidebar(page: Page):
 # ---------------------------------------------------------------------------
 # Report & Main
 # ---------------------------------------------------------------------------
+
 
 def print_report():
     print("\n" + "=" * 72)
