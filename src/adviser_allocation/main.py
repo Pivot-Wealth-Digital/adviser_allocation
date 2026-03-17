@@ -1191,7 +1191,7 @@ def google_auth_callback():
 @main_bp.route("/login_bypass", methods=["POST"])
 def login_bypass():
     """Bypass route to simulate a logged-in Pivot Wealth user (local dev only)."""
-    if not current_app.debug:
+    if not current_app.debug and not os.environ.get("DEV_LOGIN_ENABLED"):
         logger.warning("login_bypass attempted in non-debug mode from %s", request.remote_addr)
         return jsonify({"error": "Not found"}), 404
 
