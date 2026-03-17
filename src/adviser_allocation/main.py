@@ -2255,6 +2255,7 @@ def create_app(config_overrides=None):
             "PERMANENT_SESSION_LIFETIME": 3600,
             "PREFERRED_URL_SCHEME": "https" if is_production else "http",
             "DEV_LOGIN_ENABLED": not is_production,
+            "SHOW_MIGRATION_BANNER": os.environ.get("GAE_ENV") == "standard",
         }
     )
 

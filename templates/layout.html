@@ -62,6 +62,13 @@
   <button class="sidebar-toggle" id="sidebarToggle" aria-label="Toggle navigation">&#9776;</button>
   {% endif %}
   <div class="container {% if session.get('is_authenticated') %}has-sidebar{% endif %}">
+    {% if config.get('SHOW_MIGRATION_BANNER') %}
+    <div style="background:#fff3cd; border:1px solid #ffc107; border-radius:6px; padding:12px 16px; margin-bottom:16px; text-align:center;">
+      <strong>This site has moved.</strong>
+      Please update your bookmark to
+      <a href="https://adviser-allocation-307314618542.australia-southeast1.run.app{{ request.path }}{% if request.query_string %}?{{ request.query_string.decode() }}{% endif %}">the new URL</a>.
+    </div>
+    {% endif %}
     {% block content %}{% endblock %}
   </div>
   {% block scripts %}{% endblock %}
