@@ -23,8 +23,8 @@ from googleapiclient.errors import HttpError
 # Scopes needed to create calendars and manage sharing
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
-# App Engine default service account
-APP_ENGINE_SA = "pivot-digital-466902@appspot.gserviceaccount.com"
+# Cloud Run service account (also the App Engine default SA)
+CLOUD_RUN_SA = "pivot-digital-466902@appspot.gserviceaccount.com"
 
 # Australian public holidays calendar (public, read-only by default)
 AU_HOLIDAYS_CALENDAR_ID = "en.australian#holiday@group.v.calendar.google.com"
@@ -127,12 +127,12 @@ def main():
 
     # Step 2: Share with App Engine SA (reader)
     print("\n--- Step 2: Share calendars with App Engine SA ---")
-    share_calendar_with_sa(service, calendar_id, APP_ENGINE_SA, role="reader")
+    share_calendar_with_sa(service, calendar_id, CLOUD_RUN_SA, role="reader")
 
     # Step 3: Share AU holidays calendar with App Engine SA
     # Public calendars are readable by default, but explicit ACL ensures access
     try:
-        share_calendar_with_sa(service, AU_HOLIDAYS_CALENDAR_ID, APP_ENGINE_SA, role="reader")
+        share_calendar_with_sa(service, AU_HOLIDAYS_CALENDAR_ID, CLOUD_RUN_SA, role="reader")
     except HttpError as exc:
         print(f"Note: Could not add ACL to public holidays calendar ({exc.resp.status})")
         print("  This is expected — public calendars are readable without explicit ACL.")

@@ -104,3 +104,17 @@ class AllocationRequest:
     candidates_summary: Optional[Dict[str, Any]] = None
     request_id: Optional[str] = None
     created_at: Optional[datetime] = None
+
+
+@dataclass
+class CalendarWatchChannel:
+    """Google Calendar push notification watch channel."""
+
+    doc_id: str
+    calendar_id: str
+    channel_id: str
+    resource_id: str
+    expiration_ms: int
+    webhook_url: str
+    created_at_utc: Optional[datetime] = None
+    updated_at_utc: Optional[datetime] = None

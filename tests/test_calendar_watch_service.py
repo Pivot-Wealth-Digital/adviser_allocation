@@ -1,13 +1,12 @@
 """Tests for Google Calendar watch (push notification) service."""
 
-import os
 import unittest
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
+from adviser_allocation.db.models import CalendarWatchChannel
 from adviser_allocation.services.calendar_watch_service import (
     RENEWAL_BUFFER_HOURS,
-    WATCH_COLLECTION,
     _sanitize_doc_id,
     register_calendar_watch,
     renew_expiring_watches,
@@ -37,9 +36,9 @@ class TestSanitizeDocId(unittest.TestCase):
 class TestRegisterCalendarWatch(unittest.TestCase):
     """Tests for register_calendar_watch()."""
 
-    @patch("adviser_allocation.services.calendar_watch_service._get_firestore_client")
+    @patch("adviser_allocation.services.calendar_watch_service._get_db")
     @patch("adviser_allocation.services.calendar_watch_service._get_calendar_service_rw")
-    def test_registers_and_stores_in_firestore(self, mock_svc, mock_fs):
+    def test_registers_and_stores_in_cloudsql(self, mock_svc, mock_db):
         mock_service = MagicMock()
         mock_svc.return_value = mock_service
         mock_service.events().watch().execute.return_value = {
@@ -47,8 +46,8 @@ class TestRegisterCalendarWatch(unittest.TestCase):
             "resourceId": "resource-abc",
         }
 
-        mock_client = MagicMock()
-        mock_fs.return_value = mock_client
+        mock_db_instance = MagicMock()
+        mock_db.return_value = mock_db_instance
 
         result = register_calendar_watch(
             calendar_id="test-cal@group.calendar.google.com",
@@ -61,32 +60,24 @@ class TestRegisterCalendarWatch(unittest.TestCase):
         self.assertEqual(result["expiration_ms"], 1741234567000)
         self.assertIn("channel_id", result)
 
-        # Verify Firestore write
-        mock_client.collection.assert_called_once_with(WATCH_COLLECTION)
-        mock_client.collection().document().set.assert_called_once()
+        mock_db_instance.upsert_calendar_watch.assert_called_once()
+        watch_arg = mock_db_instance.upsert_calendar_watch.call_args[0][0]
+        self.assertIsInstance(watch_arg, CalendarWatchChannel)
+        self.assertEqual(watch_arg.calendar_id, "test-cal@group.calendar.google.com")
 
-    @patch("adviser_allocation.services.calendar_watch_service._get_firestore_client")
+    @patch("adviser_allocation.services.calendar_watch_service._get_db")
     @patch("adviser_allocation.services.calendar_watch_service._get_calendar_service_rw")
-    def test_watch_body_includes_token(self, mock_svc, mock_fs):
+    def test_watch_body_includes_token(self, mock_svc, mock_db):
         mock_service = MagicMock()
         mock_svc.return_value = mock_service
         mock_service.events().watch().execute.return_value = {
             "expiration": "9999999999999",
             "resourceId": "res-1",
         }
-        mock_fs.return_value = MagicMock()
+        mock_db.return_value = MagicMock()
 
         register_calendar_watch("cal-id", "https://url.com/hook", "my-token")
 
-        call_kwargs = mock_service.events().watch.call_args
-        watch_body = (
-            call_kwargs[1]["body"]
-            if "body" in (call_kwargs[1] or {})
-            else call_kwargs[0][0]
-            if call_kwargs[0]
-            else {}
-        )
-        # The watch() was called — that's the key assertion
         mock_service.events().watch.assert_called()
 
 
@@ -119,15 +110,14 @@ class TestRenewExpiringWatches(unittest.TestCase):
     @patch("adviser_allocation.services.calendar_watch_service.register_calendar_watch")
     @patch("adviser_allocation.services.calendar_watch_service._build_webhook_url")
     @patch("adviser_allocation.services.calendar_watch_service._load_channel_token")
-    @patch("adviser_allocation.services.calendar_watch_service._get_firestore_client")
-    def test_registers_new_calendar(self, mock_fs, mock_token, mock_url, mock_register):
+    @patch("adviser_allocation.services.calendar_watch_service._get_db")
+    def test_registers_new_calendar(self, mock_db, mock_token, mock_url, mock_register):
         mock_token.return_value = "test-token"
         mock_url.return_value = "https://example.com/webhooks/calendar"
 
-        # Firestore doc doesn't exist
-        mock_doc = MagicMock()
-        mock_doc.exists = False
-        mock_fs.return_value.collection().document().get.return_value = mock_doc
+        mock_db_instance = MagicMock()
+        mock_db.return_value = mock_db_instance
+        mock_db_instance.get_calendar_watch.return_value = None
 
         mock_register.return_value = {"channel_id": "new-ch"}
 
@@ -139,23 +129,25 @@ class TestRenewExpiringWatches(unittest.TestCase):
     @patch("adviser_allocation.services.calendar_watch_service.register_calendar_watch")
     @patch("adviser_allocation.services.calendar_watch_service._build_webhook_url")
     @patch("adviser_allocation.services.calendar_watch_service._load_channel_token")
-    @patch("adviser_allocation.services.calendar_watch_service._get_firestore_client")
-    def test_renews_expiring_channel(self, mock_fs, mock_token, mock_url, mock_register, mock_stop):
+    @patch("adviser_allocation.services.calendar_watch_service._get_db")
+    def test_renews_expiring_channel(self, mock_db, mock_token, mock_url, mock_register, mock_stop):
         mock_token.return_value = "test-token"
         mock_url.return_value = "https://example.com/webhooks/calendar"
 
-        # Channel expiring soon (1 hour from now)
         now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
         expiring_ms = now_ms + (1 * 3600 * 1000)  # 1 hour — within 48h buffer
 
-        mock_doc = MagicMock()
-        mock_doc.exists = True
-        mock_doc.to_dict.return_value = {
-            "channel_id": "old-ch",
-            "resource_id": "old-res",
-            "expiration_ms": expiring_ms,
-        }
-        mock_fs.return_value.collection().document().get.return_value = mock_doc
+        mock_db_instance = MagicMock()
+        mock_db.return_value = mock_db_instance
+        mock_db_instance.get_calendar_watch.return_value = CalendarWatchChannel(
+            doc_id="abc123",
+            calendar_id="expiring-cal@google.com",
+            channel_id="old-ch",
+            resource_id="old-res",
+            expiration_ms=expiring_ms,
+            webhook_url="https://example.com/webhooks/calendar",
+        )
+
         mock_register.return_value = {"channel_id": "new-ch"}
 
         result = renew_expiring_watches([("expiring-cal@google.com", None)])
@@ -164,23 +156,24 @@ class TestRenewExpiringWatches(unittest.TestCase):
 
     @patch("adviser_allocation.services.calendar_watch_service._build_webhook_url")
     @patch("adviser_allocation.services.calendar_watch_service._load_channel_token")
-    @patch("adviser_allocation.services.calendar_watch_service._get_firestore_client")
-    def test_skips_non_expiring_channel(self, mock_fs, mock_token, mock_url):
+    @patch("adviser_allocation.services.calendar_watch_service._get_db")
+    def test_skips_non_expiring_channel(self, mock_db, mock_token, mock_url):
         mock_token.return_value = "test-token"
         mock_url.return_value = "https://example.com/webhooks/calendar"
 
-        # Channel valid for 7 days
         now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
         far_future_ms = now_ms + (7 * 24 * 3600 * 1000)
 
-        mock_doc = MagicMock()
-        mock_doc.exists = True
-        mock_doc.to_dict.return_value = {
-            "channel_id": "valid-ch",
-            "resource_id": "valid-res",
-            "expiration_ms": far_future_ms,
-        }
-        mock_fs.return_value.collection().document().get.return_value = mock_doc
+        mock_db_instance = MagicMock()
+        mock_db.return_value = mock_db_instance
+        mock_db_instance.get_calendar_watch.return_value = CalendarWatchChannel(
+            doc_id="abc123",
+            calendar_id="valid-cal@google.com",
+            channel_id="valid-ch",
+            resource_id="valid-res",
+            expiration_ms=far_future_ms,
+            webhook_url="https://example.com/webhooks/calendar",
+        )
 
         result = renew_expiring_watches([("valid-cal@google.com", None)])
         self.assertEqual(result["skipped"], 1)

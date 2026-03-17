@@ -13,6 +13,7 @@ from sqlalchemy.engine import Engine
 
 from .models import (
     AllocationRequest,
+    CalendarWatchChannel,
     CapacityOverride,
     Employee,
     LeaveRequest,
@@ -980,6 +981,87 @@ class AdviserAllocationDB:
                 }
                 for row in result
             ]
+
+    # ── Calendar watch channels ────────────────────────────────────
+
+    def upsert_calendar_watch(self, watch: CalendarWatchChannel) -> None:
+        """Insert or update a calendar watch channel."""
+        with self.engine.begin() as conn:
+            conn.execute(
+                text("""
+                    INSERT INTO aa_calendar_watch_channels
+                        (doc_id, calendar_id, channel_id, resource_id,
+                         expiration_ms, webhook_url, created_at_utc, updated_at_utc)
+                    VALUES
+                        (:doc_id, :calendar_id, :channel_id, :resource_id,
+                         :expiration_ms, :webhook_url, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    ON CONFLICT (doc_id) DO UPDATE SET
+                        calendar_id = EXCLUDED.calendar_id,
+                        channel_id = EXCLUDED.channel_id,
+                        resource_id = EXCLUDED.resource_id,
+                        expiration_ms = EXCLUDED.expiration_ms,
+                        webhook_url = EXCLUDED.webhook_url,
+                        updated_at_utc = CURRENT_TIMESTAMP
+                """),
+                {
+                    "doc_id": watch.doc_id,
+                    "calendar_id": watch.calendar_id,
+                    "channel_id": watch.channel_id,
+                    "resource_id": watch.resource_id,
+                    "expiration_ms": watch.expiration_ms,
+                    "webhook_url": watch.webhook_url,
+                },
+            )
+
+    def get_calendar_watch(self, doc_id: str) -> Optional[CalendarWatchChannel]:
+        """Get a calendar watch channel by doc_id."""
+        with self.engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT * FROM aa_calendar_watch_channels WHERE doc_id = :doc_id"),
+                {"doc_id": doc_id},
+            ).fetchone()
+            if not row:
+                return None
+            mapping = row._mapping
+            return CalendarWatchChannel(
+                doc_id=mapping["doc_id"],
+                calendar_id=mapping["calendar_id"],
+                channel_id=mapping["channel_id"],
+                resource_id=mapping["resource_id"],
+                expiration_ms=mapping["expiration_ms"],
+                webhook_url=mapping["webhook_url"],
+                created_at_utc=mapping["created_at_utc"],
+                updated_at_utc=mapping["updated_at_utc"],
+            )
+
+    def get_all_calendar_watches(self) -> List[CalendarWatchChannel]:
+        """Get all active calendar watch channels."""
+        with self.engine.connect() as conn:
+            rows = conn.execute(
+                text("SELECT * FROM aa_calendar_watch_channels ORDER BY calendar_id")
+            ).fetchall()
+            return [
+                CalendarWatchChannel(
+                    doc_id=r._mapping["doc_id"],
+                    calendar_id=r._mapping["calendar_id"],
+                    channel_id=r._mapping["channel_id"],
+                    resource_id=r._mapping["resource_id"],
+                    expiration_ms=r._mapping["expiration_ms"],
+                    webhook_url=r._mapping["webhook_url"],
+                    created_at_utc=r._mapping["created_at_utc"],
+                    updated_at_utc=r._mapping["updated_at_utc"],
+                )
+                for r in rows
+            ]
+
+    def delete_calendar_watch(self, doc_id: str) -> bool:
+        """Delete a calendar watch channel. Returns True if deleted."""
+        with self.engine.begin() as conn:
+            result = conn.execute(
+                text("DELETE FROM aa_calendar_watch_channels WHERE doc_id = :doc_id"),
+                {"doc_id": doc_id},
+            )
+            return result.rowcount > 0
 
     # ── Admin users ──────────────────────────────────────────────────
 

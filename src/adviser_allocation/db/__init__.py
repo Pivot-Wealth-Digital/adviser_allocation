@@ -6,6 +6,7 @@ Provides CloudSQL connection management and data access layer.
 from .connection import CloudSQLConnector, get_db_engine
 from .models import (
     AllocationRequest,
+    CalendarWatchChannel,
     CapacityOverride,
     Employee,
     LeaveRequest,
@@ -21,5 +22,6 @@ __all__ = [
     "OfficeClosure",
     "CapacityOverride",
     "AllocationRequest",
+    "CalendarWatchChannel",
     "AdviserAllocationDB",
 ]

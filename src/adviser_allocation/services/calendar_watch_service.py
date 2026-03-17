@@ -4,7 +4,7 @@ Registers watch channels so Google sends real-time POST notifications
 to /webhooks/calendar when calendar events change. Channels expire
 after ~7 days and must be renewed periodically.
 
-Channel state is persisted in Firestore collection ``calendar_watch_channels``.
+Channel state is persisted in CloudSQL table ``aa_calendar_watch_channels``.
 """
 
 from __future__ import annotations
@@ -16,9 +16,11 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+from adviser_allocation.db.models import CalendarWatchChannel
+from adviser_allocation.utils.common import get_cloudsql_db
+
 logger = logging.getLogger(__name__)
 
-WATCH_COLLECTION = "calendar_watch_channels"
 RENEWAL_BUFFER_HOURS = 48
 CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar"
 
@@ -32,15 +34,13 @@ def _get_calendar_service_rw():
     return build("calendar", "v3", credentials=credentials, cache_discovery=False)
 
 
-def _get_firestore_client():
-    """Return a Firestore client."""
-    from google.cloud import firestore
-
-    return firestore.Client()
+def _get_db():
+    """Return the CloudSQL database instance."""
+    return get_cloudsql_db()
 
 
 def _sanitize_doc_id(calendar_id: str) -> str:
-    """Create a safe Firestore document ID from a calendar ID."""
+    """Create a deterministic primary key from a calendar ID."""
     return hashlib.sha256(calendar_id.encode()).hexdigest()[:16]
 
 
@@ -87,19 +87,18 @@ def register_calendar_watch(
     expiration_ms = int(response.get("expiration", 0))
     resource_id = response.get("resourceId", "")
 
-    # Persist to Firestore
     doc_id = _sanitize_doc_id(calendar_id)
-    doc_data = {
-        "calendar_id": calendar_id,
-        "channel_id": channel_id,
-        "resource_id": resource_id,
-        "expiration_ms": expiration_ms,
-        "webhook_url": webhook_url,
-        "created_at_utc": datetime.now(timezone.utc).isoformat(),
-    }
+    watch = CalendarWatchChannel(
+        doc_id=doc_id,
+        calendar_id=calendar_id,
+        channel_id=channel_id,
+        resource_id=resource_id,
+        expiration_ms=expiration_ms,
+        webhook_url=webhook_url,
+    )
 
-    firestore_client = _get_firestore_client()
-    firestore_client.collection(WATCH_COLLECTION).document(doc_id).set(doc_data)
+    db = _get_db()
+    db.upsert_calendar_watch(watch)
 
     expiry_utc = datetime.fromtimestamp(expiration_ms / 1000, tz=timezone.utc)
     logger.info(
@@ -108,7 +107,13 @@ def register_calendar_watch(
         channel_id[:8],
         expiry_utc.isoformat(),
     )
-    return doc_data
+    return {
+        "calendar_id": calendar_id,
+        "channel_id": channel_id,
+        "resource_id": resource_id,
+        "expiration_ms": expiration_ms,
+        "webhook_url": webhook_url,
+    }
 
 
 def stop_calendar_watch(channel_id: str, resource_id: str) -> None:
@@ -154,7 +159,7 @@ def renew_expiring_watches(
         logger.error("CALENDAR_WEBHOOK_TOKEN not configured; cannot register watches")
         return {"renewed": 0, "registered": 0, "skipped": 0, "errors": 1}
 
-    firestore_client = _get_firestore_client()
+    db = _get_db()
     counts = {"renewed": 0, "registered": 0, "skipped": 0, "errors": 0}
 
     now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
@@ -163,23 +168,15 @@ def renew_expiring_watches(
 
     for calendar_id, _source_tag in calendar_sources:
         doc_id = _sanitize_doc_id(calendar_id)
-        doc_ref = firestore_client.collection(WATCH_COLLECTION).document(doc_id)
-        existing = doc_ref.get()
+        existing = db.get_calendar_watch(doc_id)
 
         try:
-            if existing.exists:
-                channel_data = existing.to_dict()
-                expiration_ms = channel_data.get("expiration_ms", 0)
-
-                if expiration_ms > threshold_ms:
+            if existing:
+                if existing.expiration_ms > threshold_ms:
                     counts["skipped"] += 1
                     continue
 
-                # Stop old channel before re-registering
-                _stop_watch_safe(
-                    channel_data.get("channel_id", ""),
-                    channel_data.get("resource_id", ""),
-                )
+                _stop_watch_safe(existing.channel_id, existing.resource_id)
                 register_calendar_watch(calendar_id, webhook_url, channel_token)
                 counts["renewed"] += 1
             else:
@@ -205,10 +202,20 @@ def renew_expiring_watches(
 
 
 def get_active_watches() -> list[dict[str, Any]]:
-    """List all active watch channels from Firestore."""
-    firestore_client = _get_firestore_client()
-    docs = firestore_client.collection(WATCH_COLLECTION).stream()
-    return [doc.to_dict() for doc in docs]
+    """List all active watch channels from CloudSQL."""
+    db = _get_db()
+    watches = db.get_all_calendar_watches()
+    return [
+        {
+            "doc_id": w.doc_id,
+            "calendar_id": w.calendar_id,
+            "channel_id": w.channel_id,
+            "resource_id": w.resource_id,
+            "expiration_ms": w.expiration_ms,
+            "webhook_url": w.webhook_url,
+        }
+        for w in watches
+    ]
 
 
 def _build_webhook_url() -> str:
