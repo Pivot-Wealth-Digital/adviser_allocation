@@ -158,12 +158,7 @@ def handle_allocation():
                     raw_request=event,
                 )
                 return jsonify({"message": "No eligible adviser found"}), 200
-            send_chat_alert_flag = str(request.args.get("send_chat_alert", "0")).lower() not in (
-                "0",
-                "false",
-                "no",
-                "off",
-            )
+            send_chat_alert_flag = False  # disabled — re-enable by restoring query param logic
             user = selected_user
             chosen_email = (user.get("properties") or {}).get("hs_email")
             hubspot_owner_id = user["properties"]["hubspot_owner_id"]
