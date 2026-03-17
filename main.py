@@ -1,8 +1,6 @@
-"""WSGI entrypoint wrapper for App Engine.
+"""WSGI entrypoint for Cloud Run.
 
-This file exists at the project root to maintain backward compatibility
-with App Engine's default entrypoint expectation (main:app).
-
+Gunicorn loads this file as ``main:app``.
 The actual application code lives in src/adviser_allocation/.
 """
 

@@ -6,7 +6,9 @@ import pytest
 from playwright.sync_api import sync_playwright
 
 # App URL - change this to your deployed app
-APP_URL = os.environ.get("APP_URL", "https://pivot-digital-466902.ts.r.appspot.com")
+APP_URL = os.environ.get(
+    "APP_URL", "https://adviser-allocation-307314618542.australia-southeast1.run.app"
+)
 
 
 @pytest.fixture
