@@ -13,6 +13,7 @@ All data access goes through `AdviserAllocationDB` in `db/repository.py`.
 - `aa_allocation_requests` — allocation history
 - `aa_oauth_tokens` — Employment Hero OAuth tokens
 - `aa_simulated_clarifies` — simulated clarify meeting placements per adviser/week
+- `aa_admin_users` — admin user emails for role-based access control
 
 ### This repo can READ (read-only):
 - `hubspot_deals` — via HubSpot API, not direct DB access

@@ -2,9 +2,6 @@
   const $ = (sel, root = document) => root.querySelector(sel);
   const submitBtn = $('#submit');
   const table = $('#override-table');
-  const toast = $('#toast');
-  const toastOk = $('#toast-ok');
-  const toastErr = $('#toast-err');
 
   const podOptions = Array.isArray(window.POD_TYPE_OPTIONS) ? window.POD_TYPE_OPTIONS : [];
   const adviserOptions = Array.isArray(window.ADVISER_OPTIONS) ? window.ADVISER_OPTIONS : [];
@@ -16,21 +13,6 @@
       .replace(/'/g, '&#39;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
-
-  function showToast(el, text) {
-    if (!el) return;
-    el.textContent = text;
-    el.style.display = 'block';
-    setTimeout(() => { el.style.display = 'none'; }, 2200);
-  }
-
-  function showOk(text) {
-    showToast(toastOk, text);
-  }
-
-  function showErr(text) {
-    showToast(toastErr, text || 'Something went wrong');
-  }
 
   function buildPodSelect(value = '') {
     const known = podOptions.slice();
@@ -130,15 +112,15 @@
       const notes = ($('#notes') || {}).value || '';
 
       if (!email.trim()) {
-        showErr('Adviser email is required.');
+        Toast.err('Adviser email is required.');
         return;
       }
       if (!effective.trim()) {
-        showErr('Effective date is required.');
+        Toast.err('Effective date is required.');
         return;
       }
       if (!limit.trim()) {
-        showErr('Monthly limit is required.');
+        Toast.err('Monthly limit is required.');
         return;
       }
 
@@ -152,10 +134,10 @@
 
       try {
         await postOverride(payload);
-        showOk('Override added.');
+        Toast.ok('Override added.');
         setTimeout(() => window.location.reload(), 500);
       } catch (err) {
-        showErr(err.message);
+        Toast.err(err.message);
       }
     });
   }
@@ -215,7 +197,7 @@
         if (emailSelect) {
           const emailValue = emailSelect.value.trim().toLowerCase();
           if (!emailValue) {
-            showErr('Adviser email cannot be blank.');
+            Toast.err('Adviser email cannot be blank.');
             return;
           }
           payload.adviser_email = emailValue;
@@ -224,7 +206,7 @@
         if (effectiveInput) {
           const effectiveValue = effectiveInput.value.trim();
           if (!effectiveValue) {
-            showErr('Effective date cannot be blank.');
+            Toast.err('Effective date cannot be blank.');
             return;
           }
           payload.effective_date = effectiveValue;
@@ -233,7 +215,7 @@
         if (limitInput) {
           const limitValue = limitInput.value.trim();
           if (!limitValue) {
-            showErr('Monthly limit cannot be blank.');
+            Toast.err('Monthly limit cannot be blank.');
             return;
           }
           payload.client_limit_monthly = Number(limitValue);
@@ -249,10 +231,10 @@
 
         try {
           await putOverride(id, payload);
-          showOk('Override updated.');
+          Toast.ok('Override updated.');
           setTimeout(() => window.location.reload(), 500);
         } catch (err) {
-          showErr(err.message);
+          Toast.err(err.message);
         }
         return;
       }
@@ -262,11 +244,11 @@
         try {
           const success = await deleteOverride(id);
           if (success) {
-            showOk('Override deleted.');
+            Toast.ok('Override deleted.');
             setTimeout(() => window.location.reload(), 500);
           }
         } catch (err) {
-          showErr(err.message);
+          Toast.err(err.message);
         }
       }
     });

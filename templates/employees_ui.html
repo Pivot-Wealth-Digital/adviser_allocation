@@ -78,12 +78,7 @@
   <h4>💡 Data Management</h4>
   <p class="muted">Employee data is synchronized from Employment Hero and stored locally for performance.</p>
   <div class="row" style="margin-top: 12px;">
-    <a href="/sync/employees" style="text-decoration: none;">
-      <button class="secondary">🔄 Sync Employees</button>
-    </a>
-    <a href="/get/employees" style="text-decoration: none;">
-      <button class="secondary">📊 Raw API Data</button>
-    </a>
+    <button class="secondary" id="syncEmpBtn" onclick="syncEmployees()">🔄 Sync Employees</button>
   </div>
 </div>
 {% endblock %}
@@ -131,4 +126,28 @@
     }
   }
 </style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function syncEmployees() {
+  const btn = document.getElementById('syncEmpBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Syncing...';
+  fetch('/admin/sync/employees', { method: 'POST' })
+    .then(r => {
+      if (!r.ok) throw new Error('Sync failed: ' + r.status);
+      return r.json();
+    })
+    .then(data => {
+      btn.textContent = '✅ Synced ' + data.synced + ' employees';
+      setTimeout(() => window.location.reload(), 1500);
+    })
+    .catch(err => {
+      btn.textContent = '❌ Sync failed';
+      btn.disabled = false;
+      setTimeout(() => { btn.textContent = '🔄 Sync Employees'; }, 3000);
+    });
+}
+</script>
 {% endblock %}

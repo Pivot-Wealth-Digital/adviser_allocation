@@ -85,6 +85,42 @@ def is_authenticated():
     return bool(session.get("is_authenticated"))
 
 
+def check_is_admin():
+    """Check if the current session user is an admin. Cached in session."""
+    if not is_authenticated():
+        return False
+    if "is_admin" in session:
+        return session["is_admin"]
+    email = session.get("user", {}).get("email", "")
+    try:
+        db = get_cloudsql_db()
+        result = bool(db.is_admin(email))
+        session["is_admin"] = result
+        return result
+    except Exception:
+        logger.exception("Failed to check admin status for %s", email)
+        return False
+
+
+def admin_required(view_func):
+    """Decorator that restricts access to admin users only."""
+    from functools import wraps
+
+    @wraps(view_func)
+    def wrapper(*args, **kwargs):
+        if not check_is_admin():
+            if request.accept_mimetypes.best == "text/html":
+                return render_template(
+                    "error.html",
+                    code=403,
+                    message="You do not have permission to access this page.",
+                ), 403
+            return jsonify({"error": "Forbidden"}), 403
+        return view_func(*args, **kwargs)
+
+    return wrapper
+
+
 def _safe_redirect_url(url: str) -> str:
     """Ensure redirect URL is a safe relative path (prevent open redirect)."""
     if not url or not url.startswith("/") or url.startswith("//"):
@@ -138,6 +174,7 @@ def require_login():
     # These paths bypass session auth — secured by their own decorators
     public_paths = [
         "/_ah/warmup",  # Cloud Run warmup
+        "/health",  # Lightweight health check
         "/post/allocate",  # Hubspot webhook
         "/sync/employees",  # Cloud Scheduler sync
         "/sync/leave_requests",  # Cloud Scheduler sync
@@ -194,7 +231,7 @@ def meeting_object_type_id() -> str:
         resp.raise_for_status()
         return resp.json().get("objectTypeId") or "0-4"
     except Exception as e:
-        logging.warning("Failed to fetch meetings schema: %s", e)
+        logger.warning("Failed to fetch meetings schema: %s", e)
         return "0-4"
 
 
@@ -285,7 +322,7 @@ def auth_start():
         "state": state,
     }
     authorize_url = f"{EH_AUTHORIZE_URL}?{urlencode(params)}"
-    logging.info("Redirecting to Employment Hero authorize URL: %s", authorize_url)
+    logger.info("Redirecting to Employment Hero authorize URL: %s", authorize_url)
     return redirect(authorize_url)
 
 
@@ -542,7 +579,7 @@ def sync_employees():
         data, status, headers = get_employees()
         return jsonify({"synced": len(data)}), status
     except Exception as e:
-        logging.error(f"Failed to sync employees: {e}")
+        logger.error("Failed to sync employees: %s", e)
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -554,8 +591,32 @@ def sync_leave_requests():
         data, status, headers = get_leave_requests()
         return jsonify({"synced": len(data)}), status
     except Exception as e:
-        logging.error(f"Failed to sync leave requests: {e}")
+        logger.error("Failed to sync leave requests: %s", e)
         return jsonify({"error": "Internal server error"}), 500
+
+
+@main_bp.route("/admin/sync/employees", methods=["POST"])
+@admin_required
+def admin_sync_employees():
+    """Admin-triggered employee sync from Employment Hero."""
+    try:
+        data, status, _headers = get_employees()
+        return jsonify({"synced": len(data)}), status
+    except Exception:
+        logger.exception("Admin sync employees failed")
+        return jsonify({"error": "Sync failed"}), 500
+
+
+@main_bp.route("/admin/sync/leave_requests", methods=["POST"])
+@admin_required
+def admin_sync_leave_requests():
+    """Admin-triggered leave request sync from Employment Hero."""
+    try:
+        data, status, _headers = get_leave_requests()
+        return jsonify({"synced": len(data)}), status
+    except Exception:
+        logger.exception("Admin sync leave requests failed")
+        return jsonify({"error": "Sync failed"}), 500
 
 
 @main_bp.route("/sync/calendar_closures", methods=["POST", "GET"])
@@ -582,7 +643,7 @@ def sync_calendar_closures():
         result = _sync(calendar_sources=sources, db=cloudsql_db)
         return jsonify(result), 200
     except Exception as e:
-        logging.error("Failed to sync calendar closures: %s", e, exc_info=True)
+        logger.error("Failed to sync calendar closures: %s", e, exc_info=True)
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -609,7 +670,7 @@ def renew_calendar_watches():
         result = renew_expiring_watches(calendar_sources=sources)
         return jsonify(result), 200
     except Exception as exc:
-        logging.error("Failed to renew calendar watches: %s", exc, exc_info=True)
+        logger.error("Failed to renew calendar watches: %s", exc, exc_info=True)
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -634,12 +695,13 @@ def job_compute_simulated_clarifies():
             }
         ), 200
     except Exception as e:
-        logging.error("Failed to compute simulated clarifies: %s", e, exc_info=True)
-        return jsonify({"error": str(e)}), 500
+        logger.error("Failed to compute simulated clarifies: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
 
 
 # ---- Global Closures (Holidays) ----
 @main_bp.route("/closures", methods=["GET", "POST"])
+@admin_required
 def closures():
     """Manage global office closures/holidays.
 
@@ -653,7 +715,7 @@ def closures():
             items = cloudsql_db.get_global_closures()
             return jsonify({"count": len(items), "closures": items}), 200
         except Exception as e:
-            logging.error(f"Failed to list closures: {e}")
+            logger.error("Failed to list closures: %s", e)
             return jsonify({"error": "Internal server error"}), 500
 
     # POST (create) requires admin
@@ -704,11 +766,12 @@ def closures():
             201,
         )
     except Exception as e:
-        logging.error(f"Failed to create closure: {e}")
+        logger.error("Failed to create closure: %s", e)
         return jsonify({"error": "Internal server error"}), 500
 
 
 @main_bp.route("/closures/<closure_id>", methods=["PUT", "DELETE"])
+@admin_required
 def closures_item(closure_id):
     """Update or delete a specific closure document (admin only)."""
     if not is_authenticated():
@@ -721,7 +784,7 @@ def closures_item(closure_id):
             cloudsql_db.delete_office_closure(closure_id)
             return jsonify({"ok": True}), 200
         except Exception as e:
-            logging.error(f"Failed to delete closure {closure_id}: {e}")
+            logger.error("Failed to delete closure %s: %s", closure_id, e)
             return jsonify({"error": "Internal server error"}), 500
 
     # PUT
@@ -765,11 +828,12 @@ def closures_item(closure_id):
             resp["tags"] = tags
         return jsonify(resp), 200
     except Exception as e:
-        logging.error(f"Failed to update closure {closure_id}: {e}")
+        logger.error("Failed to update closure %s: %s", closure_id, e)
         return jsonify({"error": "Internal server error"}), 500
 
 
 @main_bp.route("/capacity_overrides", methods=["GET", "POST"])
+@admin_required
 def capacity_overrides():
     """Manage adviser capacity overrides stored in CloudSQL."""
     cloudsql_db = get_cloudsql_db()
@@ -782,7 +846,7 @@ def capacity_overrides():
             )
             return jsonify({"count": len(items), "overrides": items}), 200
         except Exception as exc:
-            logging.error("Failed to load capacity overrides: %s", exc)
+            logger.error("Failed to load capacity overrides: %s", exc)
             return jsonify({"error": "Internal server error"}), 500
 
     if not is_authenticated():
@@ -834,11 +898,12 @@ def capacity_overrides():
         }
         return jsonify(doc), 201
     except Exception as exc:
-        logging.error("Failed to create capacity override: %s", exc)
+        logger.error("Failed to create capacity override: %s", exc)
         return jsonify({"error": "Internal server error"}), 500
 
 
 @main_bp.route("/capacity_overrides/<override_id>", methods=["PUT", "DELETE"])
+@admin_required
 def capacity_overrides_item(override_id: str):
     """Update or delete a specific adviser capacity override document."""
     if not is_authenticated():
@@ -852,7 +917,7 @@ def capacity_overrides_item(override_id: str):
             refresh_capacity_override_cache()
             return jsonify({"ok": True}), 200
         except Exception as exc:
-            logging.error("Failed to delete capacity override %s: %s", override_id, exc)
+            logger.error("Failed to delete capacity override %s: %s", override_id, exc)
             return jsonify({"error": "Internal server error"}), 500
 
     if not request.is_json:
@@ -906,11 +971,12 @@ def capacity_overrides_item(override_id: str):
                 response[key] = value
         return jsonify(response), 200
     except Exception as exc:
-        logging.error("Failed to update capacity override %s: %s", override_id, exc)
+        logger.error("Failed to update capacity override %s: %s", override_id, exc)
         return jsonify({"error": "Internal server error"}), 500
 
 
 @main_bp.route("/capacity_overrides/ui")
+@admin_required
 def capacity_overrides_ui():
     """UI for managing adviser capacity overrides."""
     cloudsql_db = get_cloudsql_db()
@@ -919,7 +985,7 @@ def capacity_overrides_ui():
     try:
         overrides = cloudsql_db.get_capacity_overrides()
     except Exception as exc:
-        logging.warning("Failed to load capacity overrides for UI: %s", exc)
+        logger.warning("Failed to load capacity overrides for UI: %s", exc)
 
     # Enrich overrides for display (sort by effective date within adviser)
     normalized = []
@@ -973,7 +1039,7 @@ def capacity_overrides_ui():
             for email, label in sorted(adviser_map.items(), key=lambda item: item[1].lower())
         ]
     except Exception as exc:  # pragma: no cover - optional data
-        logging.warning("Failed to load adviser list for overrides UI: %s", exc)
+        logger.warning("Failed to load adviser list for overrides UI: %s", exc)
 
     return render_template(
         "capacity_overrides.html",
@@ -985,6 +1051,7 @@ def capacity_overrides_ui():
 
 
 @main_bp.route("/closures/ui")
+@admin_required
 def closures_ui():
     """Simple UI to create and list global office closures (holidays)."""
     cloudsql_db = get_cloudsql_db()
@@ -996,7 +1063,7 @@ def closures_ui():
         # Sort by start_date
         closures.sort(key=lambda c: c.get("start_date") or "")
     except Exception as e:
-        logging.warning(f"Failed to load closures for UI: {e}")
+        logger.warning("Failed to load closures for UI: %s", e)
 
     # Helper to count business days (Mon-Fri) inclusive
     def workdays_count(s: str, e: str) -> int:
@@ -1113,7 +1180,7 @@ def google_auth_callback():
         }
 
     except Exception as e:
-        logger.error(f"Google OAuth Error: {e}")
+        logger.error("Google OAuth Error: %s", e)
         return "Authentication failed. Please try again.", 400
 
     # Retrieve where they were trying to go
@@ -1131,7 +1198,7 @@ def login_bypass():
     session["is_authenticated"] = True
     session["user"] = {
         "name": "Dev User (Bypass)",
-        "email": "dev@pivotwealth.com.au",
+        "email": "noel.pinton@pivotwealth.com.au",
         "picture": "https://ui-avatars.com/api/?name=Dev+User&background=F08354&color=fff",
     }
     nxt = _safe_redirect_url(request.args.get("next") or "/")
@@ -1166,6 +1233,7 @@ def logout():
 
 
 @main_bp.route("/employees/ui")
+@admin_required
 def employees_ui():
     """UI to view employees from CloudSQL with consistent styling."""
     try:
@@ -1187,18 +1255,13 @@ def employees_ui():
 
     except Exception as e:
         logger.exception("Error loading employees UI")
-        return (
-            render_template_string(
-                '<div style="padding: 20px; text-align: center;">'
-                "<h3>Error Loading Employees</h3>"
-                "<p>{{ error }}</p></div>",
-                error=str(e),
-            ),
-            500,
-        )
+        return render_template(
+            "error.html", code=500, message="Error loading employees. Please try again."
+        ), 500
 
 
 @main_bp.route("/leave_requests/ui")
+@admin_required
 def leave_requests_ui():
     """UI to view leave requests from CloudSQL with filtering and calendar view."""
     try:
@@ -1255,33 +1318,35 @@ def leave_requests_ui():
                         }
                     )
         else:
-            # Fetch all leave requests
-            for emp_id, emp_data in employees_dict.items():
-                leaves = cloudsql_db.get_employee_leaves_as_dicts(emp_id)
+            # Fetch all leave requests in a single query
+            all_leaves = cloudsql_db.get_all_leaves_as_dicts()
 
-                for leave_data in leaves:
-                    leave_data["employee_name"] = emp_data["name"]
-                    leave_data["employee_email"] = emp_data["email"]
-                    leave_data["doc_id"] = leave_data.get("leave_request_id")
+            for leave_data in all_leaves:
+                emp_data = employees_dict.get(
+                    leave_data.get("employee_id"), {"name": "Unknown", "email": ""}
+                )
+                leave_data["employee_name"] = emp_data["name"]
+                leave_data["employee_email"] = emp_data["email"]
+                leave_data["doc_id"] = leave_data.get("leave_request_id")
 
-                    # Apply status filter
-                    if (
-                        not status_filter
-                        or leave_data.get("status", "").lower() == status_filter.lower()
-                    ):
-                        leave_requests.append(leave_data)
+                # Apply status filter
+                if (
+                    not status_filter
+                    or leave_data.get("status", "").lower() == status_filter.lower()
+                ):
+                    leave_requests.append(leave_data)
 
-                    # Add to calendar events if approved
-                    if leave_data.get("status", "").lower() == "approved":
-                        calendar_events.append(
-                            {
-                                "title": f"{emp_data['name']} - {leave_data.get('leave_type', 'Leave')}",
-                                "start": leave_data.get("start_date", ""),
-                                "end": leave_data.get("end_date", ""),
-                                "employee": emp_data["name"],
-                                "type": leave_data.get("leave_type", "Leave"),
-                            }
-                        )
+                # Add to calendar events if approved
+                if leave_data.get("status", "").lower() == "approved":
+                    calendar_events.append(
+                        {
+                            "title": f"{emp_data['name']} - {leave_data.get('leave_type', 'Leave')}",
+                            "start": leave_data.get("start_date", ""),
+                            "end": leave_data.get("end_date", ""),
+                            "employee": emp_data["name"],
+                            "type": leave_data.get("leave_type", "Leave"),
+                        }
+                    )
 
         # Sort by start date (most recent first)
         leave_requests.sort(key=lambda x: x.get("start_date", ""), reverse=True)
@@ -1300,15 +1365,9 @@ def leave_requests_ui():
 
     except Exception as e:
         logger.exception("Error loading leave requests UI")
-        return (
-            render_template_string(
-                '<div style="padding: 20px; text-align: center;">'
-                "<h3>Error Loading Leave Requests</h3>"
-                "<p>{{ error }}</p></div>",
-                error=str(e),
-            ),
-            500,
-        )
+        return render_template(
+            "error.html", code=500, message="Error loading leave requests. Please try again."
+        ), 500
 
 
 @main_bp.route("/webhook/allocation", methods=["POST"])
@@ -1338,7 +1397,7 @@ def allocation_webhook():
             return jsonify({"error": "Failed to store allocation data"}), 500
 
     except Exception as e:
-        logging.error("Failed to store webhook allocation: %s", e)
+        logger.error("Failed to store webhook allocation: %s", e)
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -1507,17 +1566,9 @@ def allocation_history_ui():
 
     except Exception as e:
         logger.error("Error in allocation_history_ui: %s", e, exc_info=True)
-        return (
-            render_template_string(
-                f"""
-            <div style=\"padding: 20px; text-align: center;\">
-                <h3>❌ Error Loading Allocation History</h3>
-                <p>{str(e)}</p>
-            </div>
-            """
-            ),
-            500,
-        )
+        return render_template(
+            "error.html", code=500, message="Error loading allocation history. Please try again."
+        ), 500
 
 
 # ---- Availability ----
@@ -1542,7 +1593,7 @@ def availability_earliest():
                 )
                 default_date = agreement_start_date_param
             except ValueError:
-                logging.warning(
+                logger.warning(
                     "availability_earliest invalid agreement_start_date parameter: %s",
                     agreement_start_date_param,
                 )
@@ -1551,7 +1602,7 @@ def availability_earliest():
                     400,
                 )
 
-        logging.info(
+        logger.info(
             "availability_earliest request compute=%s include_no=%s agreement_start_date=%s",
             compute,
             include_no,
@@ -1565,7 +1616,7 @@ def availability_earliest():
                 agreement_start_date=agreement_start_date, include_no=include_no
             )
             results = sorted(results, key=lambda r: (r.get("email") or "").lower())
-            logging.debug("availability_earliest retrieved %d adviser rows", len(results))
+            logger.debug("availability_earliest retrieved %d adviser rows", len(results))
 
             # Build rows for template
             for item in results:
@@ -1686,12 +1737,12 @@ def availability_earliest():
                     items.append({"name": part, "cls": household_color_map[key]})
                 r["household_items"] = items
 
-            logging.info(
+            logger.info(
                 "availability_earliest computed %d rows for rendering",
                 len(rows),
             )
         else:
-            logging.debug("availability_earliest compute flag not set; returning cached form")
+            logger.debug("availability_earliest compute flag not set; returning cached form")
 
         return render_template(
             "availability_earliest.html",
@@ -1703,7 +1754,7 @@ def availability_earliest():
             compute=compute,
         )
     except Exception as e:
-        logging.error(f"Failed to compute earliest availability: {e}")
+        logger.error("Failed to compute earliest availability: %s", e)
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -1757,12 +1808,10 @@ def availability_schedule():
                     advisers.append(user)
 
     except Exception as e:
-        logging.error(f"Failed to load advisers: {e}")
-        return (
-            "<p>Failed to load advisers: Internal server error</p>",
-            500,
-            {"Content-Type": "text/html; charset=utf-8"},
-        )
+        logger.error("Failed to load advisers: %s", e, exc_info=True)
+        return render_template(
+            "error.html", code=500, message="Failed to load advisers. Please try again."
+        ), 500
 
     display_advisers = []
     for user in advisers:
@@ -1786,7 +1835,7 @@ def availability_schedule():
     rows = []
     earliest_week = None
     if selected and compute:
-        logging.info(
+        logger.info(
             "availability_schedule requested for %s (agreement_start_date=%s)",
             selected,
             agreement_start_date.isoformat() if agreement_start_date else "default",
@@ -1813,12 +1862,10 @@ def availability_schedule():
                     }
                 )
         except Exception as e:
-            logging.error(f"Failed to compute schedule for {selected}: {e}")
-            return (
-                f"<p>Failed to compute schedule for {selected}: Internal server error</p>",
-                500,
-                {"Content-Type": "text/html; charset=utf-8"},
-            )
+            logger.error("Failed to compute schedule for %s: %s", selected, e, exc_info=True)
+            return render_template(
+                "error.html", code=500, message="Failed to compute schedule. Please try again."
+            ), 500
 
     # Build the adviser dropdown options HTML (kept simple for template)
     option_items = ['<option value="">-- Select adviser --</option>']
@@ -1864,12 +1911,10 @@ def availability_meetings():
 
             advisers.append(user)
     except Exception as e:
-        logging.error(f"Failed to load advisers: {e}")
-        return (
-            "<p>Failed to load advisers: Internal server error</p>",
-            500,
-            {"Content-Type": "text/html; charset=utf-8"},
-        )
+        logger.error("Failed to load advisers: %s", e, exc_info=True)
+        return render_template(
+            "error.html", code=500, message="Failed to load advisers. Please try again."
+        ), 500
 
     display_advisers = []
     for user in advisers:
@@ -1911,7 +1956,7 @@ def availability_meetings():
             try:
                 target_user = get_user_meeting_details(target_user, start_ts)
             except Exception as e:
-                logging.error(f"Failed to fetch meetings for {selected}: {e}")
+                logger.error("Failed to fetch meetings for %s: %s", selected, e)
                 error_msg = "Failed to fetch meetings: Internal server error"
             else:
                 meetings_raw = (target_user.get("meetings") or {}).get("results", [])
@@ -2010,7 +2055,7 @@ def availability_clarify_chart():
             week_num=f"{sydney_today().isocalendar()[1]:02d}",
         )
     except Exception as e:
-        logging.error("Failed to load clarify chart page: %s", e)
+        logger.error("Failed to load clarify chart page: %s", e)
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -2062,7 +2107,7 @@ def api_clarify_chart_data():
         )
 
     except Exception as e:
-        logging.error("Failed to fetch clarify chart data: %s", e)
+        logger.error("Failed to fetch clarify chart data: %s", e)
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -2097,18 +2142,10 @@ def availability_matrix():
             week_num=f"{sydney_today().isocalendar()[1]:02d}",
         )
     except Exception as e:
-        logging.error("Failed to build availability matrix: %s", e)
-        return (
-            render_template_string(
-                """
-            <div style=\"padding: 20px; text-align: center;\">
-                <h3>❌ Error Loading Availability Matrix</h3>
-                <p>Internal server error</p>
-            </div>
-            """,
-            ),
-            500,
-        )
+        logger.error("Failed to build availability matrix: %s", e, exc_info=True)
+        return render_template(
+            "error.html", code=500, message="Error loading availability matrix. Please try again."
+        ), 500
 
 
 @main_bp.route("/meeting/owner", methods=["POST"])
@@ -2151,13 +2188,13 @@ def update_meeting_owner():
             }
         )
     except requests.exceptions.HTTPError as e:
-        logging.error(f"Meeting owner update HTTP error: {e}")
+        logger.error("Meeting owner update HTTP error: %s", e)
         status = resp.status_code if "resp" in locals() else 500
         return jsonify(
             {"error": "Internal server error", "details": "See server logs for details"}
         ), status
     except Exception as e:
-        logging.error("Failed to update meeting owner: %s", e)
+        logger.error("Failed to update meeting owner: %s", e)
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -2176,8 +2213,14 @@ def warmup():
             conn.execute(_text("SELECT 1"))
         return ("OK", 200)
     except Exception as exc:
-        logging.error("Warmup health check failed: %s", exc)
+        logger.error("Warmup health check failed: %s", exc)
         return ("UNHEALTHY", 503)
+
+
+@main_bp.route("/health")
+def health():
+    """Lightweight health check for external monitors."""
+    return jsonify({"status": "ok"}), 200
 
 
 # ===== APP INITIALIZATION =====
@@ -2238,6 +2281,14 @@ def create_app(config_overrides=None):
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com; "
+            "img-src 'self' https://ui-avatars.com data:; "
+            "connect-src 'self'"
+        )
         if is_production:
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         return response
@@ -2251,6 +2302,28 @@ def create_app(config_overrides=None):
     app.register_blueprint(main_bp)
     app.register_blueprint(init_webhooks())
     app.register_blueprint(skills_bp)
+
+    @app.context_processor
+    def inject_admin_flag():
+        return {"is_admin": check_is_admin()}
+
+    @app.errorhandler(404)
+    def not_found(e):
+        if request.accept_mimetypes.best == "text/html":
+            return render_template("error.html", code=404, message="Page not found."), 404
+        return jsonify({"error": "Not found"}), 404
+
+    @app.errorhandler(500)
+    def server_error(e):
+        if request.accept_mimetypes.best == "text/html":
+            try:
+                return (
+                    render_template("error.html", code=500, message="Something went wrong."),
+                    500,
+                )
+            except Exception:
+                return "<h1>500</h1><p>Something went wrong.</p>", 500
+        return jsonify({"error": "Internal server error"}), 500
 
     return app
 

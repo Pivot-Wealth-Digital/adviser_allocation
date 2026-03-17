@@ -7,15 +7,7 @@
   const e = $('#end');
   const d = $('#description');
   const tagSelect = $('#tagSelect');
-  const msg = $('#msg');
   const table = $('#closures-table');
-
-  function show(type, text){
-    msg.className = 'msg ' + type;
-    msg.textContent = text;
-    msg.style.display = 'block';
-    setTimeout(()=>{ msg.style.display = 'none'; }, 1800);
-  }
 
   function toDate(s){ const t=new Date((s||'')+'T00:00:00'); return isNaN(t)?null:t; }
   function workdaysJS(sv,ev){ const sd=toDate(sv), ed=toDate(ev||sv); if(!sd||!ed)return 0; let sN=sd.getTime(), eN=ed.getTime(); if(eN<sN){[sN,eN]=[eN,sN];} let d=0; for(let t=sN;t<=eN;t+=86400000){ const wd=(new Date(t)).getDay(); if(wd>=1&&wd<=5)d++; } return d; }
@@ -40,15 +32,15 @@
   if(submit){
     submit.addEventListener('click', async ()=>{
       const start=s.value, end=e.value||start, description=d.value||''; const cur=(tagSelect&&tagSelect.value||'').trim(); const tags = cur?[cur]:[];
-      if(!start){ show('err','Start date is required'); return; }
+      if(!start){ Toast.err('Start date is required'); return; }
       try{
         const res = await fetch('/closures',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({start_date:start,end_date:end,description:description,tags:tags})});
         const data = await res.json();
         if(res.status===401){ location.href='/login?next=/closures/ui'; return; }
-        if(!res.ok){ show('err', data.error||'Failed to create'); return; }
-        show('ok','Created');
+        if(!res.ok){ Toast.err( data.error||'Failed to create'); return; }
+        Toast.ok('Created');
         location.reload();
-      }catch(err){ show('err','Network error'); }
+      }catch(err){ Toast.err('Network error'); }
     });
   }
 
@@ -84,10 +76,10 @@
           const res = await fetch('/closures/'+id,{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({start_date:sVal,end_date:eVal,description:dVal,tags:tags})});
           const data = await res.json();
           if(res.status===401){ location.href='/login?next=/closures/ui'; return; }
-          if(!res.ok){ show('err', data.error||'Failed to update'); return; }
-          show('ok','Updated');
+          if(!res.ok){ Toast.err( data.error||'Failed to update'); return; }
+          Toast.ok('Updated');
           location.reload();
-        }catch(err){ show('err','Network error'); }
+        }catch(err){ Toast.err('Network error'); }
         return;
       }
       if(btn.classList.contains('delete')){
@@ -95,10 +87,10 @@
         try{
           const res = await fetch('/closures/'+id,{method:'DELETE',credentials:'same-origin',headers:{'Accept':'application/json'}});
           if(res.status===401){ location.href='/login?next=/closures/ui'; return; }
-          if(!res.ok){ show('err','Failed to delete'); return; }
-          show('ok','Deleted');
+          if(!res.ok){ Toast.err('Failed to delete'); return; }
+          Toast.ok('Deleted');
           location.reload();
-        }catch(err){ show('err','Network error'); }
+        }catch(err){ Toast.err('Network error'); }
         return;
       }
     });

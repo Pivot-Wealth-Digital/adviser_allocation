@@ -154,6 +154,29 @@ class AdviserAllocationDB:
             for lr in leaves
         ]
 
+    def get_all_leaves_as_dicts(self) -> List[Dict[str, Any]]:
+        """Get all leave requests as dictionaries in a single query."""
+        with self.engine.connect() as conn:
+            result = conn.execute(
+                text("""
+                    SELECT leave_request_id, employee_id, start_date, end_date,
+                           leave_type, status
+                    FROM aa_leave_requests
+                    ORDER BY start_date DESC
+                """)
+            )
+            return [
+                {
+                    "leave_request_id": row.leave_request_id,
+                    "employee_id": row.employee_id,
+                    "start_date": row.start_date.isoformat() if row.start_date else None,
+                    "end_date": row.end_date.isoformat() if row.end_date else None,
+                    "leave_type": row.leave_type,
+                    "status": row.status,
+                }
+                for row in result
+            ]
+
     def upsert_leave_request(self, leave: LeaveRequest) -> None:
         """Insert or update leave request."""
         with self.engine.begin() as conn:
@@ -957,3 +980,14 @@ class AdviserAllocationDB:
                 }
                 for row in result
             ]
+
+    # ── Admin users ──────────────────────────────────────────────────
+
+    def is_admin(self, email: str) -> bool:
+        """Check if the given email belongs to an admin user."""
+        with self.engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT 1 FROM aa_admin_users WHERE email = :email"),
+                {"email": email},
+            ).fetchone()
+            return row is not None

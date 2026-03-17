@@ -95,7 +95,7 @@ def require_hubspot_signature(func):
         if not signature:
             # Fallback: accept API key auth (for HubSpot custom code actions)
             api_key = get_secret("ADVISER_ALLOCATION_WEBHOOK_API_KEY")
-            provided_key = request.headers.get("X-API-Key", "") or request.args.get("api_key", "")
+            provided_key = request.headers.get("X-API-Key", "")
             if api_key and provided_key and hmac.compare_digest(provided_key, api_key):
                 return func(*args, **kwargs)
             logger.warning(
@@ -124,7 +124,7 @@ def require_hubspot_signature(func):
 
 
 def require_api_key(func):
-    """Verify API key from query parameter or X-API-Key header.
+    """Verify API key from X-API-Key header.
 
     Compares the provided key against WEBHOOK_API_KEY secret
     using constant-time comparison.
@@ -137,7 +137,7 @@ def require_api_key(func):
             logger.error("ADVISER_ALLOCATION_WEBHOOK_API_KEY not configured")
             return jsonify({"error": "Internal server error"}), 500
 
-        provided_key = request.headers.get("X-API-Key", "") or request.args.get("api_key", "")
+        provided_key = request.headers.get("X-API-Key", "")
         if not provided_key or not hmac.compare_digest(provided_key, expected_key):
             logger.warning("API key auth failed on %s from %s", request.path, request.remote_addr)
             return jsonify({"error": "Unauthorized"}), 401

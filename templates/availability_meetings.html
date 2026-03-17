@@ -139,7 +139,7 @@
         const adviser = adviserSelect ? adviserSelect.value : '';
         const weeksBackRaw = weeksBackInput ? weeksBackInput.value : '8';
         if (!adviser) {
-          alert('Please select an adviser');
+          Toast.warn('Please select an adviser');
           return;
         }
         const weeks = Math.min(52, Math.max(1, parseInt(weeksBackRaw || '8', 10)));

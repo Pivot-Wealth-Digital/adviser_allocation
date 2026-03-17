@@ -158,7 +158,7 @@ def handle_allocation():
                     raw_request=event,
                 )
                 return jsonify({"message": "No eligible adviser found"}), 200
-            send_chat_alert_flag = str(request.args.get("send_chat_alert", "1")).lower() not in (
+            send_chat_alert_flag = str(request.args.get("send_chat_alert", "0")).lower() not in (
                 "0",
                 "false",
                 "no",
