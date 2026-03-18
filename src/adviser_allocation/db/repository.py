@@ -689,6 +689,15 @@ class AdviserAllocationDB:
         encryption_key: str,
     ) -> None:
         """Save encrypted OAuth tokens."""
+        # Convert epoch float to datetime for PostgreSQL timestamp column
+        expires_at_raw = tokens.get("_expires_at")
+        if isinstance(expires_at_raw, (int, float)):
+            from datetime import datetime, timezone
+
+            expires_at = datetime.fromtimestamp(expires_at_raw, tz=timezone.utc)
+        else:
+            expires_at = expires_at_raw
+
         with self.engine.begin() as conn:
             conn.execute(
                 text("""
@@ -711,7 +720,7 @@ class AdviserAllocationDB:
                     "provider": provider,
                     "tokens_json": json.dumps(tokens),
                     "encryption_key": encryption_key,
-                    "expires_at": tokens.get("_expires_at"),
+                    "expires_at": expires_at,
                     "token_type": tokens.get("token_type", "Bearer"),
                 },
             )

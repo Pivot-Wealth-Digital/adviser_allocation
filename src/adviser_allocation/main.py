@@ -179,6 +179,7 @@ def require_login():
         "/sync/employees",  # Cloud Scheduler sync
         "/sync/leave_requests",  # Cloud Scheduler sync
         "/sync/calendar_closures",  # Cloud Scheduler sync
+        "/sync/seed-tokens",  # One-time token migration
         "/sync/calendar_watch_renew",  # Cloud Scheduler watch renewal
         "/webhooks/calendar",  # Google Calendar push notifications
         "/jobs/compute-simulated-clarifies",  # Cloud Scheduler job
@@ -617,6 +618,43 @@ def admin_sync_leave_requests():
     except Exception:
         logger.exception("Admin sync leave requests failed")
         return jsonify({"error": "Sync failed"}), 500
+
+
+@main_bp.route("/sync/seed-tokens", methods=["POST"])
+@require_oidc_token
+def sync_seed_tokens():
+    """Seed EH OAuth tokens into CloudSQL (one-time migration from Firestore).
+
+    Accepts a JSON body with refresh_token. Exchanges for fresh access token
+    and saves to CloudSQL.
+    """
+    try:
+        body = request.get_json(force=True)
+        refresh_token = body.get("refresh_token")
+        if not refresh_token:
+            return jsonify({"error": "refresh_token required"}), 400
+
+        ensure_eh_config()
+        # Exchange refresh token for a fresh access token
+        data = {
+            "client_id": EH_CLIENT_ID,
+            "client_secret": EH_CLIENT_SECRET,
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+        }
+        r = requests.post(EH_TOKEN_URL, data=data, timeout=30)
+        if r.status_code != 200:
+            return jsonify({"error": "refresh_failed", "details": r.text}), 400
+
+        tokens = r.json()
+        if "refresh_token" not in tokens:
+            tokens["refresh_token"] = refresh_token
+        save_tokens(tokens)
+        logger.info("EH tokens seeded into CloudSQL via /sync/seed-tokens")
+        return jsonify({"ok": True, "message": "Tokens seeded into CloudSQL"}), 200
+    except Exception as e:
+        logger.error("Failed to seed tokens: %s", e)
+        return jsonify({"error": "Internal server error"}), 500
 
 
 @main_bp.route("/sync/calendar_closures", methods=["POST", "GET"])
