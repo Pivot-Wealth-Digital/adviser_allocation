@@ -30,17 +30,28 @@ def _make_allocation_payload(
     deal_id="deal-123",
     client_email="client@example.com",
     agreement_start_date="",
+    renewal_service_package=None,
+    renewal_household_type=None,
+    omit_service_package=False,
+    omit_household_type=False,
 ):
     """Build a realistic HubSpot workflow webhook payload."""
+    fields = {
+        "hs_deal_record_id": deal_id,
+        "client_email": client_email,
+        "agreement_start_date": agreement_start_date,
+    }
+    if not omit_service_package:
+        fields["service_package"] = service_package
+    if not omit_household_type:
+        fields["household_type"] = household_type
+    if renewal_service_package is not None:
+        fields["renewal_service_package"] = renewal_service_package
+    if renewal_household_type is not None:
+        fields["renewal_household_type"] = renewal_household_type
     return {
         "object": {"objectType": "DEAL", "objectId": deal_id},
-        "fields": {
-            "service_package": service_package,
-            "household_type": household_type,
-            "hs_deal_record_id": deal_id,
-            "client_email": client_email,
-            "agreement_start_date": agreement_start_date,
-        },
+        "fields": fields,
     }
 
 
@@ -400,6 +411,101 @@ class TestWebhookAllocationHubSpotFailure(unittest.TestCase):
         self.assertEqual(record["deal_id"], "deal-ERR")
         self.assertEqual(record["status"], "failed")
         self.assertIn("Network timeout", record["error_message"])
+
+
+class TestWebhookAllocationRenewals(unittest.TestCase):
+    """Renewal deals send renewal_service_package instead of service_package."""
+
+    def setUp(self):
+        self.app = app
+        self.app.config["TESTING"] = True
+        self.client = self.app.test_client()
+
+        self.p_secret = patch(
+            "adviser_allocation.utils.auth.get_secret",
+            return_value=TEST_HUBSPOT_SECRET,
+        )
+        self.p_get_adviser = patch("adviser_allocation.api.webhooks.get_adviser")
+        self.p_patch = patch("adviser_allocation.api.webhooks.patch_with_retries")
+        self.p_store = patch("adviser_allocation.api.webhooks.store_allocation_record")
+        self.p_chat = patch("adviser_allocation.api.webhooks.send_chat_alert")
+        self.p_headers = patch(
+            "adviser_allocation.api.webhooks._hubspot_headers",
+            return_value={
+                "Authorization": "Bearer test-token",
+                "Content-Type": "application/json",
+            },
+        )
+
+        self.mock_secret = self.p_secret.start()
+        self.mock_get_adviser = self.p_get_adviser.start()
+        self.mock_patch_hs = self.p_patch.start()
+        self.mock_store = self.p_store.start()
+        self.mock_chat = self.p_chat.start()
+        self.mock_headers = self.p_headers.start()
+
+        self.mock_get_adviser.return_value = (
+            _make_adviser_user(),
+            _make_candidates_summary(),
+        )
+        mock_resp = MagicMock(status_code=200)
+        mock_resp.raise_for_status = MagicMock()
+        self.mock_patch_hs.return_value = mock_resp
+
+    def tearDown(self):
+        self.p_secret.stop()
+        self.p_get_adviser.stop()
+        self.p_patch.stop()
+        self.p_store.stop()
+        self.p_chat.stop()
+        self.p_headers.stop()
+
+    def test_renewal_service_package_fallback(self):
+        """When service_package missing, falls back to renewal_service_package."""
+        payload = _make_allocation_payload(
+            omit_service_package=True,
+            renewal_service_package="series a",
+        )
+        response = _post_with_sig(self.client, payload)
+        self.assertEqual(response.status_code, 200)
+        self.mock_get_adviser.assert_called_once()
+        call_args = self.mock_get_adviser.call_args[0]
+        self.assertEqual(call_args[0], "series a")
+
+    def test_renewal_household_type_fallback(self):
+        """When household_type blank, falls back to renewal_household_type."""
+        payload = _make_allocation_payload(
+            household_type="",
+            renewal_household_type="couple",
+        )
+        response = _post_with_sig(self.client, payload)
+        self.assertEqual(response.status_code, 200)
+        self.mock_get_adviser.assert_called_once()
+        call_args = self.mock_get_adviser.call_args[0]
+        self.assertEqual(call_args[2], "couple")
+
+    def test_primary_field_takes_precedence(self):
+        """When both fields present, primary service_package wins."""
+        payload = _make_allocation_payload(
+            service_package="series a",
+            renewal_service_package="ipo",
+        )
+        response = _post_with_sig(self.client, payload)
+        self.assertEqual(response.status_code, 200)
+        call_args = self.mock_get_adviser.call_args[0]
+        self.assertEqual(call_args[0], "series a")
+
+    def test_missing_both_service_package_fields_stores_failed_record(self):
+        """Neither service_package nor renewal_service_package -> failed record."""
+        payload = _make_allocation_payload(omit_service_package=True)
+        response = _post_with_sig(self.client, payload)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["message"], "Missing service package field")
+        self.mock_get_adviser.assert_not_called()
+        self.mock_store.assert_called_once()
+        record = self.mock_store.call_args[0][1]
+        self.assertEqual(record["status"], "failed")
+        self.assertIn("Missing service_package", record["error_message"])
 
 
 if __name__ == "__main__":
