@@ -104,6 +104,18 @@ def format_agreement_start(agreement_value):
         return ""
 
 
+def _resolve_field(fields: dict, primary: str, fallback: str, default: str = "") -> str:
+    """Return first non-blank value from primary or fallback field."""
+    value = (fields.get(primary) or "").strip()
+    if value:
+        return value
+    fb = (fields.get(fallback) or "").strip()
+    if fb:
+        logger.info("Field '%s' blank, using fallback '%s' = '%s'", primary, fallback, fb)
+        return fb
+    return default
+
+
 def _hubspot_headers() -> dict:
     """Return HubSpot API headers, raising if token not configured."""
     if not HUBSPOT_HEADERS.get("Authorization"):
@@ -134,19 +146,46 @@ def handle_allocation():
         )
 
         if event.get("object", {}).get("objectType", ""):
-            service_package = event["fields"]["service_package"]
-            household_type = event["fields"].get("household_type", "")
-            agreement_start_date = event.get("fields", {}).get("agreement_start_date", "")
+            fields = event.get("fields", {})
+            service_package = _resolve_field(fields, "service_package", "renewal_service_package")
+            household_type = _resolve_field(fields, "household_type", "renewal_household_type")
+            agreement_start_date = (fields.get("agreement_start_date") or "").strip()
+
+            if not service_package:
+                deal_id = fields.get("hs_deal_record_id", "")
+                logger.warning(
+                    "No service_package or renewal_service_package for deal %s",
+                    deal_id,
+                )
+                store_allocation_record(
+                    None,
+                    {
+                        "client_email": fields.get("client_email", ""),
+                        "deal_id": deal_id,
+                        "service_package": "",
+                        "household_type": household_type,
+                        "agreement_start_date": agreement_start_date,
+                        "status": "failed",
+                        "error_message": (
+                            "Missing service_package and renewal_service_package"
+                            " in webhook payload"
+                        ),
+                    },
+                    source="hubspot_webhook",
+                    raw_request=event,
+                )
+                return jsonify({"message": "Missing service package field"}), 200
+
             selected_user, candidate_list = get_adviser(
                 service_package, agreement_start_date, household_type
             )
             if not selected_user:
-                deal_id = event.get("fields", {}).get("hs_deal_record_id", "")
+                deal_id = fields.get("hs_deal_record_id", "")
                 logger.warning("No eligible adviser found for deal %s", deal_id)
                 store_allocation_record(
                     None,
                     {
-                        "client_email": event.get("fields", {}).get("client_email", ""),
+                        "client_email": fields.get("client_email", ""),
                         "deal_id": deal_id,
                         "service_package": service_package,
                         "household_type": household_type,
@@ -162,7 +201,7 @@ def handle_allocation():
             user = selected_user
             chosen_email = (user.get("properties") or {}).get("hs_email")
             hubspot_owner_id = user["properties"]["hubspot_owner_id"]
-            deal_id = event.get("fields", {}).get("hs_deal_record_id", "")
+            deal_id = fields.get("hs_deal_record_id", "")
             logger.info(
                 "Assigning deal %s to %s (%s)",
                 deal_id,
@@ -204,7 +243,7 @@ def handle_allocation():
                 store_allocation_record(
                     None,
                     {
-                        "client_email": event.get("fields", {}).get("client_email", ""),
+                        "client_email": fields.get("client_email", ""),
                         "adviser_email": chosen_email,
                         "adviser_name": adviser_name,
                         "adviser_hubspot_id": hubspot_owner_id,
@@ -294,7 +333,7 @@ def handle_allocation():
                 store_allocation_record(
                     None,
                     {
-                        "client_email": event.get("fields", {}).get("client_email", ""),
+                        "client_email": fields.get("client_email", ""),
                         "adviser_email": chosen_email,
                         "adviser_name": adviser_name,
                         "adviser_hubspot_id": hubspot_owner_id,
@@ -325,7 +364,7 @@ def handle_allocation():
                 store_allocation_record(
                     None,
                     {
-                        "client_email": event.get("fields", {}).get("client_email", ""),
+                        "client_email": fields.get("client_email", ""),
                         "adviser_email": chosen_email if chosen_email else "",
                         "adviser_name": adviser_name if "adviser_name" in locals() else "",
                         "adviser_hubspot_id": (
