@@ -112,6 +112,15 @@ def load_tokens() -> Optional[Dict]:
             return tokens
     except Exception as exc:
         logger.warning("Failed to load tokens from CloudSQL: %s", exc)
+        # If decryption fails (wrong key or corrupt data), purge the bad row
+        # so it doesn't block all future token loads.
+        if "Wrong key or corrupt data" in str(exc):
+            try:
+                cloudsql_db = get_cloudsql_db()
+                cloudsql_db.delete_tokens(token_key=token_key())
+                logger.warning("Deleted corrupt token row for key=%s", token_key())
+            except Exception as del_exc:
+                logger.error("Failed to delete corrupt token row: %s", del_exc)
 
     # Fallback to session storage
     return session.get("eh_tokens")

@@ -781,6 +781,14 @@ class AdviserAllocationDB:
                 logger.error("Failed to decrypt tokens for %s: %s", token_key, e)
                 return None
 
+    def delete_tokens(self, token_key: str) -> None:
+        """Delete a token row (e.g. when data is corrupt)."""
+        with self.engine.begin() as conn:
+            conn.execute(
+                text("DELETE FROM aa_oauth_tokens WHERE token_key = :token_key"),
+                {"token_key": token_key},
+            )
+
     # =========================================================================
     # CONVENIENCE / COMPATIBILITY METHODS
     # =========================================================================
