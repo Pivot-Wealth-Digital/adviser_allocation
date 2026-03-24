@@ -547,7 +547,7 @@ def get_merged_schedule(user):
         return 0
 
     def combine_classification(a: str, b: str) -> str:
-        days = max(classification_days(a), classification_days(b))
+        days = min(5, classification_days(a) + classification_days(b))
         if days >= 5:
             return "Full"
         if days > 0:

@@ -120,8 +120,8 @@ class AllocationLogicTests(unittest.TestCase):
         self.assertIn(base_week, merged)
         self.assertEqual(
             merged[base_week][2],
-            "Partial: 4",
-            "Merged schedule should keep the highest partial-day count for the week",
+            "Full",
+            "Merged schedule should sum partial days (1+4=5 → Full)",
         )
 
 
