@@ -525,6 +525,12 @@ def get_leave_requests():
         page += 1
         total_pages = e.json()["data"]["total_pages"]
 
+    # Remove stale leave records (cancelled/moved in EH but still in CloudSQL)
+    synced_ids = [lr["leave_request_id"] for lr in leave_requests]
+    deleted = cloudsql_db.delete_stale_future_leave(synced_ids, now_date)
+    if deleted:
+        logger.info("Deleted %d stale future leave records", deleted)
+
     return (leave_requests, e.status_code, {"Content-Type": "application/json"})
 
 
