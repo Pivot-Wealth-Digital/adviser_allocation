@@ -18,9 +18,13 @@ from typing import Any, Dict, List, Optional, Tuple
 from adviser_allocation.core.allocation import (
     CLARIFY_COL,
     TARGET_CAPACITY_COL,
+    classify_deals_list,
+    classify_leave_weeks,
     compute_capacity,
     get_deals_no_clarify,
+    get_meeting_count,
     get_merged_schedule,
+    get_user_client_limits,
     get_user_ids_adviser,
     get_user_meeting_details,
     week_monday_ordinal,
@@ -110,13 +114,33 @@ def compute_simulated_placements_for_adviser(
 
     # Get user's schedule data (meetings, leave, closures)
     try:
-        # Fetch meeting details from HubSpot
-        # Use timestamp from 4 weeks ago (same as get_deals_no_clarify)
+        db = get_cloudsql_db()
+
+        # Leave requests from CloudSQL
+        employee_id = db.get_employee_id_by_email(email)
+        employee_leaves = db.get_employee_leaves_as_dicts(employee_id) if employee_id else []
+        user["leave_requests"] = employee_leaves
+        user["leave_requests_list"] = classify_leave_weeks(employee_leaves)
+
+        # Office closures
+        user["global_closure_weeks"] = classify_leave_weeks(db.get_global_closures())
+
+        # Client limits
+        user = get_user_client_limits(user)
+
+        # Meetings from HubSpot
         four_weeks_ago = sydney_now() - timedelta(weeks=4)
         timestamp_ms = int(four_weeks_ago.timestamp() * 1000)
         user = get_user_meeting_details(user, timestamp_ms)
+        user_meetings = (user.get("meetings") or {}).get("results", [])
+        user["meeting_count_list"] = get_meeting_count(user_meetings)
 
-        # Get merged schedule (meetings + leave + closures + deals)
+        # Deals without clarify (raw HubSpot format for classify_deals_list)
+        raw_deals = get_deals_no_clarify(email)
+        user["deals_no_clarify"] = raw_deals
+        user["deals_no_clarify_list"] = classify_deals_list(raw_deals)
+
+        # Merge into schedule and compute capacity
         user = get_merged_schedule(user)
     except Exception as e:
         logger.warning("Failed to get schedule for %s: %s", email, e)
