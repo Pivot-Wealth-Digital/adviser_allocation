@@ -209,6 +209,34 @@ class AdviserAllocationDB:
                 },
             )
 
+    def delete_stale_future_leave(self, synced_ids: List[str], cutoff_date) -> int:
+        """Delete future leave records not in the latest sync.
+
+        Removes leave requests with start_date >= cutoff_date whose
+        leave_request_id is not in synced_ids. Returns count deleted.
+        """
+        if not synced_ids:
+            # No synced records — delete all future leave
+            with self.engine.begin() as conn:
+                result = conn.execute(
+                    text("""
+                        DELETE FROM aa_leave_requests
+                        WHERE start_date >= :cutoff_date
+                    """),
+                    {"cutoff_date": cutoff_date},
+                )
+                return result.rowcount
+        with self.engine.begin() as conn:
+            result = conn.execute(
+                text("""
+                    DELETE FROM aa_leave_requests
+                    WHERE start_date >= :cutoff_date
+                      AND leave_request_id != ALL(:synced_ids)
+                """),
+                {"cutoff_date": cutoff_date, "synced_ids": synced_ids},
+            )
+            return result.rowcount
+
     # =========================================================================
     # OFFICE CLOSURES
     # =========================================================================
