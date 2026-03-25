@@ -637,11 +637,13 @@ def sync_token_health():
         return jsonify({"status": "missing"}), 404
     expires_at = tok.get("_expires_at", 0)
     remaining = expires_at - time.time()
-    return jsonify({
-        "status": "valid" if remaining > 0 else "expired",
-        "expires_in_seconds": int(remaining),
-        "has_refresh_token": bool(tok.get("refresh_token")),
-    })
+    return jsonify(
+        {
+            "status": "valid" if remaining > 0 else "expired",
+            "expires_in_seconds": int(remaining),
+            "has_refresh_token": bool(tok.get("refresh_token")),
+        }
+    )
 
 
 @main_bp.route("/sync/calendar_closures", methods=["POST", "GET"])

@@ -49,9 +49,7 @@ def _ensure_config():
     EH_AUTHORIZE_URL = os.environ.get(
         "EH_AUTHORIZE_URL", "https://oauth.employmenthero.com/oauth2/authorize"
     )
-    EH_TOKEN_URL = os.environ.get(
-        "EH_TOKEN_URL", "https://oauth.employmenthero.com/oauth2/token"
-    )
+    EH_TOKEN_URL = os.environ.get("EH_TOKEN_URL", "https://oauth.employmenthero.com/oauth2/token")
     EH_CLIENT_ID = get_secret("EH_CLIENT_ID")
     EH_CLIENT_SECRET = get_secret("EH_CLIENT_SECRET")
     REDIRECT_URI = os.environ.get("REDIRECT_URI")
@@ -232,7 +230,9 @@ def get_access_token() -> str:
     _ensure_config()
     tok = load_tokens()
     if not tok:
-        _alert_token_failure("No EH OAuth tokens found in CloudSQL. Re-auth required at /auth/start")
+        _alert_token_failure(
+            "No EH OAuth tokens found in CloudSQL. Re-auth required at /auth/start"
+        )
         raise RuntimeError("No tokens found. Start at /auth/start")
 
     # Token still valid — return immediately
