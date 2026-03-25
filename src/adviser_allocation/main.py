@@ -180,6 +180,7 @@ def require_login():
         "/sync/leave_requests",  # Cloud Scheduler sync
         "/sync/calendar_closures",  # Cloud Scheduler sync
         "/sync/seed-tokens",  # One-time token migration
+        "/sync/token-health",  # Token status check
         "/sync/calendar_watch_renew",  # Cloud Scheduler watch renewal
         "/webhooks/calendar",  # Google Calendar push notifications
         "/jobs/compute-simulated-clarifies",  # Cloud Scheduler job
@@ -262,6 +263,7 @@ def ensure_eh_config():
 
 # ---- Token management using CloudSQL ----
 from adviser_allocation.services.oauth_service import (
+    get_access_token,
     load_tokens,
     save_tokens,
     update_tokens,
@@ -359,43 +361,6 @@ def auth_callback():
     tokens = resp.json()
     save_tokens(tokens)
     return jsonify({"ok": True, "message": "Employment Hero connected. Tokens saved."})
-
-
-# ---- Token helper: always return a fresh access token ----
-def get_access_token():
-    """Return a valid Employment Hero access token, refreshing if needed.
-
-    Raises:
-        RuntimeError: If tokens are missing or refresh fails.
-
-    Returns:
-        str: Bearer access token.
-    """
-    ensure_eh_config()
-    tok = load_tokens()
-    if not tok:
-        raise RuntimeError("No tokens found. Start at /auth/start")
-
-    if time.time() >= tok.get("_expires_at", 0):
-        # Refresh
-        data = {
-            "client_id": EH_CLIENT_ID,
-            "client_secret": EH_CLIENT_SECRET,
-            "grant_type": "refresh_token",
-            "refresh_token": tok["refresh_token"],
-        }
-        r = requests.post(EH_TOKEN_URL, data=data, timeout=30)
-        if r.status_code != 200:
-            raise RuntimeError(f"Refresh failed: {r.status_code} {r.text}")
-        new_tok = r.json()
-        # Replace refresh token if the server returns a new one
-        if "refresh_token" not in new_tok:
-            # Some providers return only access_token on refresh; keep the old refresh_token
-            new_tok["refresh_token"] = tok["refresh_token"]
-        update_tokens(new_tok)
-        return new_tok["access_token"]
-
-    return tok["access_token"]
 
 
 def get_org_id(headers):
@@ -661,6 +626,22 @@ def sync_seed_tokens():
     except Exception as e:
         logger.error("Failed to seed tokens: %s", e)
         return jsonify({"error": "Internal server error"}), 500
+
+
+@main_bp.route("/sync/token-health", methods=["GET"])
+@require_oidc_token
+def sync_token_health():
+    """Return EH OAuth token status without triggering a refresh."""
+    tok = load_tokens()
+    if not tok:
+        return jsonify({"status": "missing"}), 404
+    expires_at = tok.get("_expires_at", 0)
+    remaining = expires_at - time.time()
+    return jsonify({
+        "status": "valid" if remaining > 0 else "expired",
+        "expires_in_seconds": int(remaining),
+        "has_refresh_token": bool(tok.get("refresh_token")),
+    })
 
 
 @main_bp.route("/sync/calendar_closures", methods=["POST", "GET"])

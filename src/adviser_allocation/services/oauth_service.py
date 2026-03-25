@@ -6,20 +6,19 @@ import time
 from typing import Dict, Optional
 from urllib.parse import urlencode
 
-from flask import session
-
 from adviser_allocation.utils.common import get_cloudsql_db
 from adviser_allocation.utils.http_client import LONG_TIMEOUT, post_with_retries
 from adviser_allocation.utils.secrets import get_secret
 
 logger = logging.getLogger(__name__)
 
-# OAuth Configuration
-EH_AUTHORIZE_URL = None  # Set via init_oauth_service
+# OAuth Configuration — populated lazily via _ensure_config()
+EH_AUTHORIZE_URL = None
 EH_TOKEN_URL = None
 EH_CLIENT_ID = None
 EH_CLIENT_SECRET = None
 REDIRECT_URI = None
+_CONFIG_LOADED = False
 
 # Token encryption key for CloudSQL storage
 _TOKEN_ENCRYPTION_KEY = None
@@ -41,6 +40,24 @@ def _get_encryption_key() -> str:
     return _TOKEN_ENCRYPTION_KEY
 
 
+def _ensure_config():
+    """Lazily load EH OAuth config from environment/secrets on first use."""
+    global EH_AUTHORIZE_URL, EH_TOKEN_URL, EH_CLIENT_ID, EH_CLIENT_SECRET
+    global REDIRECT_URI, _CONFIG_LOADED
+    if _CONFIG_LOADED:
+        return
+    EH_AUTHORIZE_URL = os.environ.get(
+        "EH_AUTHORIZE_URL", "https://oauth.employmenthero.com/oauth2/authorize"
+    )
+    EH_TOKEN_URL = os.environ.get(
+        "EH_TOKEN_URL", "https://oauth.employmenthero.com/oauth2/token"
+    )
+    EH_CLIENT_ID = get_secret("EH_CLIENT_ID")
+    EH_CLIENT_SECRET = get_secret("EH_CLIENT_SECRET")
+    REDIRECT_URI = os.environ.get("REDIRECT_URI")
+    _CONFIG_LOADED = True
+
+
 def init_oauth_service(db=None, config: Optional[Dict] = None):
     """Initialize OAuth service with configuration.
 
@@ -49,7 +66,8 @@ def init_oauth_service(db=None, config: Optional[Dict] = None):
         config: Dict with keys: EH_AUTHORIZE_URL, EH_TOKEN_URL, EH_CLIENT_ID,
                 EH_CLIENT_SECRET, REDIRECT_URI
     """
-    global EH_AUTHORIZE_URL, EH_TOKEN_URL, EH_CLIENT_ID, EH_CLIENT_SECRET, REDIRECT_URI
+    global EH_AUTHORIZE_URL, EH_TOKEN_URL, EH_CLIENT_ID, EH_CLIENT_SECRET
+    global REDIRECT_URI, _CONFIG_LOADED
 
     if config:
         EH_AUTHORIZE_URL = config.get("EH_AUTHORIZE_URL")
@@ -57,6 +75,7 @@ def init_oauth_service(db=None, config: Optional[Dict] = None):
         EH_CLIENT_ID = config.get("EH_CLIENT_ID")
         EH_CLIENT_SECRET = config.get("EH_CLIENT_SECRET")
         REDIRECT_URI = config.get("REDIRECT_URI")
+        _CONFIG_LOADED = True
 
 
 def token_key() -> str:
@@ -91,9 +110,6 @@ def save_tokens(tokens: Dict) -> None:
         logger.info("OAuth tokens saved to CloudSQL (expires at %s)", expires_at)
     except Exception as exc:
         logger.error("Failed to save tokens to CloudSQL: %s", exc)
-        # Fallback to session storage
-        session["eh_tokens"] = tokens
-        logger.info("Tokens saved to session as fallback")
 
 
 def load_tokens() -> Optional[Dict]:
@@ -122,8 +138,7 @@ def load_tokens() -> Optional[Dict]:
             except Exception as del_exc:
                 logger.error("Failed to delete corrupt token row: %s", del_exc)
 
-    # Fallback to session storage
-    return session.get("eh_tokens")
+    return None
 
 
 def update_tokens(tokens: Dict) -> None:
@@ -147,6 +162,7 @@ def exchange_code_for_tokens(code: str) -> Dict:
     Raises:
         RuntimeError: If token exchange fails
     """
+    _ensure_config()
     if not all([EH_CLIENT_ID, EH_CLIENT_SECRET, EH_TOKEN_URL, REDIRECT_URI]):
         raise RuntimeError("OAuth configuration incomplete")
 
@@ -180,6 +196,7 @@ def refresh_access_token(refresh_token: str) -> Dict:
     Raises:
         RuntimeError: If refresh fails
     """
+    _ensure_config()
     if not all([EH_CLIENT_ID, EH_CLIENT_SECRET, EH_TOKEN_URL]):
         raise RuntimeError("OAuth configuration incomplete")
 
@@ -203,31 +220,53 @@ def refresh_access_token(refresh_token: str) -> Dict:
 def get_access_token() -> str:
     """Get a valid access token, refreshing if necessary.
 
+    Includes one retry on refresh failure and sends a Google Chat alert
+    if all attempts fail.
+
     Returns:
         str: Valid access token
 
     Raises:
-        RuntimeError: If no tokens found or refresh fails
+        RuntimeError: If no tokens found or refresh fails after retry
     """
+    _ensure_config()
     tok = load_tokens()
     if not tok:
+        _alert_token_failure("No EH OAuth tokens found in CloudSQL. Re-auth required at /auth/start")
         raise RuntimeError("No tokens found. Start at /auth/start")
 
-    # Check if token is expired (with 60s buffer)
-    if time.time() >= tok.get("_expires_at", 0):
-        logger.info("Token expired, refreshing...")
+    # Token still valid — return immediately
+    if time.time() < tok.get("_expires_at", 0):
+        return tok["access_token"]
+
+    # Token expired — refresh with one retry
+    logger.info("Token expired, refreshing...")
+    last_exc = None
+    for attempt in range(2):
         try:
             new_tok = refresh_access_token(tok["refresh_token"])
-            # Keep old refresh_token if provider doesn't return new one
             if "refresh_token" not in new_tok:
                 new_tok["refresh_token"] = tok["refresh_token"]
             update_tokens(new_tok)
             return new_tok["access_token"]
         except Exception as exc:
-            logger.error("Token refresh failed: %s", exc)
-            raise
+            last_exc = exc
+            if attempt == 0:
+                logger.warning("Token refresh attempt 1 failed: %s — retrying in 2s", exc)
+                time.sleep(2)
 
-    return tok["access_token"]
+    _alert_token_failure(f"EH OAuth token refresh failed after 2 attempts: {last_exc}")
+    raise RuntimeError(f"Token refresh failed after retry: {last_exc}")
+
+
+def _alert_token_failure(message: str) -> None:
+    """Send a Google Chat alert for token failures."""
+    try:
+        from adviser_allocation.api.webhooks import send_chat_alert
+
+        send_chat_alert({"text": f"\u26a0\ufe0f {message}"})
+    except Exception as exc:
+        logger.warning("Could not send chat alert: %s", exc)
 
 
 def build_authorization_url(state: str) -> str:
@@ -242,6 +281,7 @@ def build_authorization_url(state: str) -> str:
     Raises:
         RuntimeError: If config incomplete
     """
+    _ensure_config()
     if not all([EH_AUTHORIZE_URL, EH_CLIENT_ID, REDIRECT_URI]):
         raise RuntimeError("OAuth configuration incomplete")
 

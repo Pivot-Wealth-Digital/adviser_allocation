@@ -76,6 +76,14 @@ class HTTPClientTests(unittest.TestCase):
         self.assertGreater(DEFAULT_TIMEOUT, 0)
         self.assertLess(DEFAULT_TIMEOUT, 120)
 
+    def test_retry_strategy_includes_post(self):
+        """Test that retry strategy allows POST retries."""
+        session = create_session_with_retries(retries=2)
+        adapter = session.get_adapter("https://example.com")
+        retry = adapter.max_retries
+        self.assertIn("POST", retry.allowed_methods)
+        self.assertIn("PATCH", retry.allowed_methods)
+
 
 if __name__ == "__main__":
     unittest.main()
