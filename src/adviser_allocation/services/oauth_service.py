@@ -28,9 +28,8 @@ def _get_encryption_key() -> str:
     """Get the token encryption key from environment or secrets."""
     global _TOKEN_ENCRYPTION_KEY
     if _TOKEN_ENCRYPTION_KEY is None:
-        _TOKEN_ENCRYPTION_KEY = get_secret("AA_TOKEN_ENCRYPTION_KEY") or os.environ.get(
-            "AA_TOKEN_ENCRYPTION_KEY"
-        )
+        raw = get_secret("AA_TOKEN_ENCRYPTION_KEY") or os.environ.get("AA_TOKEN_ENCRYPTION_KEY")
+        _TOKEN_ENCRYPTION_KEY = raw.strip() if raw else None
         if not _TOKEN_ENCRYPTION_KEY:
             if os.environ.get("K_SERVICE"):
                 raise RuntimeError(
