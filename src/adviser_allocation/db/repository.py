@@ -737,7 +737,7 @@ class AdviserAllocationDB:
                         token_key, provider, tokens_json, expires_at, token_type
                     ) VALUES (
                         :token_key, :provider,
-                        :tokens_json::jsonb,
+                        CAST(:tokens_json AS jsonb),
                         :expires_at, :token_type
                     )
                     ON CONFLICT (token_key) DO UPDATE SET
