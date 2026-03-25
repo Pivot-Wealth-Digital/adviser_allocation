@@ -34,7 +34,11 @@ class AdviserAllocationDB:
     # =========================================================================
 
     def get_employee_by_email(self, email: str) -> Optional[Employee]:
-        """Get employee by company email."""
+        """Get employee by email, checking company_email, account_email, and name."""
+        # Build a name pattern from the email prefix (e.g. "martin.vanrooy" → "martin%vanrooy%")
+        prefix = email.split("@")[0] if "@" in email else ""
+        name_pattern = "%" + "%".join(prefix.split(".")) + "%" if prefix else ""
+
         with self.engine.connect() as conn:
             result = conn.execute(
                 text("""
@@ -43,9 +47,15 @@ class AdviserAllocationDB:
                            is_active, created_at, updated_at, last_synced
                     FROM aa_employees
                     WHERE company_email = :email
+                       OR account_email = :email
+                       OR (LOWER(name) LIKE LOWER(:name_pattern) AND :name_pattern != '')
+                    ORDER BY
+                        CASE WHEN company_email = :email THEN 0
+                             WHEN account_email = :email THEN 1
+                             ELSE 2 END
                     LIMIT 1
                 """),
-                {"email": email},
+                {"email": email, "name_pattern": name_pattern},
             )
             row = result.fetchone()
             if not row:
