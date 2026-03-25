@@ -714,9 +714,13 @@ class AdviserAllocationDB:
         token_key: str,
         provider: str,
         tokens: Dict[str, Any],
-        encryption_key: str,
+        **_kwargs,
     ) -> None:
-        """Save encrypted OAuth tokens."""
+        """Save OAuth tokens as plain JSONB.
+
+        CloudSQL provides encryption at rest and encrypted connections,
+        so application-level encryption is unnecessary.
+        """
         # Convert epoch float to datetime for PostgreSQL timestamp column
         expires_at_raw = tokens.get("_expires_at")
         if isinstance(expires_at_raw, (int, float)):
@@ -730,15 +734,15 @@ class AdviserAllocationDB:
             conn.execute(
                 text("""
                     INSERT INTO aa_oauth_tokens (
-                        token_key, provider, encrypted_tokens, expires_at, token_type
+                        token_key, provider, tokens_json, expires_at, token_type
                     ) VALUES (
                         :token_key, :provider,
-                        pgp_sym_encrypt(:tokens_json, :encryption_key),
+                        :tokens_json::jsonb,
                         :expires_at, :token_type
                     )
                     ON CONFLICT (token_key) DO UPDATE SET
                         provider = EXCLUDED.provider,
-                        encrypted_tokens = pgp_sym_encrypt(:tokens_json, :encryption_key),
+                        tokens_json = EXCLUDED.tokens_json,
                         expires_at = EXCLUDED.expires_at,
                         token_type = EXCLUDED.token_type,
                         updated_at = CURRENT_TIMESTAMP
@@ -747,7 +751,6 @@ class AdviserAllocationDB:
                     "token_key": token_key,
                     "provider": provider,
                     "tokens_json": json.dumps(tokens),
-                    "encryption_key": encryption_key,
                     "expires_at": expires_at,
                     "token_type": tokens.get("token_type", "Bearer"),
                 },
@@ -756,38 +759,33 @@ class AdviserAllocationDB:
     def load_tokens(
         self,
         token_key: str,
-        encryption_key: str,
+        **_kwargs,
     ) -> Optional[Dict[str, Any]]:
-        """Load and decrypt OAuth tokens."""
+        """Load OAuth tokens from plain JSONB column."""
         with self.engine.connect() as conn:
             result = conn.execute(
                 text("""
-                    SELECT pgp_sym_decrypt(encrypted_tokens, :encryption_key)::text as tokens_json,
-                           provider, expires_at, token_type
+                    SELECT tokens_json, provider, expires_at, token_type
                     FROM aa_oauth_tokens
                     WHERE token_key = :token_key
                 """),
-                {"token_key": token_key, "encryption_key": encryption_key},
+                {"token_key": token_key},
             )
             row = result.fetchone()
             if not row:
                 return None
             try:
-                tokens = json.loads(row.tokens_json)
+                tokens = (
+                    row.tokens_json
+                    if isinstance(row.tokens_json, dict)
+                    else json.loads(row.tokens_json)
+                )
                 tokens["provider"] = row.provider
                 tokens["token_type"] = row.token_type
                 return tokens
             except (json.JSONDecodeError, TypeError) as e:
-                logger.error("Failed to decrypt tokens for %s: %s", token_key, e)
+                logger.error("Failed to parse tokens for %s: %s", token_key, e)
                 return None
-
-    def delete_tokens(self, token_key: str) -> None:
-        """Delete a token row (e.g. when data is corrupt)."""
-        with self.engine.begin() as conn:
-            conn.execute(
-                text("DELETE FROM aa_oauth_tokens WHERE token_key = :token_key"),
-                {"token_key": token_key},
-            )
 
     # =========================================================================
     # CONVENIENCE / COMPATIBILITY METHODS

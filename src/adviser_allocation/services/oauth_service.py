@@ -20,24 +20,6 @@ EH_CLIENT_SECRET = None
 REDIRECT_URI = None
 _CONFIG_LOADED = False
 
-# Token encryption key for CloudSQL storage
-_TOKEN_ENCRYPTION_KEY = None
-
-
-def _get_encryption_key() -> str:
-    """Get the token encryption key from environment or secrets."""
-    global _TOKEN_ENCRYPTION_KEY
-    if _TOKEN_ENCRYPTION_KEY is None:
-        raw = get_secret("AA_TOKEN_ENCRYPTION_KEY") or os.environ.get("AA_TOKEN_ENCRYPTION_KEY")
-        _TOKEN_ENCRYPTION_KEY = raw.strip() if raw else None
-        if not _TOKEN_ENCRYPTION_KEY:
-            if os.environ.get("K_SERVICE"):
-                raise RuntimeError(
-                    "AA_TOKEN_ENCRYPTION_KEY must be set in production (Secret Manager or env var)"
-                )
-            _TOKEN_ENCRYPTION_KEY = "default-dev-key-not-for-production"
-    return _TOKEN_ENCRYPTION_KEY
-
 
 def _ensure_config():
     """Lazily load EH OAuth config from environment/secrets on first use."""
@@ -102,7 +84,6 @@ def save_tokens(tokens: Dict) -> None:
             token_key=token_key(),
             provider="employment_hero",
             tokens=tokens,
-            encryption_key=_get_encryption_key(),
         )
         logger.info("OAuth tokens saved to CloudSQL (expires at %s)", expires_at)
     except Exception as exc:
@@ -117,23 +98,11 @@ def load_tokens() -> Optional[Dict]:
     """
     try:
         cloudsql_db = get_cloudsql_db()
-        tokens = cloudsql_db.load_tokens(
-            token_key=token_key(),
-            encryption_key=_get_encryption_key(),
-        )
+        tokens = cloudsql_db.load_tokens(token_key=token_key())
         if tokens:
             return tokens
     except Exception as exc:
         logger.warning("Failed to load tokens from CloudSQL: %s", exc)
-        # If decryption fails (wrong key or corrupt data), purge the bad row
-        # so it doesn't block all future token loads.
-        if "Wrong key or corrupt data" in str(exc):
-            try:
-                cloudsql_db = get_cloudsql_db()
-                cloudsql_db.delete_tokens(token_key=token_key())
-                logger.warning("Deleted corrupt token row for key=%s", token_key())
-            except Exception as del_exc:
-                logger.error("Failed to delete corrupt token row: %s", del_exc)
 
     return None
 
