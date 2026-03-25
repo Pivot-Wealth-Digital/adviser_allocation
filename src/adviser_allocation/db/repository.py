@@ -34,11 +34,7 @@ class AdviserAllocationDB:
     # =========================================================================
 
     def get_employee_by_email(self, email: str) -> Optional[Employee]:
-        """Get employee by email, checking company_email, account_email, and name."""
-        # Build a name pattern from the email prefix (e.g. "martin.vanrooy" → "martin%vanrooy%")
-        prefix = email.split("@")[0] if "@" in email else ""
-        name_pattern = "%" + "%".join(prefix.split(".")) + "%" if prefix else ""
-
+        """Get employee by company_email or account_email."""
         with self.engine.connect() as conn:
             result = conn.execute(
                 text("""
@@ -48,14 +44,11 @@ class AdviserAllocationDB:
                     FROM aa_employees
                     WHERE company_email = :email
                        OR account_email = :email
-                       OR (LOWER(name) LIKE LOWER(:name_pattern) AND :name_pattern != '')
                     ORDER BY
-                        CASE WHEN company_email = :email THEN 0
-                             WHEN account_email = :email THEN 1
-                             ELSE 2 END
+                        CASE WHEN company_email = :email THEN 0 ELSE 1 END
                     LIMIT 1
                 """),
-                {"email": email, "name_pattern": name_pattern},
+                {"email": email},
             )
             row = result.fetchone()
             if not row:
@@ -116,6 +109,26 @@ class AdviserAllocationDB:
                     "last_synced": emp.last_synced or datetime.utcnow(),
                 },
             )
+
+    def backfill_company_emails_from_hubspot(self) -> int:
+        """Backfill empty company_email from hubspot_owners by matching names.
+
+        Returns the number of rows updated.
+        """
+        with self.engine.begin() as conn:
+            result = conn.execute(
+                text("""
+                    UPDATE aa_employees e
+                    SET company_email = o.email,
+                        updated_at = CURRENT_TIMESTAMP
+                    FROM hubspot_owners o
+                    WHERE REPLACE(LOWER(e.name), ' ', '') = REPLACE(LOWER(o.full_name), ' ', '')
+                      AND (e.company_email IS NULL OR e.company_email = '')
+                      AND o.email LIKE '%@pivotwealth.com.au'
+                      AND e.is_active = true
+                """)
+            )
+            return result.rowcount
 
     # =========================================================================
     # LEAVE REQUESTS

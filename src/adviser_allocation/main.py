@@ -549,7 +549,16 @@ def sync_employees():
     """Trigger an on-demand employee sync (suitable for schedulers)."""
     try:
         data, status, headers = get_employees()
-        return jsonify({"synced": len(data)}), status
+        # Backfill company_email from HubSpot owners for employees missing it
+        backfilled = 0
+        try:
+            cloudsql_db = get_cloudsql_db()
+            backfilled = cloudsql_db.backfill_company_emails_from_hubspot()
+            if backfilled:
+                logger.info("Backfilled company_email for %d employees from HubSpot", backfilled)
+        except Exception as exc:
+            logger.warning("Failed to backfill company emails: %s", exc)
+        return jsonify({"synced": len(data), "emails_backfilled": backfilled}), status
     except Exception as e:
         logger.error("Failed to sync employees: %s", e)
         return jsonify({"error": "Internal server error"}), 500
