@@ -53,8 +53,9 @@ class OAuthServiceTests(unittest.TestCase):
         self.assertEqual(key1, key2)
         self.assertIsInstance(key1, str)
 
-    def test_save_and_load_tokens(self):
-        """Test saving and loading tokens with Flask session."""
+    @patch("adviser_allocation.services.oauth_service.get_cloudsql_db")
+    def test_save_and_load_tokens(self, mock_get_db):
+        """Test saving and loading tokens via CloudSQL."""
         init_oauth_service(db=None, config=self.oauth_config)
 
         test_tokens = {
@@ -63,15 +64,22 @@ class OAuthServiceTests(unittest.TestCase):
             "expires_in": 3600,
         }
 
-        # Use Flask test client to provide request context
-        with self.app.test_request_context():
-            save_tokens(test_tokens)
-            loaded = load_tokens()
+        mock_db = MagicMock()
+        mock_db.load_tokens.return_value = {
+            "access_token": "test_access_token",
+            "refresh_token": "test_refresh_token",
+            "_expires_at": time.time() + 3540,
+        }
+        mock_get_db.return_value = mock_db
 
-            self.assertIsNotNone(loaded)
-            self.assertEqual(loaded["access_token"], "test_access_token")
-            self.assertEqual(loaded["refresh_token"], "test_refresh_token")
-            self.assertIn("_expires_at", loaded)
+        save_tokens(test_tokens)
+        mock_db.save_tokens.assert_called_once()
+
+        loaded = load_tokens()
+        self.assertIsNotNone(loaded)
+        self.assertEqual(loaded["access_token"], "test_access_token")
+        self.assertEqual(loaded["refresh_token"], "test_refresh_token")
+        self.assertIn("_expires_at", loaded)
 
     @patch("adviser_allocation.services.oauth_service.post_with_retries")
     def test_exchange_code_for_tokens(self, mock_post):
@@ -127,49 +135,99 @@ class OAuthServiceTests(unittest.TestCase):
         """Test that get_access_token returns cached token if valid."""
         init_oauth_service(db=None, config=self.oauth_config)
 
-        # Mock DB so save/load use session fallback
-        mock_get_db.side_effect = Exception("No DB in test")
+        # Mock DB to return valid tokens
+        mock_db = MagicMock()
+        mock_db.load_tokens.return_value = {
+            "access_token": "cached_token",
+            "refresh_token": "refresh_token",
+            "_expires_at": time.time() + 3600,
+        }
+        mock_get_db.return_value = mock_db
 
-        with self.app.test_request_context():
-            # Save a valid token that won't expire for 1 hour
-            test_tokens = {
-                "access_token": "cached_token",
-                "refresh_token": "refresh_token",
-                "expires_in": 3600,
-            }
-            save_tokens(test_tokens)
+        result = get_access_token()
+        self.assertEqual(result, "cached_token")
 
-            # Should return cached token
-            result = get_access_token()
-            self.assertEqual(result, "cached_token")
-
+    @patch("adviser_allocation.services.oauth_service.get_cloudsql_db")
     @patch("adviser_allocation.services.oauth_service.post_with_retries")
-    def test_get_access_token_refreshes_when_expired(self, mock_post):
+    def test_get_access_token_refreshes_when_expired(self, mock_post, mock_get_db):
         """Test that get_access_token refreshes expired token."""
         init_oauth_service(db=None, config=self.oauth_config)
 
-        with self.app.test_request_context():
-            # Save an expired token
-            test_tokens = {
-                "access_token": "expired_token",
-                "refresh_token": "refresh_token",
-                "_expires_at": time.time() - 100,  # Expired 100 seconds ago
-            }
-            save_tokens(test_tokens)
+        # Mock DB to return expired token, then accept save
+        mock_db = MagicMock()
+        mock_db.load_tokens.return_value = {
+            "access_token": "expired_token",
+            "refresh_token": "refresh_token",
+            "_expires_at": time.time() - 100,
+        }
+        mock_get_db.return_value = mock_db
 
-            # Mock refresh response
-            mock_response = MagicMock()
-            mock_response.status_code = 200
-            mock_response.json.return_value = {
-                "access_token": "new_token",
-                "refresh_token": "new_refresh_token",
-                "expires_in": 3600,
-            }
-            mock_post.return_value = mock_response
+        # Mock refresh response
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "access_token": "new_token",
+            "refresh_token": "new_refresh_token",
+            "expires_in": 3600,
+        }
+        mock_post.return_value = mock_response
 
-            result = get_access_token()
-            self.assertEqual(result, "new_token")
-            mock_post.assert_called()
+        result = get_access_token()
+        self.assertEqual(result, "new_token")
+        mock_post.assert_called()
+
+    @patch("adviser_allocation.services.oauth_service._alert_token_failure")
+    @patch("adviser_allocation.services.oauth_service.get_cloudsql_db")
+    @patch("adviser_allocation.services.oauth_service.post_with_retries")
+    def test_get_access_token_retries_on_failure(self, mock_post, mock_get_db, mock_alert):
+        """Test that get_access_token retries once and alerts on final failure."""
+        init_oauth_service(db=None, config=self.oauth_config)
+
+        mock_db = MagicMock()
+        mock_db.load_tokens.return_value = {
+            "access_token": "expired_token",
+            "refresh_token": "refresh_token",
+            "_expires_at": time.time() - 100,
+        }
+        mock_get_db.return_value = mock_db
+
+        # Both refresh attempts fail
+        mock_response = MagicMock()
+        mock_response.status_code = 401
+        mock_response.text = "invalid_grant"
+        mock_post.return_value = mock_response
+
+        with self.assertRaises(RuntimeError) as ctx:
+            get_access_token()
+
+        self.assertIn("Token refresh failed after retry", str(ctx.exception))
+        # Should have tried twice (initial + 1 retry)
+        self.assertEqual(mock_post.call_count, 2)
+        # Should have sent alert
+        mock_alert.assert_called_once()
+
+    @patch("adviser_allocation.services.oauth_service._alert_token_failure")
+    @patch("adviser_allocation.services.oauth_service.get_cloudsql_db")
+    def test_get_access_token_alerts_when_no_tokens(self, mock_get_db, mock_alert):
+        """Test that get_access_token alerts when no tokens found."""
+        init_oauth_service(db=None, config=self.oauth_config)
+
+        mock_db = MagicMock()
+        mock_db.load_tokens.return_value = None
+        mock_get_db.return_value = mock_db
+
+        with self.assertRaises(RuntimeError):
+            get_access_token()
+
+        mock_alert.assert_called_once()
+
+    @patch("adviser_allocation.services.oauth_service.get_cloudsql_db")
+    def test_load_tokens_returns_none_without_session_fallback(self, mock_get_db):
+        """Test that load_tokens returns None (not session) when DB fails."""
+        mock_get_db.side_effect = Exception("DB unavailable")
+
+        result = load_tokens()
+        self.assertIsNone(result)
 
     def test_build_authorization_url(self):
         """Test authorization URL building."""
