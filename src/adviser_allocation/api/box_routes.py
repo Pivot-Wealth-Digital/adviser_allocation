@@ -1,31 +1,31 @@
+import hashlib
 import logging
 import os
 import re
 import time
 from datetime import datetime, timezone
 from functools import lru_cache
-from typing import Optional, Tuple, List, Dict
-import hashlib
 from pprint import pformat
+from typing import Dict, List, Optional, Tuple
 
 import requests
 from flask import Blueprint, jsonify, redirect, render_template, request, session
 
-from adviser_allocation.services.box_folder_service import (
-    BoxAutomationError,
-    provision_box_folder,
-    ensure_box_service,
-    CLIENT_SHARING_SUBFOLDER,
-    CLIENT_SHARING_ROLE,
-)
 from adviser_allocation.services import box_folder_service as box_service
-from adviser_allocation.utils.auth import require_hubspot_signature
-from adviser_allocation.utils.secrets import get_secret
-from adviser_allocation.utils.common import (
-    sydney_today,
-    sydney_now,
-    SYDNEY_TZ,
+from adviser_allocation.services.box_folder_service import (
+    CLIENT_SHARING_ROLE,
+    CLIENT_SHARING_SUBFOLDER,
+    BoxAutomationError,
+    ensure_box_service,
+    provision_box_folder,
 )
+from adviser_allocation.utils.auth import require_hubspot_signature
+from adviser_allocation.utils.common import (
+    SYDNEY_TZ,
+    sydney_now,
+    sydney_today,
+)
+from adviser_allocation.utils.secrets import get_secret
 
 logger = logging.getLogger(__name__)
 
@@ -714,9 +714,9 @@ def _load_contact_details_with_deals(email: str) -> Tuple[Optional[dict], List[d
         try:
             deal_contacts = box_service.get_hubspot_deal_contacts(deal_id)
 
-            def _contact_by_label(label: str) -> Optional[dict]:
+            def _contact_by_label(label: str, contacts=deal_contacts) -> Optional[dict]:
                 target = label.strip().lower()
-                for contact_entry in deal_contacts:
+                for contact_entry in contacts:
                     for assoc in contact_entry.get("association_types", []):
                         assoc_label = (assoc.get("label") or "").strip().lower()
                         if assoc_label == target:
@@ -2619,7 +2619,7 @@ def box_folder_preview():
     return jsonify(response), 200
 
 
-__all__ = ["box_bp", "create_box_folder_webhook"]
+__all__ = ["box_bp"]
 
 
 def _is_internal_email(email: Optional[str]) -> bool:

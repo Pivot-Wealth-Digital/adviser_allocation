@@ -1,13 +1,13 @@
-from pathlib import Path
 import json
 import logging
 import os
 import re
 import time
-from typing import Optional, List
+from pathlib import Path
+from typing import List, Optional
 
 import requests
-from boxsdk import JWTAuth, Client
+from boxsdk import Client, JWTAuth
 from boxsdk.exception import BoxAPIException
 
 from adviser_allocation.utils.secrets import get_secret
@@ -896,8 +896,8 @@ def _load_box_jwt_config_json() -> Optional[str]:
 
     # Try direct Secret Manager fetch for 'box-jwt-config' secret
     try:
-        from google.cloud import secretmanager
         import google.auth
+        from google.cloud import secretmanager
 
         credentials, project_id = google.auth.default()
         if project_id and secretmanager:
