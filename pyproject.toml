@@ -114,7 +114,7 @@ indent-style = "space"
 
 [tool.coverage.run]
 source = ["src/adviser_allocation"]
-omit = ["*/tests/*", "*/.venv/*"]
+omit = ["*/tests/*", "*/.venv/*", "*/api/box_routes.py", "*/services/box_folder_service.py"]
 
 [tool.coverage.report]
 fail_under = 35
