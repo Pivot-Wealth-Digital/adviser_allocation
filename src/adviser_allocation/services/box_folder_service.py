@@ -427,7 +427,9 @@ class BoxFolderService:
         return tagged, untagged, issues
 
     def _resolve_path(self, path: str) -> str:
-        normalized = "/".join(segment.strip() for segment in (path or "").split("/") if segment.strip())
+        normalized = "/".join(
+            segment.strip() for segment in (path or "").split("/") if segment.strip()
+        )
         if not normalized:
             return "0"
         cached = self._path_cache.get(normalized)
@@ -531,9 +533,7 @@ class BoxFolderService:
             ) from exc
 
         if resp.status_code == 409:
-            logger.info(
-                "Box collaborator already exists for folder %s email=%s", folder_id, email
-            )
+            logger.info("Box collaborator already exists for folder %s email=%s", folder_id, email)
             return {"status": "exists", "email": email, "folder_id": folder_id}
 
         try:
@@ -576,7 +576,9 @@ class BoxFolderService:
             prepared[mapped_key] = formatted_value
 
         if not prepared and not removal_candidates:
-            logger.debug("No metadata supplied for folder %s; skipping template application", folder_id)
+            logger.debug(
+                "No metadata supplied for folder %s; skipping template application", folder_id
+            )
             return
 
         url = f"{self._api_base_url}/folders/{folder_id}/metadata/{self._metadata_scope}/{self._metadata_template_key}"
@@ -600,7 +602,9 @@ class BoxFolderService:
                 # Metadata already exists; fetch current values to build patch operations
                 existing: dict[str, str] = {}
                 try:
-                    existing_resp = requests.get(url, headers=self._headers(), timeout=self._timeout)
+                    existing_resp = requests.get(
+                        url, headers=self._headers(), timeout=self._timeout
+                    )
                     if existing_resp.ok:
                         existing = {
                             key: value
@@ -643,7 +647,9 @@ class BoxFolderService:
                 folder_id,
             )
         except requests.RequestException as exc:
-            raise BoxAutomationError(f"Box metadata apply failed for folder {folder_id}: {exc}") from exc
+            raise BoxAutomationError(
+                f"Box metadata apply failed for folder {folder_id}: {exc}"
+            ) from exc
 
     def rename_metadata_template(self, display_name: str) -> dict:
         """Rename the configured metadata template display name."""
@@ -759,12 +765,14 @@ def get_box_template_path_from_settings() -> str:
     global _BOX_TEMPLATE_PATH_CACHE, _BOX_TEMPLATE_PATH_CACHE_TIME
 
     now = time.time()
-    if _BOX_TEMPLATE_PATH_CACHE and (now - _BOX_TEMPLATE_PATH_CACHE_TIME) < BOX_TEMPLATE_PATH_CACHE_TTL:
+    if (
+        _BOX_TEMPLATE_PATH_CACHE
+        and (now - _BOX_TEMPLATE_PATH_CACHE_TIME) < BOX_TEMPLATE_PATH_CACHE_TTL
+    ):
         return _BOX_TEMPLATE_PATH_CACHE
 
     path = os.environ.get(
-        "BOX_TEMPLATE_PATH",
-        "Team Advice/Pivot Clients/2026 Client Box Folder Template"
+        "BOX_TEMPLATE_PATH", "Team Advice/Pivot Clients/2026 Client Box Folder Template"
     )
     logger.info("Using Box template path from environment variable: %s", path)
     _BOX_TEMPLATE_PATH_CACHE = path
@@ -800,7 +808,10 @@ BOX_METADATA_FIELD_MAP = {
     "associated_contact_ids": "associated_contact_ids",
 }
 BOX_REQUEST_TIMEOUT = int(os.environ.get("BOX_REQUEST_TIMEOUT_SECONDS", "20"))
-BOX_JWT_CONFIG_PATH = os.environ.get("BOX_JWT_CONFIG_PATH") or Path(__file__).resolve().parent.parent / "config" / "box_jwt_config.json"
+BOX_JWT_CONFIG_PATH = (
+    os.environ.get("BOX_JWT_CONFIG_PATH")
+    or Path(__file__).resolve().parent.parent / "config" / "box_jwt_config.json"
+)
 
 
 def _current_portal_id() -> str:
@@ -829,7 +840,9 @@ def _format_metadata_value_for_template(key: str, value) -> Optional[str]:
                     continue
                 display = (
                     contact.get("display_name")
-                    or " ".join(filter(None, [contact.get("firstname"), contact.get("lastname")])).strip()
+                    or " ".join(
+                        filter(None, [contact.get("firstname"), contact.get("lastname")])
+                    ).strip()
                     or contact.get("email")
                     or contact.get("id")
                     or "Unknown Contact"
@@ -898,6 +911,7 @@ def _load_box_jwt_config_json() -> Optional[str]:
         logger.debug("Could not load box-jwt-config from Secret Manager: %s", e)
 
     return None
+
 
 BOX_JWT_CONFIG_JSON = _load_box_jwt_config_json()
 
@@ -1052,7 +1066,9 @@ def get_hubspot_deal_contacts(deal_id: str) -> List[dict]:
         payload = {"inputs": [{"id": str(deal_id)}]}
         resp = requests.post(url, headers=_hubspot_headers(), json=payload, timeout=10)
         if resp.status_code == 404:
-            logger.warning("HubSpot deal %s not found when retrieving contact associations", deal_id)
+            logger.warning(
+                "HubSpot deal %s not found when retrieving contact associations", deal_id
+            )
         else:
             resp.raise_for_status()
             results = resp.json().get("results", [])
@@ -1141,9 +1157,7 @@ def build_client_folder_name(deal_id: str, contacts: List[dict]) -> str:
     has_partner = bool(partner_first or partner_last)
     if has_partner and partner_first and partner_last:
         last_matches = (
-            primary_last
-            and partner_last
-            and primary_last.lower() == partner_last.lower()
+            primary_last and partner_last and primary_last.lower() == partner_last.lower()
         )
         if last_matches:
             shared_last = primary_last or partner_last
@@ -1214,8 +1228,7 @@ def provision_box_folder(
     formatted_contacts = [
         name
         for name in (
-            _format_contact_display(contact, position=idx)
-            for idx, contact in enumerate(contacts)
+            _format_contact_display(contact, position=idx) for idx, contact in enumerate(contacts)
         )
         if name
     ]
@@ -1266,7 +1279,7 @@ def create_box_folder_for_deal(
         )
         return {"status": "skipped", "reason": "box_not_configured"}
 
-    logger.info('Starting Box folder creation for deal %s', deal_id)
+    logger.info("Starting Box folder creation for deal %s", deal_id)
     contacts: List[dict]
     if contacts_override is not None:
         contacts = contacts_override
@@ -1275,8 +1288,7 @@ def create_box_folder_for_deal(
     formatted_contacts = [
         name
         for name in (
-            _format_contact_display(contact, position=idx)
-            for idx, contact in enumerate(contacts)
+            _format_contact_display(contact, position=idx) for idx, contact in enumerate(contacts)
         )
         if name
     ]
@@ -1293,7 +1305,9 @@ def create_box_folder_for_deal(
     )
 
     template_metadata = dict(metadata_payload)
-    primary_contact_value = template_metadata.get("primary_contact_link") or template_metadata.get("primary_contact_id")
+    primary_contact_value = template_metadata.get("primary_contact_link") or template_metadata.get(
+        "primary_contact_id"
+    )
     if "primary_contact_link" not in template_metadata and primary_contact_value:
         template_metadata["primary_contact_link"] = primary_contact_value
     if "spouse_contact_link" not in template_metadata and template_metadata.get("hs_spouse_id"):
@@ -1322,11 +1336,11 @@ def create_box_folder_for_deal(
             )
         else:
             folder_name = build_client_folder_name(deal_id, contacts)
-            logger.info('Using folder name %s under %s', folder_name, BOX_ACTIVE_CLIENTS_PATH)
+            logger.info("Using folder name %s under %s", folder_name, BOX_ACTIVE_CLIENTS_PATH)
         folder = service.ensure_client_folder(folder_name)
-        logger.info('Created Box folder for deal %s (id=%s)', deal_id, folder.get('id'))
+        logger.info("Created Box folder for deal %s (id=%s)", deal_id, folder.get("id"))
 
-    folder_id = folder.get('id') if folder else None
+    folder_id = folder.get("id") if folder else None
     if template_metadata and folder_id:
         try:
             service.apply_metadata_template(folder_id, template_metadata)
@@ -1343,7 +1357,7 @@ def create_box_folder_for_deal(
             deal_id,
         )
     elif not template_metadata:
-        logger.warning('No metadata provided for deal %s', deal_id)
+        logger.warning("No metadata provided for deal %s", deal_id)
 
     if isinstance(metadata_response.get("associated_contacts"), list):
         formatted_contacts_meta = []
@@ -1351,7 +1365,14 @@ def create_box_folder_for_deal(
             if not isinstance(entry, dict):
                 formatted_contacts_meta.append(entry)
                 continue
-            display = entry.get("display_name") or entry.get("firstname") or entry.get("lastname") or entry.get("email") or entry.get("id") or "Unknown Contact"
+            display = (
+                entry.get("display_name")
+                or entry.get("firstname")
+                or entry.get("lastname")
+                or entry.get("email")
+                or entry.get("id")
+                or "Unknown Contact"
+            )
             parts = []
             email = (entry.get("email") or "").strip()
             contact_id = (entry.get("id") or "").strip()
@@ -1369,7 +1390,11 @@ def create_box_folder_for_deal(
         metadata_response["associated_contacts"] = formatted_contacts_meta
 
     if isinstance(metadata_response.get("associated_contact_ids"), list):
-        cleaned_ids = [str(item).strip() for item in metadata_response["associated_contact_ids"] if str(item).strip()]
+        cleaned_ids = [
+            str(item).strip()
+            for item in metadata_response["associated_contact_ids"]
+            if str(item).strip()
+        ]
         metadata_response["associated_contact_ids"] = ", ".join(cleaned_ids)
 
     # Determine primary contact email for sharing

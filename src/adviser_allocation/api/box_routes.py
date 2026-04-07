@@ -29,8 +29,12 @@ from adviser_allocation.utils.common import (
 
 logger = logging.getLogger(__name__)
 
-BOX_METADATA_PREVIEW_COLLECTION = os.environ.get("BOX_METADATA_PREVIEW_COLLECTION", "box_metadata_previews")
-INTERNAL_EMAIL_DOMAIN = (os.environ.get("PIVOT_INTERNAL_DOMAIN") or "@pivotwealth.com.au").strip().lower()
+BOX_METADATA_PREVIEW_COLLECTION = os.environ.get(
+    "BOX_METADATA_PREVIEW_COLLECTION", "box_metadata_previews"
+)
+INTERNAL_EMAIL_DOMAIN = (
+    (os.environ.get("PIVOT_INTERNAL_DOMAIN") or "@pivotwealth.com.au").strip().lower()
+)
 MISMATCH_SECTION_KEY = "mismatch_pending"
 ISSUE_FOLDER_PATTERN = re.compile(r"folder\s+(\d+)", re.IGNORECASE)
 REQUIRED_METADATA_FIELDS = (
@@ -163,7 +167,9 @@ def _preview_contact_only_requires_refresh(preview_doc: dict) -> bool:
         contact_summary = (preview_doc.get("contacts") or {}).get("primary")
     email = None
     if isinstance(contact_summary, dict):
-        email = contact_summary.get("email") or (contact_summary.get("properties") or {}).get("email")
+        email = contact_summary.get("email") or (contact_summary.get("properties") or {}).get(
+            "email"
+        )
     return _is_internal_email(email)
 
 
@@ -184,7 +190,9 @@ def _load_deals_for_contact_record(contact: dict) -> List[dict]:
         if deal:
             deals.append(deal)
         else:
-            logger.warning("Contact %s: associated deal %s could not be loaded", contact_id, deal_id)
+            logger.warning(
+                "Contact %s: associated deal %s could not be loaded", contact_id, deal_id
+            )
     logger.info("Contact %s: loaded %d complete deal records", contact_id, len(deals))
     return deals
 
@@ -277,14 +285,28 @@ def _match_contact_for_folder_entry(entry: dict) -> Optional[dict]:
     return None
 
 
-def _ensure_required_metadata_fields(metadata_fields: Optional[dict], contact: Optional[dict]) -> dict:
+def _ensure_required_metadata_fields(
+    metadata_fields: Optional[dict], contact: Optional[dict]
+) -> dict:
     metadata = dict(metadata_fields or {})
     contact = contact or {}
     contact_props = contact.get("properties") or {}
-    email = metadata.get("hs_contact_email") or contact.get("email") or contact_props.get("email") or ""
+    email = (
+        metadata.get("hs_contact_email") or contact.get("email") or contact_props.get("email") or ""
+    )
     metadata["hs_contact_email"] = email
-    metadata["hs_contact_firstname"] = metadata.get("hs_contact_firstname") or contact_props.get("firstname") or contact.get("firstname") or ""
-    metadata["hs_contact_lastname"] = metadata.get("hs_contact_lastname") or contact_props.get("lastname") or contact.get("lastname") or ""
+    metadata["hs_contact_firstname"] = (
+        metadata.get("hs_contact_firstname")
+        or contact_props.get("firstname")
+        or contact.get("firstname")
+        or ""
+    )
+    metadata["hs_contact_lastname"] = (
+        metadata.get("hs_contact_lastname")
+        or contact_props.get("lastname")
+        or contact.get("lastname")
+        or ""
+    )
     metadata["hs_contact_id"] = metadata.get("hs_contact_id") or contact.get("id") or ""
     primary_id = metadata.get("primary_contact_id") or contact.get("id") or ""
     metadata["primary_contact_id"] = primary_id
@@ -531,7 +553,9 @@ def _choose_collaborator_entry(order: List[str], collaborators: Dict[str, dict])
     return None
 
 
-def _resolve_spouse_contact_from_deal(deal_id: Optional[str], primary_contact_id: Optional[str]) -> Optional[dict]:
+def _resolve_spouse_contact_from_deal(
+    deal_id: Optional[str], primary_contact_id: Optional[str]
+) -> Optional[dict]:
     """Resolve spouse contact via contact associations when possible, falling back to deal contacts."""
     primary_contact_id = (primary_contact_id or "").strip()
     spouse = _fetch_spouse_from_contact_associations(primary_contact_id)
@@ -551,7 +575,9 @@ def _resolve_spouse_contact_from_deal(deal_id: Optional[str], primary_contact_id
     for contact in contacts:
         contact_id = str(contact.get("id") or "").strip()
         for assoc in contact.get("association_types", []):
-            label = (assoc.get("label") or contact.get("primaryAssociationLabel") or "").strip().lower()
+            label = (
+                (assoc.get("label") or contact.get("primaryAssociationLabel") or "").strip().lower()
+            )
             if "spouse" in label and contact_id and contact_id != normalized_primary:
                 return contact
     return None
@@ -614,34 +640,46 @@ def _load_contact_details_with_deals(email: str) -> Tuple[Optional[dict], List[d
     """
     email = (email or "").strip()
     if not email:
-        return None, [], [
-            {
-                "source": "input",
-                "scope": "email",
-                "message": "Email address is required to load contact details.",
-            }
-        ]
+        return (
+            None,
+            [],
+            [
+                {
+                    "source": "input",
+                    "scope": "email",
+                    "message": "Email address is required to load contact details.",
+                }
+            ],
+        )
 
     try:
         contact = _search_hubspot_contact_by_email(email)
     except requests.RequestException as exc:
         logger.error("HubSpot contact search failed for %s: %s", email, exc)
-        return None, [], [
-            {
-                "source": "hubspot",
-                "scope": "contact",
-                "message": "HubSpot contact search failed.",
-            }
-        ]
+        return (
+            None,
+            [],
+            [
+                {
+                    "source": "hubspot",
+                    "scope": "contact",
+                    "message": "HubSpot contact search failed.",
+                }
+            ],
+        )
 
     if not contact:
-        return None, [], [
-            {
-                "source": "hubspot",
-                "scope": "contact",
-                "message": f"No HubSpot contact found for {email}.",
-            }
-        ]
+        return (
+            None,
+            [],
+            [
+                {
+                    "source": "hubspot",
+                    "scope": "contact",
+                    "message": f"No HubSpot contact found for {email}.",
+                }
+            ],
+        )
 
     contact_id = contact.get("id")
     warnings: List[Dict[str, str]] = []
@@ -685,7 +723,9 @@ def _load_contact_details_with_deals(email: str) -> Tuple[Optional[dict], List[d
                             return contact_entry
                 return None
 
-            primary_entry = _contact_by_label("Client") or (deal_contacts[0] if deal_contacts else None)
+            primary_entry = _contact_by_label("Client") or (
+                deal_contacts[0] if deal_contacts else None
+            )
             spouse_entry = _contact_by_label("Client's Spouse")
 
             for idx, contact_entry in enumerate(deal_contacts):
@@ -702,7 +742,9 @@ def _load_contact_details_with_deals(email: str) -> Tuple[Optional[dict], List[d
                         "firstname": contact_props.get("firstname"),
                         "lastname": contact_props.get("lastname"),
                         "email": contact_props.get("email"),
-                        "display_name": box_service._format_contact_display(contact_entry, position=idx),
+                        "display_name": box_service._format_contact_display(
+                            contact_entry, position=idx
+                        ),
                         "url": _hubspot_contact_url(assoc_id),
                         "association_labels": labels,
                     }
@@ -741,7 +783,9 @@ def _load_contact_details_with_deals(email: str) -> Tuple[Optional[dict], List[d
             )
             associated_status = "partial"
         except Exception as exc:  # pragma: no cover
-            logger.warning("Unexpected error loading associated contacts for deal %s: %s", deal_id, exc)
+            logger.warning(
+                "Unexpected error loading associated contacts for deal %s: %s", deal_id, exc
+            )
             warnings.append(
                 {
                     "source": "internal",
@@ -831,7 +875,9 @@ def _build_preview_output(
     root_info: dict,
 ) -> dict:
     contact_props = (contact.get("properties") or {}) if contact else {}
-    primary_name = " ".join(filter(None, [contact_props.get("firstname"), contact_props.get("lastname")])).strip()
+    primary_name = " ".join(
+        filter(None, [contact_props.get("firstname"), contact_props.get("lastname")])
+    ).strip()
     primary_link = contact.get("url") or _hubspot_contact_url(contact.get("id"))
     primary_summary = {
         "id": contact.get("id") or "",
@@ -899,7 +945,9 @@ def _assemble_preview_document(
     base_payload = _build_preview_base_payload(folder_id, contact, deal)
     metadata_payload, _, _ = _build_metadata_from_payload(base_payload)
     metadata_payload = _ensure_required_metadata_fields(metadata_payload, contact)
-    preview_data = _build_preview_output(folder_id, metadata_payload or {}, contact, deal, root_info)
+    preview_data = _build_preview_output(
+        folder_id, metadata_payload or {}, contact, deal, root_info
+    )
     generated_at = datetime.now(timezone.utc)
     doc = {
         "folder_id": folder_id,
@@ -920,13 +968,17 @@ def _assemble_preview_document(
     return doc
 
 
-def _build_preview_from_contact_and_deal(folder_id: str, service, contact: dict, deal: dict) -> dict:
+def _build_preview_from_contact_and_deal(
+    folder_id: str, service, contact: dict, deal: dict
+) -> dict:
     return _assemble_preview_document(folder_id, service, contact, deal)
 
 
 def _build_contact_only_preview(folder_id: str, service, contact: dict) -> dict:
     contact_props = (contact.get("properties") or {}) if contact else {}
-    contact_name = " ".join(filter(None, [contact_props.get("firstname"), contact_props.get("lastname")])).strip()
+    contact_name = " ".join(
+        filter(None, [contact_props.get("firstname"), contact_props.get("lastname")])
+    ).strip()
     pseudo_deal_id = f"{folder_id}_contact_only"
     pseudo_deal = {
         "id": pseudo_deal_id,
@@ -974,9 +1026,13 @@ def _get_folder_root_info(service, folder_id: str) -> dict:
             }
         except BoxAutomationError as exc:
             message = str(exc).lower()
-            retryable = any(keyword in message for keyword in ("connection reset", "connection aborted"))
+            retryable = any(
+                keyword in message for keyword in ("connection reset", "connection aborted")
+            )
             if retryable and attempt < max_attempts:
-                logger.info("Retrying folder details for %s after transient error: %s", folder_id, exc)
+                logger.info(
+                    "Retrying folder details for %s after transient error: %s", folder_id, exc
+                )
                 time.sleep(0.4)
                 continue
             logger.warning("Unable to fetch folder details for %s: %s", folder_id, exc)
@@ -987,7 +1043,9 @@ def _get_folder_root_info(service, folder_id: str) -> dict:
     return fallback
 
 
-def _generate_folder_metadata_preview(folder_id: str, service, allow_contact_only: bool = False) -> dict:
+def _generate_folder_metadata_preview(
+    folder_id: str, service, allow_contact_only: bool = False
+) -> dict:
     folder_id = (folder_id or "").strip()
     if not folder_id:
         raise ValueError("folder_id is required")
@@ -1033,7 +1091,12 @@ def _generate_folder_metadata_preview(folder_id: str, service, allow_contact_onl
         contact_name = " ".join(
             filter(None, [contact_props.get("firstname"), contact_props.get("lastname")])
         ).strip()
-        pseudo_deal_id = contact.get("id") or contact_props.get("hs_object_id") or contact_props.get("email") or ""
+        pseudo_deal_id = (
+            contact.get("id")
+            or contact_props.get("hs_object_id")
+            or contact_props.get("email")
+            or ""
+        )
         selected_deal = {
             "id": pseudo_deal_id,
             "properties": {
@@ -1071,7 +1134,9 @@ def _generate_folder_metadata_preview(folder_id: str, service, allow_contact_onl
     if not final_payload.get("folder_id"):
         final_payload["folder_id"] = folder_id
 
-    preview_data = _build_preview_output(folder_id, ensured_metadata, contact, selected_deal, root_info)
+    preview_data = _build_preview_output(
+        folder_id, ensured_metadata, contact, selected_deal, root_info
+    )
     preview_doc = {
         "folder_id": folder_id,
         "status": "ok",
@@ -1103,7 +1168,9 @@ def _cache_metadata_previews(db, service, folder_entries: List[Dict[str, object]
     collection = db.collection(BOX_METADATA_PREVIEW_COLLECTION)
     for idx, (folder_id, entry) in enumerate(doc_ids.items(), start=1):
         try:
-            preview_doc = _generate_folder_metadata_preview(folder_id, service, allow_contact_only=True)
+            preview_doc = _generate_folder_metadata_preview(
+                folder_id, service, allow_contact_only=True
+            )
         except Exception as exc:  # noqa: BLE001
             logger.warning("Failed to generate metadata preview for %s: %s", folder_id, exc)
             preview_doc = {
@@ -1117,8 +1184,12 @@ def _cache_metadata_previews(db, service, folder_entries: List[Dict[str, object]
                     "url": entry.get("url") or f"https://app.box.com/folder/{folder_id}",
                 },
             }
-        preview_doc["folder_name"] = entry.get("name") or preview_doc.get("root_folder", {}).get("name", "")
-        preview_doc["folder_path"] = entry.get("path") or preview_doc.get("root_folder", {}).get("path", "")
+        preview_doc["folder_name"] = entry.get("name") or preview_doc.get("root_folder", {}).get(
+            "name", ""
+        )
+        preview_doc["folder_path"] = entry.get("path") or preview_doc.get("root_folder", {}).get(
+            "path", ""
+        )
         preview_doc["folder_url"] = entry.get("url") or preview_doc.get("root_folder", {}).get(
             "url",
             f"https://app.box.com/folder/{folder_id}",
@@ -1165,19 +1236,26 @@ HUBSPOT_BOX_FOLDER_DEAL_PROPERTY = (
     or ""
 ).strip()
 
+
 def _update_hubspot_contacts_with_folder_url(
     metadata: dict, metadata_payload: dict, folder_url: str
 ) -> None:
     """Best-effort update of HubSpot contact records with the Box folder URL."""
     contact_ids = set()
-    primary_contact_id = str(metadata.get("primary_contact_id") or metadata_payload.get("hs_contact_id") or "").strip()
-    spouse_contact_id = str(metadata.get("hs_spouse_id") or metadata_payload.get("hs_spouse_id") or "").strip()
+    primary_contact_id = str(
+        metadata.get("primary_contact_id") or metadata_payload.get("hs_contact_id") or ""
+    ).strip()
+    spouse_contact_id = str(
+        metadata.get("hs_spouse_id") or metadata_payload.get("hs_spouse_id") or ""
+    ).strip()
     if primary_contact_id:
         contact_ids.add(primary_contact_id)
     if spouse_contact_id:
         contact_ids.add(spouse_contact_id)
     for contact_id in contact_ids:
-        if not _update_hubspot_contact_property(contact_id, HUBSPOT_BOX_FOLDER_CONTACT_PROPERTY, folder_url):
+        if not _update_hubspot_contact_property(
+            contact_id, HUBSPOT_BOX_FOLDER_CONTACT_PROPERTY, folder_url
+        ):
             logger.warning(
                 "Unable to update HubSpot contact %s with box folder url %s",
                 contact_id,
@@ -1303,13 +1381,9 @@ def _build_metadata_from_payload(payload: dict) -> Tuple[dict, List[dict], Optio
         }
         return {"id": contact_id or "", "properties": props}
 
-    contacts.append(
-        _make_contact(primary_contact_id, primary_first, primary_last, primary_email)
-    )
+    contacts.append(_make_contact(primary_contact_id, primary_first, primary_last, primary_email))
 
-    contacts.append(
-        _make_contact(spouse_id, spouse_first, spouse_last, spouse_email)
-    )
+    contacts.append(_make_contact(spouse_id, spouse_first, spouse_last, spouse_email))
 
     share_email = primary_email or None
 
@@ -1348,20 +1422,22 @@ def _fetch_deal_metadata(deal_id: str) -> Optional[dict]:
             return None
 
         associated_contact_ids: list[str] = [
-            str(contact.get("id"))
-            for contact in contacts
-            if contact.get("id")
+            str(contact.get("id")) for contact in contacts if contact.get("id")
         ]
 
         primary_contact = _contact_by_label("Client") or (contacts[0] if contacts else None)
         spouse_contact = _contact_by_label("Client's Spouse")
 
-        primary_contact_id = props.get("hs_contact_id") or (primary_contact.get("id") if primary_contact else None) or (
-            associated_contact_ids[0] if associated_contact_ids else None
+        primary_contact_id = (
+            props.get("hs_contact_id")
+            or (primary_contact.get("id") if primary_contact else None)
+            or (associated_contact_ids[0] if associated_contact_ids else None)
         )
         primary_contact_link = _hubspot_contact_url(primary_contact_id)
 
-        spouse_id = props.get("hs_spouse_id") or (spouse_contact.get("id") if spouse_contact else None)
+        spouse_id = props.get("hs_spouse_id") or (
+            spouse_contact.get("id") if spouse_contact else None
+        )
         spouse_link = _hubspot_contact_url(spouse_id)
 
         spouse_props = (spouse_contact or {}).get("properties") or {}
@@ -1408,7 +1484,6 @@ def _merge_metadata(base: Optional[dict], override: Optional[dict]) -> Optional[
     for key, value in override.items():
         merged[key] = value
     return merged
-
 
 
 def _build_metadata_from_payload(payload: dict) -> Tuple[dict, List[dict], Optional[str]]:
@@ -1467,9 +1542,7 @@ def _build_metadata_from_payload(payload: dict) -> Tuple[dict, List[dict], Optio
         )
 
     if any([spouse_id, spouse_first, spouse_last, spouse_email]):
-        contacts.append(
-            _make_contact(spouse_id, spouse_first, spouse_last, spouse_email)
-        )
+        contacts.append(_make_contact(spouse_id, spouse_first, spouse_last, spouse_email))
 
     share_email = primary_email or None
     return metadata, contacts, share_email
@@ -1562,7 +1635,9 @@ def _fetch_hubspot_deal(deal_id: str) -> Optional[dict]:
             return None
         resp.raise_for_status()
         data = resp.json()
-        data["url"] = f"https://app.hubspot.com/contacts/{_hubspot_portal_id()}/record/0-3/{deal_id}"
+        data["url"] = (
+            f"https://app.hubspot.com/contacts/{_hubspot_portal_id()}/record/0-3/{deal_id}"
+        )
         return data
     except requests.RequestException as exc:
         logger.error("Failed to fetch HubSpot deal %s: %s", deal_id, exc)
@@ -1582,7 +1657,11 @@ def _update_hubspot_deal_properties(deal_id: str, properties: Dict[str, object])
             timeout=10,
         )
         if resp.status_code == 404:
-            logger.warning("HubSpot deal %s not found while updating properties %s", deal_id, list(properties.keys()))
+            logger.warning(
+                "HubSpot deal %s not found while updating properties %s",
+                deal_id,
+                list(properties.keys()),
+            )
             return False
         resp.raise_for_status()
         return True
@@ -1610,7 +1689,9 @@ def _update_hubspot_contact_property(contact_id: str, property_name: str, value:
             timeout=10,
         )
         if resp.status_code == 404:
-            logger.warning("HubSpot contact %s not found when updating %s", contact_id, property_name)
+            logger.warning(
+                "HubSpot contact %s not found when updating %s", contact_id, property_name
+            )
             return False
         resp.raise_for_status()
         return True
@@ -1777,7 +1858,9 @@ def box_folder_apply_metadata():
         )
 
     metadata_payload, _, _ = _build_metadata_from_payload(payload)
-    metadata_override = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else None
+    metadata_override = (
+        payload.get("metadata") if isinstance(payload.get("metadata"), dict) else None
+    )
     metadata = _merge_metadata(metadata_payload, metadata_override) or {}
     metadata = _ensure_required_metadata_fields(metadata, None)
 
@@ -1809,8 +1892,12 @@ def box_folder_apply_metadata():
         logger.error("Metadata apply failed for folder %s deal %s: %s", folder_id, deal_id, exc)
         return jsonify({"message": "Box metadata apply failed", "error": str(exc)}), 502
     except Exception as exc:  # noqa: BLE001
-        logger.exception("Unexpected error during metadata apply for folder %s deal %s", folder_id, deal_id)
-        return jsonify({"message": "Unexpected server error during metadata apply", "error": str(exc)}), 500
+        logger.exception(
+            "Unexpected error during metadata apply for folder %s deal %s", folder_id, deal_id
+        )
+        return jsonify(
+            {"message": "Unexpected server error during metadata apply", "error": str(exc)}
+        ), 500
 
     folder_url = f"https://app.box.com/folder/{folder_id}"
     response = {
@@ -1825,7 +1912,9 @@ def box_folder_apply_metadata():
     except Exception as exc:  # noqa: BLE001
         logger.warning("Unable to update metadata snapshot after tagging %s: %s", folder_id, exc)
     if HUBSPOT_BOX_FOLDER_DEAL_PROPERTY:
-        if not _update_hubspot_deal_properties(deal_id, {HUBSPOT_BOX_FOLDER_DEAL_PROPERTY: folder_url}):
+        if not _update_hubspot_deal_properties(
+            deal_id, {HUBSPOT_BOX_FOLDER_DEAL_PROPERTY: folder_url}
+        ):
             logger.warning(
                 "Unable to update HubSpot deal %s with box folder url %s",
                 deal_id,
@@ -1856,7 +1945,9 @@ def box_folder_apply_metadata_auto():
         sorted(payload.keys()),
     )
     metadata_payload, _, _ = _build_metadata_from_payload(payload)
-    metadata_override = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else None
+    metadata_override = (
+        payload.get("metadata") if isinstance(payload.get("metadata"), dict) else None
+    )
     metadata = _merge_metadata(metadata_payload, metadata_override) or {}
     metadata = _ensure_required_metadata_fields(metadata, None)
     metadata_source = "payload" if metadata else ""
@@ -1894,11 +1985,17 @@ def box_folder_apply_metadata_auto():
     try:
         service.apply_metadata_template(folder_id, metadata)
     except BoxAutomationError as exc:
-        logger.error("Auto metadata apply failed for folder %s deal %s: %s", folder_id, deal_id, exc)
+        logger.error(
+            "Auto metadata apply failed for folder %s deal %s: %s", folder_id, deal_id, exc
+        )
         return jsonify({"message": "Box metadata apply failed", "error": str(exc)}), 502
     except Exception as exc:  # noqa: BLE001
-        logger.exception("Unexpected error during auto metadata apply for folder %s deal %s", folder_id, deal_id)
-        return jsonify({"message": "Unexpected server error during metadata apply", "error": str(exc)}), 500
+        logger.exception(
+            "Unexpected error during auto metadata apply for folder %s deal %s", folder_id, deal_id
+        )
+        return jsonify(
+            {"message": "Unexpected server error during metadata apply", "error": str(exc)}
+        ), 500
 
     folder_url = f"https://app.box.com/folder/{folder_id}"
     response = {
@@ -1912,9 +2009,13 @@ def box_folder_apply_metadata_auto():
     try:
         _record_metadata_snapshot_tag(folder_id)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Unable to update metadata snapshot after auto-tagging %s: %s", folder_id, exc)
+        logger.warning(
+            "Unable to update metadata snapshot after auto-tagging %s: %s", folder_id, exc
+        )
     if HUBSPOT_BOX_FOLDER_DEAL_PROPERTY and deal_id:
-        if not _update_hubspot_deal_properties(str(deal_id), {HUBSPOT_BOX_FOLDER_DEAL_PROPERTY: folder_url}):
+        if not _update_hubspot_deal_properties(
+            str(deal_id), {HUBSPOT_BOX_FOLDER_DEAL_PROPERTY: folder_url}
+        ):
             logger.warning(
                 "Unable to update HubSpot deal %s with box folder url %s",
                 deal_id,
@@ -1943,7 +2044,9 @@ def box_folder_update_deal_box_url():
     folder_id = str(folder_id).strip()
     folder_url = f"https://app.box.com/folder/{folder_id}"
 
-    if not _update_hubspot_deal_properties(str(deal_id), {HUBSPOT_BOX_FOLDER_DEAL_PROPERTY: folder_url}):
+    if not _update_hubspot_deal_properties(
+        str(deal_id), {HUBSPOT_BOX_FOLDER_DEAL_PROPERTY: folder_url}
+    ):
         return (
             jsonify(
                 {
@@ -1963,6 +2066,7 @@ def box_folder_update_deal_box_url():
             "box_folder_url": folder_url,
         }
     ), 200
+
 
 @box_bp.route("/box/folder/share", methods=["POST"])
 def box_folder_share_client_subfolder():
@@ -2078,9 +2182,7 @@ def box_folder_list_collaborators():
             )
             inspected_name = subfolder_name or None
 
-        subfolders = (
-            service.list_subfolders(target_folder_id) if include_subfolders else []
-        )
+        subfolders = service.list_subfolders(target_folder_id) if include_subfolders else []
     except BoxAutomationError as exc:
         logger.error("Failed to list collaborators for folder %s: %s", folder_id, exc)
         return jsonify({"message": "Box collaborator list failed", "error": str(exc)}), 500
@@ -2123,6 +2225,7 @@ def box_folder_list_collaborators():
         }
     ), 200
 
+
 @box_bp.route("/box/folder/subfolders", methods=["GET"])
 def box_folder_list_subfolders():
     """Return immediate subfolders for a given Box folder id."""
@@ -2147,6 +2250,7 @@ def box_folder_list_subfolders():
             "subfolders": subfolders,
         }
     ), 200
+
 
 @box_bp.route("/_public/box/folder/missing-metadata", methods=["GET"])
 def box_folder_find_missing_metadata():
@@ -2204,6 +2308,7 @@ def box_folder_cache_metadata_status():
 
     return jsonify({"message": "Not available (requires database)"}), 503
 
+
 @box_bp.route("/box/folder/metadata/scan", methods=["POST"])
 def box_folder_metadata_scan():
     """Scan Box active client folders and append any new entries to the snapshot. Disabled: database removed."""
@@ -2212,6 +2317,7 @@ def box_folder_metadata_scan():
         return guard
 
     return jsonify({"message": "Not available (requires database)"}), 503
+
 
 @box_bp.route("/box/folder/metadata/no-deal/retry", methods=["POST"])
 def box_folder_metadata_retry_no_deal():
@@ -2231,6 +2337,7 @@ def box_folder_metadata_retry_issues():
         return guard
 
     return jsonify({"message": "Not available (requires database)"}), 503
+
 
 @box_bp.route("/box/folder/metadata/previews/cache/fix", methods=["POST"])
 def box_folder_metadata_fix_cache():
@@ -2513,8 +2620,12 @@ def box_folder_preview():
 
 
 __all__ = ["box_bp", "create_box_folder_webhook"]
+
+
 def _is_internal_email(email: Optional[str]) -> bool:
     return (email or "").strip().lower().endswith(INTERNAL_EMAIL_DOMAIN)
+
+
 @box_bp.route("/box/folder/metadata/manual-preview", methods=["POST"])
 def box_folder_metadata_manual_preview():
     """Build a metadata preview using a specified HubSpot contact (and optional deal) without applying it."""
@@ -2565,13 +2676,17 @@ def _process_manual_preview_request(payload: dict):
 
     selected_deal = None
     if override_deal_id:
-        selected_deal = next((deal for deal in deals if str(deal.get("id")) == override_deal_id), None)
+        selected_deal = next(
+            (deal for deal in deals if str(deal.get("id")) == override_deal_id), None
+        )
     if not selected_deal and deals:
         selected_deal = max(deals, key=_extract_deal_timestamp_value)
 
     try:
         if selected_deal:
-            preview_doc = _build_preview_from_contact_and_deal(folder_id, service, contact, selected_deal)
+            preview_doc = _build_preview_from_contact_and_deal(
+                folder_id, service, contact, selected_deal
+            )
             preview_doc.pop("contact_only", None)
         else:
             preview_doc = _build_contact_only_preview(folder_id, service, contact)
@@ -2588,7 +2703,9 @@ def _process_manual_preview_request(payload: dict):
         metadata_fields["hs_contact_id"] = contact_id
     if selected_deal:
         deal_identifier = str(
-            selected_deal.get("properties", {}).get("hs_deal_record_id") or selected_deal.get("id") or ""
+            selected_deal.get("properties", {}).get("hs_deal_record_id")
+            or selected_deal.get("id")
+            or ""
         )
         if deal_identifier:
             final_payload["deal_id"] = deal_identifier
@@ -2610,7 +2727,10 @@ def _process_manual_preview_request(payload: dict):
                 metadata_fields[key] = deal_props[key]
                 final_payload[key] = deal_props[key]
 
-        if metadata_fields.get("hs_spouse_id") and metadata_fields.get("hs_spouse_id") == contact_id:
+        if (
+            metadata_fields.get("hs_spouse_id")
+            and metadata_fields.get("hs_spouse_id") == contact_id
+        ):
             metadata_fields.pop("hs_spouse_id", None)
             metadata_fields.pop("hs_spouse_firstname", None)
             metadata_fields.pop("hs_spouse_lastname", None)
@@ -2632,7 +2752,9 @@ def _process_manual_preview_request(payload: dict):
                 metadata_fields["hs_spouse_firstname"] = props.get("firstname") or ""
                 metadata_fields["hs_spouse_lastname"] = props.get("lastname") or ""
                 metadata_fields["hs_spouse_email"] = props.get("email") or ""
-                metadata_fields["spouse_contact_link"] = _hubspot_contact_url(spouse_entry.get("id")) or ""
+                metadata_fields["spouse_contact_link"] = (
+                    _hubspot_contact_url(spouse_entry.get("id")) or ""
+                )
                 final_payload["hs_spouse_id"] = metadata_fields["hs_spouse_id"]
                 final_payload["hs_spouse_firstname"] = metadata_fields["hs_spouse_firstname"]
                 final_payload["hs_spouse_lastname"] = metadata_fields["hs_spouse_lastname"]
@@ -2665,9 +2787,13 @@ def _process_manual_preview_request(payload: dict):
     if payload.get("auto_apply"):
         metadata_payload_built, _, _ = _build_metadata_from_payload(final_payload)
         metadata_override = (
-            final_payload.get("metadata") if isinstance(final_payload.get("metadata"), dict) else None
+            final_payload.get("metadata")
+            if isinstance(final_payload.get("metadata"), dict)
+            else None
         )
-        metadata_to_apply = _merge_metadata(metadata_payload_built, metadata_override) or metadata_override or {}
+        metadata_to_apply = (
+            _merge_metadata(metadata_payload_built, metadata_override) or metadata_override or {}
+        )
         metadata_to_apply = _ensure_required_metadata_fields(metadata_to_apply, contact)
         missing_metadata = _missing_metadata_fields(metadata_to_apply)
         if missing_metadata:
@@ -2691,7 +2817,9 @@ def _process_manual_preview_request(payload: dict):
         try:
             _record_metadata_snapshot_tag(folder_id)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Manual preview: unable to update snapshot tag for %s: %s", folder_id, exc)
+            logger.warning(
+                "Manual preview: unable to update snapshot tag for %s: %s", folder_id, exc
+            )
         if HUBSPOT_BOX_FOLDER_DEAL_PROPERTY and final_payload.get("deal_id"):
             if not _update_hubspot_deal_properties(
                 final_payload["deal_id"], {HUBSPOT_BOX_FOLDER_DEAL_PROPERTY: folder_url}
@@ -2701,10 +2829,15 @@ def _process_manual_preview_request(payload: dict):
                     final_payload["deal_id"],
                     folder_url,
                 )
-        for contact_identifier in {metadata_to_apply.get("primary_contact_id"), metadata_to_apply.get("hs_spouse_id")}:
+        for contact_identifier in {
+            metadata_to_apply.get("primary_contact_id"),
+            metadata_to_apply.get("hs_spouse_id"),
+        }:
             contact_identifier = str(contact_identifier or "").strip()
             if contact_identifier:
-                _update_hubspot_contact_property(contact_identifier, HUBSPOT_BOX_FOLDER_CONTACT_PROPERTY, folder_url)
+                _update_hubspot_contact_property(
+                    contact_identifier, HUBSPOT_BOX_FOLDER_CONTACT_PROPERTY, folder_url
+                )
 
         response_payload["status"] = "tagged"
         response_payload["box_folder_url"] = folder_url
