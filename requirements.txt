@@ -12,3 +12,5 @@ google-api-python-client==2.190.0
 SQLAlchemy>=2.0.0
 cloud-sql-python-connector[pg8000]>=1.0.0
 pg8000>=1.30.0
+# Box folder creation
+boxsdk[jwt]~=3.0

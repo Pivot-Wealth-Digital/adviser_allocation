@@ -184,6 +184,9 @@ def require_login():
         "/sync/calendar_watch_renew",  # Cloud Scheduler watch renewal
         "/webhooks/calendar",  # Google Calendar push notifications
         "/jobs/compute-simulated-clarifies",  # Cloud Scheduler job
+        "/box/folder/create",  # HubSpot workflow — Box folder creation
+        "/box/folder/tag",  # HubSpot workflow — Box metadata tagging
+        "/box/folder/tag/auto",  # HubSpot workflow — Box auto-tagging
     ]
 
     # Check if current route is public
@@ -2339,6 +2342,15 @@ def create_app(config_overrides=None):
     app.register_blueprint(main_bp)
     app.register_blueprint(init_webhooks())
     app.register_blueprint(skills_bp)
+
+    # Box folder creation (called by HubSpot workflows)
+    try:
+        from adviser_allocation.api.box_routes import box_bp
+
+        app.register_blueprint(box_bp)
+        logger.info("Box routes registered")
+    except Exception as exc:
+        logger.warning("Box routes not loaded (missing deps?): %s", exc)
 
     @app.context_processor
     def inject_admin_flag():
