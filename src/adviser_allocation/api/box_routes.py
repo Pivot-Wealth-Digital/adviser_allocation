@@ -1739,20 +1739,11 @@ def box_folder_create_only():
     primary_first = (primary_props.get("firstname") or "").strip()
     primary_last = (primary_props.get("lastname") or "").strip()
     if not (primary_first and primary_last):
-        logger.error(
-            "Create folder request for deal %s missing primary contact names; provided fields=%s",
+        logger.info(
+            "No contact names in payload for deal %s; will fetch from HubSpot API",
             deal_id,
-            sorted(metadata_payload.keys()),
         )
-        return (
-            jsonify(
-                {
-                    "message": "Primary contact first and last name are required",
-                    "missing": ["hs_contact_firstname", "hs_contact_lastname"],
-                }
-            ),
-            400,
-        )
+        contacts_hint = []
 
     salutation = (metadata_payload.get("deal_salutation") or "").strip()
     if not salutation:
@@ -1777,7 +1768,7 @@ def box_folder_create_only():
     try:
         result = provision_box_folder(
             deal_id,
-            contacts_override=contacts_hint,
+            contacts_override=contacts_hint or None,
             folder_name_override=folder_name_override,
         )
     except BoxAutomationError as exc:
