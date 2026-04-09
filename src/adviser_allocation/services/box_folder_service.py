@@ -606,9 +606,7 @@ class BoxFolderService:
                 # Metadata already exists; fetch current values to build patch operations
                 existing: dict[str, str] = {}
                 try:
-                    existing_resp = session.get(
-                        url, headers=self._headers(), timeout=self._timeout
-                    )
+                    existing_resp = session.get(url, headers=self._headers(), timeout=self._timeout)
                     if existing_resp.ok:
                         existing = {
                             key: value
