@@ -10,6 +10,7 @@ import requests
 from boxsdk import Client, JWTAuth
 from boxsdk.exception import BoxAPIException
 
+from adviser_allocation.utils.http_client import create_session_with_retries
 from adviser_allocation.utils.secrets import get_secret
 
 DEFAULT_BOX_API_BASE_URL = "https://api.box.com/2.0"
@@ -85,8 +86,9 @@ class BoxFolderService:
 
         template_id = self._resolve_path(self._template_path)
         payload = {"name": sanitized, "parent": {"id": parent_id}}
+        session = create_session_with_retries(retries=3)
         try:
-            resp = requests.post(
+            resp = session.post(
                 f"{self._api_base_url}/folders/{template_id}/copy",
                 headers=self._headers("application/json"),
                 json=payload,
@@ -94,6 +96,8 @@ class BoxFolderService:
             )
         except requests.RequestException as exc:
             raise BoxAutomationError(f"Box folder copy failed: {exc}") from exc
+        finally:
+            session.close()
 
         if resp.status_code == 409:
             try:
@@ -556,11 +560,10 @@ class BoxFolderService:
     def apply_metadata_template(self, folder_id: str, metadata: dict) -> None:
         """Apply configured metadata template to folder."""
         if not self._metadata_scope or not self._metadata_template_key:
-            logger.debug(
-                "Box metadata template not configured; skipping metadata apply for folder %s",
-                folder_id,
+            raise BoxAutomationError(
+                f"Box metadata template not configured (scope={self._metadata_scope!r}, "
+                f"key={self._metadata_template_key!r}); cannot apply metadata to folder {folder_id}"
             )
-            return
 
         raw_metadata = metadata or {}
         prepared: dict[str, str] = {}
@@ -596,13 +599,14 @@ class BoxFolderService:
             removals,
         )
 
+        session = create_session_with_retries(retries=3)
         try:
-            resp = requests.post(url, headers=headers, json=prepared, timeout=self._timeout)
+            resp = session.post(url, headers=headers, json=prepared, timeout=self._timeout)
             if resp.status_code == 409:
                 # Metadata already exists; fetch current values to build patch operations
                 existing: dict[str, str] = {}
                 try:
-                    existing_resp = requests.get(
+                    existing_resp = session.get(
                         url, headers=self._headers(), timeout=self._timeout
                     )
                     if existing_resp.ok:
@@ -633,7 +637,7 @@ class BoxFolderService:
                     )
                     return
 
-                resp = requests.put(
+                resp = session.put(
                     url,
                     headers=patch_headers,
                     data=json.dumps(operations),
@@ -650,6 +654,8 @@ class BoxFolderService:
             raise BoxAutomationError(
                 f"Box metadata apply failed for folder {folder_id}: {exc}"
             ) from exc
+        finally:
+            session.close()
 
     def rename_metadata_template(self, display_name: str) -> dict:
         """Rename the configured metadata template display name."""
