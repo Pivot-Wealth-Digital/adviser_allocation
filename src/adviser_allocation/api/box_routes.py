@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, Tuple
 import requests
 from flask import Blueprint, jsonify, redirect, render_template, request, session
 
+from adviser_allocation.api.webhooks import build_chat_card_payload, send_chat_alert
 from adviser_allocation.services import box_folder_service as box_service
 from adviser_allocation.services.box_folder_service import (
     CLIENT_SHARING_ROLE,
@@ -54,6 +55,28 @@ REQUIRED_METADATA_FIELDS = (
 )
 
 box_bp = Blueprint("box_api", __name__)
+
+
+def _alert_box_failure(endpoint: str, deal_id: str, error: str, status_code: int) -> None:
+    """Send a Google Chat alert when a Box automation step fails."""
+    try:
+        payload = build_chat_card_payload(
+            f"Box Automation Failure ({status_code})",
+            [
+                {
+                    "header": "Details",
+                    "lines": [
+                        f"<b>Endpoint:</b> {endpoint}",
+                        f"<b>Deal ID:</b> {deal_id or 'unknown'}",
+                        f"<b>Status:</b> {status_code}",
+                        f"<b>Error:</b> {error[:300]}",
+                    ],
+                },
+            ],
+        )
+        send_chat_alert(payload)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to send Box failure chat alert: %s", exc)
 
 
 @lru_cache(maxsize=1)
@@ -1758,6 +1781,11 @@ def box_folder_create_only():
             400,
         )
 
+    service = ensure_box_service()
+    if not service:
+        _alert_box_failure("/box/folder/create", deal_id, "Box automation not configured", 503)
+        return jsonify({"message": "Box automation not configured"}), 503
+
     logger.info(
         "Create-only Box folder request for deal %s (override=%s, metadata_fields=%s)",
         deal_id,
@@ -1773,6 +1801,7 @@ def box_folder_create_only():
         )
     except BoxAutomationError as exc:
         logger.error("Box folder creation failed for deal %s: %s", deal_id, exc)
+        _alert_box_failure("/box/folder/create", deal_id, str(exc), 502)
         return (
             jsonify(
                 {
@@ -1785,6 +1814,7 @@ def box_folder_create_only():
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("Unexpected error during Box folder creation for deal %s", deal_id)
+        _alert_box_failure("/box/folder/create", deal_id, str(exc), 500)
         return (
             jsonify(
                 {
@@ -1875,17 +1905,20 @@ def box_folder_apply_metadata():
 
     service = ensure_box_service()
     if not service:
+        _alert_box_failure("/box/folder/tag", deal_id, "Box automation not configured", 503)
         return jsonify({"message": "Box automation not configured"}), 503
 
     try:
         service.apply_metadata_template(folder_id, metadata)
     except BoxAutomationError as exc:
         logger.error("Metadata apply failed for folder %s deal %s: %s", folder_id, deal_id, exc)
+        _alert_box_failure("/box/folder/tag", deal_id, str(exc), 502)
         return jsonify({"message": "Box metadata apply failed", "error": str(exc)}), 502
     except Exception as exc:  # noqa: BLE001
         logger.exception(
             "Unexpected error during metadata apply for folder %s deal %s", folder_id, deal_id
         )
+        _alert_box_failure("/box/folder/tag", deal_id, str(exc), 500)
         return jsonify(
             {"message": "Unexpected server error during metadata apply", "error": str(exc)}
         ), 500
@@ -1971,6 +2004,7 @@ def box_folder_apply_metadata_auto():
 
     service = ensure_box_service()
     if not service:
+        _alert_box_failure("/box/folder/tag/auto", deal_id, "Box automation not configured", 503)
         return jsonify({"message": "Box automation not configured"}), 503
 
     try:
@@ -1979,11 +2013,13 @@ def box_folder_apply_metadata_auto():
         logger.error(
             "Auto metadata apply failed for folder %s deal %s: %s", folder_id, deal_id, exc
         )
+        _alert_box_failure("/box/folder/tag/auto", deal_id, str(exc), 502)
         return jsonify({"message": "Box metadata apply failed", "error": str(exc)}), 502
     except Exception as exc:  # noqa: BLE001
         logger.exception(
             "Unexpected error during auto metadata apply for folder %s deal %s", folder_id, deal_id
         )
+        _alert_box_failure("/box/folder/tag/auto", deal_id, str(exc), 500)
         return jsonify(
             {"message": "Unexpected server error during metadata apply", "error": str(exc)}
         ), 500
