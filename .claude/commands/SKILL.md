@@ -28,10 +28,4 @@ mypy src/
 
 ## Deployment Note
 
-This repo uses App Engine. After passing tests:
-
-```bash
-gcloud app deploy --project=pivot-digital-466902
-```
-
-CI/CD auto-deploys on push to main if tests pass.
+This repo deploys to Cloud Run. CI/CD auto-deploys on push to main if tests pass.
