@@ -442,6 +442,53 @@ Use this in monitoring dashboards to alert if app is down.
 
 ---
 
+## Leave Sync Monitoring & Alerts
+
+The Employment Hero leave sync (`/sync/leave_requests`, daily on weekdays) has automated
+Google Chat alerts so a failing or degraded sync cannot drain leave silently. Alerts use the
+existing `CHAT_WEBHOOK_URL` webhook — no extra infra.
+
+### Alerts that fire
+
+| Alert | Trigger | What it means |
+|-------|---------|---------------|
+| **Leave sync produced no active/future leave** | A sync fetches 0 items, keeps 0 records, or leaves 0 active/future rows in the table | EH returned nothing useful (auth, API, or pagination problem). Availability data is not trustworthy until resolved. |
+| **Leave sync failed** | `/sync/leave_requests` (or the admin trigger) raised an exception | The sync errored out — token, network, or EH API failure. Check the stack trace in Cloud Run logs. |
+| **Leave sync skipped stale cleanup** | A run would have deleted > 50% of tracked active/future leave | An incomplete EH fetch was detected; the destructive delete was blocked. Investigate before the next sync. |
+
+### Health signal in logs
+
+Every successful run logs one structured summary line:
+
+```
+Leave sync: fetched N across P page(s), kept K active/future, deleted D stale, A active/future now in DB
+```
+
+`A == 0` is the red flag — it means no adviser has any current/upcoming leave recorded.
+
+### Runbook — "Advisers on leave shown as available / leave looks empty"
+
+1. Trigger a manual sync: `POST /admin/sync/leave_requests` (admin auth).
+2. Read the `Leave sync: …` log line in Cloud Run — check `fetched`, `kept`, and
+   `active/future now in DB`.
+3. Check Google Chat for the alerts above and the EH OAuth token health (`GET /sync/token-health`).
+4. Verify in CloudSQL:
+   ```sql
+   SELECT COUNT(*) FILTER (WHERE start_date <= CURRENT_DATE AND end_date >= CURRENT_DATE) AS ongoing,
+          COUNT(*) FILTER (WHERE start_date > CURRENT_DATE) AS future,
+          MAX(last_synced) AS last_synced
+   FROM aa_leave_requests;
+   ```
+   `ongoing`/`future` should be > 0 and `last_synced` recent.
+
+### Future hardening (deferred)
+
+An independent freshness heartbeat (a separate daily job that alerts if `last_synced` is stale
+or `active/future` is 0, even when the sync job stops running entirely) and a persisted
+`aa_sync_metrics` table for historical sync tracking were considered but not yet implemented.
+
+---
+
 ## Documentation
 
 - **Architecture:** [ARCHITECTURE.md](../ARCHITECTURE.md)

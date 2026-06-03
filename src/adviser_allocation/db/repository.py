@@ -22,6 +22,30 @@ from .models import (
 
 logger = logging.getLogger(__name__)
 
+# Safety valve for stale-leave cleanup: if a single sync would prune more than this
+# fraction of the currently tracked active/future leave, treat it as an incomplete
+# fetch and skip the delete (alerting instead) rather than wiping valid records.
+STALE_DELETE_MAX_RATIO = 0.5
+
+
+def _alert_stale_delete_guard(stale_count: int, tracked_count: int) -> None:
+    """Send a Google Chat alert when the stale-leave delete guard trips."""
+    try:
+        from adviser_allocation.api.webhooks import send_chat_alert
+
+        send_chat_alert(
+            {
+                "text": (
+                    f"⚠️ Leave sync skipped stale cleanup: would have deleted "
+                    f"{stale_count} of {tracked_count} tracked active/future leave records "
+                    f"(> {STALE_DELETE_MAX_RATIO * 100:.0f}%). Likely an incomplete EH fetch — "
+                    f"investigate before the next sync."
+                )
+            }
+        )
+    except Exception as exc:
+        logger.warning("Could not send stale-delete guard alert: %s", exc)
+
 
 class AdviserAllocationDB:
     """Data access layer for adviser_allocation CloudSQL tables."""
@@ -233,32 +257,81 @@ class AdviserAllocationDB:
             )
 
     def delete_stale_future_leave(self, synced_ids: List[str], cutoff_date) -> int:
-        """Delete future leave records not in the latest sync.
+        """Prune active/future leave EH no longer reports (cancelled or moved).
 
-        Removes leave requests with start_date >= cutoff_date whose
-        leave_request_id is not in synced_ids. Returns count deleted.
+        Targets leave whose ``end_date >= cutoff_date`` (i.e. still ongoing or
+        upcoming) and whose ``leave_request_id`` is absent from ``synced_ids``.
+        Already-ended leave is left untouched as harmless history.
+
+        Two safety guards prevent a single incomplete fetch from wiping valid leave:
+          * empty ``synced_ids`` deletes nothing — a zero-result fetch is almost
+            always an upstream problem, not a mass cancellation;
+          * if the delete would remove more than ``STALE_DELETE_MAX_RATIO`` of the
+            currently tracked window, it is skipped and an alert is raised instead.
+
+        Returns the number of rows actually deleted (0 when a guard trips).
         """
         if not synced_ids:
-            # No synced records — delete all future leave
-            with self.engine.begin() as conn:
-                result = conn.execute(
-                    text("""
-                        DELETE FROM aa_leave_requests
-                        WHERE start_date >= :cutoff_date
-                    """),
-                    {"cutoff_date": cutoff_date},
-                )
-                return result.rowcount
+            logger.warning(
+                "Leave sync returned no records; skipping stale cleanup to avoid "
+                "wiping valid active/future leave."
+            )
+            return 0
+
         with self.engine.begin() as conn:
+            tracked_count = (
+                conn.execute(
+                    text("SELECT COUNT(*) FROM aa_leave_requests WHERE end_date >= :cutoff_date"),
+                    {"cutoff_date": cutoff_date},
+                ).scalar()
+                or 0
+            )
+            stale_count = (
+                conn.execute(
+                    text("""
+                        SELECT COUNT(*) FROM aa_leave_requests
+                        WHERE end_date >= :cutoff_date
+                          AND leave_request_id != ALL(:synced_ids)
+                    """),
+                    {"cutoff_date": cutoff_date, "synced_ids": synced_ids},
+                ).scalar()
+                or 0
+            )
+
+            if stale_count == 0:
+                return 0
+
+            if tracked_count > 0 and (stale_count / tracked_count) > STALE_DELETE_MAX_RATIO:
+                _alert_stale_delete_guard(stale_count, tracked_count)
+                logger.warning(
+                    "Stale leave cleanup would delete %d of %d tracked records "
+                    "(> %.0f%%); skipping and alerting — likely an incomplete EH fetch.",
+                    stale_count,
+                    tracked_count,
+                    STALE_DELETE_MAX_RATIO * 100,
+                )
+                return 0
+
             result = conn.execute(
                 text("""
                     DELETE FROM aa_leave_requests
-                    WHERE start_date >= :cutoff_date
+                    WHERE end_date >= :cutoff_date
                       AND leave_request_id != ALL(:synced_ids)
                 """),
                 {"cutoff_date": cutoff_date, "synced_ids": synced_ids},
             )
             return result.rowcount
+
+    def count_active_future_leave(self, cutoff_date) -> int:
+        """Count leave still ongoing or upcoming (end_date >= cutoff_date)."""
+        with self.engine.connect() as conn:
+            return (
+                conn.execute(
+                    text("SELECT COUNT(*) FROM aa_leave_requests WHERE end_date >= :cutoff_date"),
+                    {"cutoff_date": cutoff_date},
+                ).scalar()
+                or 0
+            )
 
     # =========================================================================
     # OFFICE CLOSURES

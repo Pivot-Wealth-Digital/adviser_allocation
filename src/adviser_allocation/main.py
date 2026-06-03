@@ -444,9 +444,45 @@ def get_employee_id():
         return {"error": "Employee not found"}, 404
 
 
+def _should_track_leave(status, end_date_obj, today) -> bool:
+    """Whether a leave request should be persisted: approved and not yet ended.
+
+    Tracking by end_date (ongoing + today + future) — rather than start_date —
+    keeps a leave for its full duration and prevents it from vanishing the day it
+    begins. Status comparison is case-insensitive to tolerate EH label drift.
+    """
+    return (status or "").lower() == "approved" and end_date_obj >= today
+
+
+def leave_sync_result_is_healthy(fetched_count, kept_count, active_future_count) -> bool:
+    """Whether a leave sync produced a plausible result.
+
+    A healthy run fetches some items from EH, keeps at least one active/future
+    record, and leaves the table with active/future leave present. Any zero here
+    matches the silent-drain failure mode and should raise an alert.
+    """
+    return fetched_count > 0 and kept_count > 0 and active_future_count > 0
+
+
+def _alert_leave_sync_problem(summary: str, details: list) -> None:
+    """Send a Google Chat alert about a leave-sync problem (degraded result or failure)."""
+    try:
+        from adviser_allocation.api.webhooks import build_chat_card_payload, send_chat_alert
+
+        send_chat_alert(
+            build_chat_card_payload(f"⚠️ {summary}", [{"header": "Leave sync", "lines": details}])
+        )
+    except Exception as exc:
+        logger.warning("Could not send leave-sync alert: %s", exc)
+
+
 @main_bp.route("/get/leave_requests")
 def get_leave_requests():
-    """Fetch future approved leave requests and persist to CloudSQL.
+    """Fetch current and upcoming approved leave requests and persist to CloudSQL.
+
+    Pulls every page of leave from Employment Hero, keeps approved leave that has
+    not yet ended (ongoing + today + future), upserts it, then prunes records EH no
+    longer reports within that window (cancelled/moved leave).
 
     Returns:
         tuple: (list of leave requests, HTTP status, headers)
@@ -456,30 +492,33 @@ def get_leave_requests():
 
     now_date = sydney_today()
 
-    page = 1
-    total_pages = 9
-
     org_id = get_org_id(headers)
     cloudsql_db = get_cloudsql_db()
 
     leave_requests = []
+    fetched_count = 0
+    page = 1
+    total_pages = 1  # Seeded; replaced with the real count from the first response.
     while page <= total_pages:
         params = {
             "item_per_page": 100,
             "page_index": page,
         }
-        e = requests.get(
+        resp = requests.get(
             f"{API_BASE}/api/v1/organisations/{org_id}/leave_requests",
             headers=headers,
             params=params,
             timeout=30,
         )
-        if e.status_code != 200:
-            raise RuntimeError(f"Refresh failed: {e.status_code} {e.text}")
+        if resp.status_code != 200:
+            raise RuntimeError(f"Leave fetch failed: {resp.status_code} {resp.text}")
 
-        for leave_request in e.json()["data"]["items"]:
-            start_date_obj = datetime.fromisoformat(leave_request["start_date"]).date()
-            if (leave_request["status"] == "Approved") and (start_date_obj > now_date):
+        payload = resp.json()["data"]
+        items = payload["items"]
+        fetched_count += len(items)
+        for leave_request in items:
+            end_date_obj = datetime.fromisoformat(leave_request["end_date"]).date()
+            if _should_track_leave(leave_request.get("status"), end_date_obj, now_date):
                 item = {
                     "leave_request_id": leave_request.get("id"),
                     "employee_id": leave_request.get("employee_id"),
@@ -490,16 +529,36 @@ def get_leave_requests():
                 leave_requests.append(item)
                 cloudsql_db.upsert_leave_request_dict(item)
 
+        total_pages = payload["total_pages"]
         page += 1
-        total_pages = e.json()["data"]["total_pages"]
 
-    # Remove stale leave records (cancelled/moved in EH but still in CloudSQL)
+    # Prune leave EH no longer reports within the active/future window. The repository
+    # applies safety guards so an incomplete fetch can never wipe valid leave.
     synced_ids = [lr["leave_request_id"] for lr in leave_requests]
     deleted = cloudsql_db.delete_stale_future_leave(synced_ids, now_date)
-    if deleted:
-        logger.info("Deleted %d stale future leave records", deleted)
+    active_future_count = cloudsql_db.count_active_future_leave(now_date)
+    logger.info(
+        "Leave sync: fetched %d across %d page(s), kept %d active/future, "
+        "deleted %d stale, %d active/future now in DB",
+        fetched_count,
+        total_pages,
+        len(leave_requests),
+        deleted,
+        active_future_count,
+    )
 
-    return (leave_requests, e.status_code, {"Content-Type": "application/json"})
+    if not leave_sync_result_is_healthy(fetched_count, len(leave_requests), active_future_count):
+        _alert_leave_sync_problem(
+            "Leave sync produced no active/future leave",
+            [
+                f"Fetched: {fetched_count}",
+                f"Kept: {len(leave_requests)}",
+                f"Active/future in DB: {active_future_count}",
+                "Likely an EH fetch/auth problem — investigate before relying on availability.",
+            ],
+        )
+
+    return (leave_requests, resp.status_code, {"Content-Type": "application/json"})
 
 
 @main_bp.route("/get/employee_leave_requests")
@@ -575,7 +634,8 @@ def sync_leave_requests():
         data, status, headers = get_leave_requests()
         return jsonify({"synced": len(data)}), status
     except Exception as e:
-        logger.error("Failed to sync leave requests: %s", e)
+        logger.exception("Failed to sync leave requests")
+        _alert_leave_sync_problem("Leave sync failed", [f"Error: {str(e)[:300]}"])
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -598,8 +658,9 @@ def admin_sync_leave_requests():
     try:
         data, status, _headers = get_leave_requests()
         return jsonify({"synced": len(data)}), status
-    except Exception:
+    except Exception as e:
         logger.exception("Admin sync leave requests failed")
+        _alert_leave_sync_problem("Leave sync failed (admin trigger)", [f"Error: {str(e)[:300]}"])
         return jsonify({"error": "Sync failed"}), 500
 
 
