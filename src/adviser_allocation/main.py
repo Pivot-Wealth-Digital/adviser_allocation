@@ -497,9 +497,11 @@ def get_leave_requests():
 
     leave_requests = []
     fetched_count = 0
-    page = 1
+    # Employment Hero's page_index is 0-based; starting at 1 skips the first page
+    # (where leave lives when there are few pages), which is why the sync drained.
+    page = 0
     total_pages = 1  # Seeded; replaced with the real count from the first response.
-    while page <= total_pages:
+    while page < total_pages:
         params = {
             "item_per_page": 100,
             "page_index": page,
@@ -515,7 +517,15 @@ def get_leave_requests():
 
         payload = resp.json()["data"]
         items = payload["items"]
+        total_pages = payload["total_pages"]
         fetched_count += len(items)
+        logger.info(
+            "Leave fetch page_index=%d: %d items, total_pages=%d, total_count=%s",
+            page,
+            len(items),
+            total_pages,
+            payload.get("total_count"),
+        )
         for leave_request in items:
             end_date_obj = datetime.fromisoformat(leave_request["end_date"]).date()
             if _should_track_leave(leave_request.get("status"), end_date_obj, now_date):
@@ -529,7 +539,6 @@ def get_leave_requests():
                 leave_requests.append(item)
                 cloudsql_db.upsert_leave_request_dict(item)
 
-        total_pages = payload["total_pages"]
         page += 1
 
     # Prune leave EH no longer reports within the active/future window. The repository
