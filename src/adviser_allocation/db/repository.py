@@ -5,6 +5,7 @@ Encapsulates all CloudSQL queries using raw SQL with parameterized queries.
 
 import json
 import logging
+import os
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
@@ -29,7 +30,18 @@ STALE_DELETE_MAX_RATIO = 0.5
 
 
 def _alert_stale_delete_guard(stale_count: int, tracked_count: int) -> None:
-    """Send a Google Chat alert when the stale-leave delete guard trips."""
+    """Send a Google Chat alert when the stale-leave delete guard trips.
+
+    Gated by LEAVE_SYNC_ALERTS_ENABLED (default off); the guard still blocks the
+    delete regardless, this only controls whether it posts to Chat.
+    """
+    if os.getenv("LEAVE_SYNC_ALERTS_ENABLED", "false").strip().lower() not in ("1", "true", "yes"):
+        logger.warning(
+            "Stale-delete guard alert (Chat suppressed): would delete %d of %d tracked records",
+            stale_count,
+            tracked_count,
+        )
+        return
     try:
         from adviser_allocation.api.webhooks import send_chat_alert
 

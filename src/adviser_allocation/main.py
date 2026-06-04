@@ -464,8 +464,20 @@ def leave_sync_result_is_healthy(fetched_count, kept_count, active_future_count)
     return fetched_count > 0 and kept_count > 0 and active_future_count > 0
 
 
+def _leave_sync_alerts_enabled() -> bool:
+    """Whether leave-sync Chat alerts should post. Off by default (set via env)."""
+    return os.getenv("LEAVE_SYNC_ALERTS_ENABLED", "false").strip().lower() in ("1", "true", "yes")
+
+
 def _alert_leave_sync_problem(summary: str, details: list) -> None:
-    """Send a Google Chat alert about a leave-sync problem (degraded result or failure)."""
+    """Send a Google Chat alert about a leave-sync problem (degraded result or failure).
+
+    Gated by LEAVE_SYNC_ALERTS_ENABLED (default off) so leave-sync alerts don't post
+    to the shared Chat space; the condition is always logged regardless.
+    """
+    if not _leave_sync_alerts_enabled():
+        logger.warning("Leave-sync alert (Chat suppressed): %s | %s", summary, "; ".join(details))
+        return
     try:
         from adviser_allocation.api.webhooks import build_chat_card_payload, send_chat_alert
 
