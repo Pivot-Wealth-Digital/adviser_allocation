@@ -488,6 +488,64 @@ def _alert_leave_sync_problem(summary: str, details: list) -> None:
         logger.warning("Could not send leave-sync alert: %s", exc)
 
 
+def _log_eh_leave_diagnostics(headers) -> None:
+    """TEMP read-only probe: log why EH leave_requests returns empty.
+
+    Enumerates every organisation the token can see and, per org, the leave_requests
+    meta (status, total_items/total_pages, item count) plus a page_index 0-vs-1 check
+    and the employees meta as a working baseline. Counts/meta only — no token, no PII
+    values. Runs only when a sync fetched 0 items; remove once the root cause is found.
+    """
+
+    def _leave_meta(org_id, page_index):
+        r = requests.get(
+            f"{API_BASE}/api/v1/organisations/{org_id}/leave_requests",
+            headers=headers,
+            params={"item_per_page": 100, "page_index": page_index},
+            timeout=30,
+        )
+        meta = {"http_status": r.status_code, "page_index": page_index}
+        try:
+            payload = r.json().get("data", {})
+            meta.update(
+                {
+                    "item_count": len(payload.get("items", [])),
+                    "total_items": payload.get("total_items"),
+                    "total_pages": payload.get("total_pages"),
+                    "item_per_page_echo": payload.get("item_per_page"),
+                }
+            )
+        except Exception as exc:
+            meta["parse_error"] = str(exc)[:200]
+        return meta
+
+    try:
+        orgs_resp = requests.get(f"{API_BASE}/api/v1/organisations", headers=headers, timeout=30)
+        orgs = orgs_resp.json().get("data", {}).get("items", [])
+        chosen_org_id = orgs[0]["id"] if orgs else None
+        emps_resp = requests.get(
+            f"{API_BASE}/api/v1/organisations/{chosen_org_id}/employees",
+            headers=headers,
+            params={"item_per_page": 100},
+            timeout=30,
+        )
+        emp_payload = emps_resp.json().get("data", {})
+        diagnostics = {
+            "organisations_count": len(orgs),
+            "organisations": [{"id": o.get("id"), "name": o.get("name")} for o in orgs],
+            "chosen_org_id": chosen_org_id,
+            "leave_per_org": [
+                {"org_id": o.get("id"), "meta": _leave_meta(o.get("id"), 0)} for o in orgs
+            ],
+            "leave_chosen_page1": _leave_meta(chosen_org_id, 1) if chosen_org_id else None,
+            "employees_total_items": emp_payload.get("total_items"),
+            "employees_item_count": len(emp_payload.get("items", [])),
+        }
+        logger.info("EH leave diagnostics (empty fetch): %s", diagnostics)
+    except Exception:
+        logger.exception("EH leave diagnostics probe failed")
+
+
 @main_bp.route("/get/leave_requests")
 def get_leave_requests():
     """Fetch current and upcoming approved leave requests and persist to CloudSQL.
@@ -567,6 +625,10 @@ def get_leave_requests():
         deleted,
         active_future_count,
     )
+
+    if fetched_count == 0:
+        # TEMP diagnostic: EH returned nothing — log orgs/per-org leave meta to find why.
+        _log_eh_leave_diagnostics(headers)
 
     if not leave_sync_result_is_healthy(fetched_count, len(leave_requests), active_future_count):
         _alert_leave_sync_problem(
