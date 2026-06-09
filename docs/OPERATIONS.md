@@ -456,14 +456,14 @@ existing `CHAT_WEBHOOK_URL` webhook — no extra infra.
 | **Leave sync failed** | `/sync/leave_requests` (or the admin trigger) raised an exception | The sync errored out — token, network, or EH API failure. Check the stack trace in Cloud Run logs. |
 | **Leave sync skipped stale cleanup** | A run would have deleted > 50% of tracked active/future leave | An incomplete EH fetch was detected; the destructive delete was blocked. Investigate before the next sync. |
 
-### Enabling Chat alerts
+### Chat alerts toggle
 
-Leave-sync Chat alerts are **off by default** and gated by the env var
-`LEAVE_SYNC_ALERTS_ENABLED` (set to `true`/`1`/`yes` to post to the Chat space).
-When off, every alert condition is still **logged** (`WARNING`), and the
-stale-delete guard still blocks a wipe — only the Chat post is suppressed. Leave
-this off if the webhook points at a broad space; flip it on (or repoint
-`CHAT_WEBHOOK_URL` to a dedicated ops space) when you want active notifications.
+Leave-sync Chat alerts are **on by default**, gated by `LEAVE_SYNC_ALERTS_ENABLED`.
+Set it to a falsey value (`false`/`0`/`no`) to **suppress** posting while a known issue
+is being worked — every alert condition is still **logged** (`WARNING`) and the
+stale-delete guard still blocks a wipe; only the Chat post is silenced. Alerts post to
+`CHAT_WEBHOOK_URL`; repoint that secret to a dedicated ops space if leave alerts should
+not go to the shared space.
 
 ### Health signal in logs
 
