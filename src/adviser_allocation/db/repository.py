@@ -32,10 +32,10 @@ STALE_DELETE_MAX_RATIO = 0.5
 def _alert_stale_delete_guard(stale_count: int, tracked_count: int) -> None:
     """Send a Google Chat alert when the stale-leave delete guard trips.
 
-    Gated by LEAVE_SYNC_ALERTS_ENABLED (default off); the guard still blocks the
+    Gated by LEAVE_SYNC_ALERTS_ENABLED (default on); the guard still blocks the
     delete regardless, this only controls whether it posts to Chat.
     """
-    if os.getenv("LEAVE_SYNC_ALERTS_ENABLED", "false").strip().lower() not in ("1", "true", "yes"):
+    if os.getenv("LEAVE_SYNC_ALERTS_ENABLED", "true").strip().lower() not in ("1", "true", "yes"):
         logger.warning(
             "Stale-delete guard alert (Chat suppressed): would delete %d of %d tracked records",
             stale_count,

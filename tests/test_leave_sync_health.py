@@ -62,20 +62,21 @@ class TestLeaveSyncResultIsHealthy:
 
 class TestAlertLeaveSyncProblem:
     @patch("adviser_allocation.api.webhooks.send_chat_alert")
-    def test_suppressed_by_default(self, mock_send, monkeypatch):
-        # Default (flag unset) — leave-sync alerts must NOT post to Chat.
+    def test_sends_by_default(self, mock_send, monkeypatch):
+        # Default (flag unset) — leave-sync alerts post so genuine failures are noticed.
         monkeypatch.delenv("LEAVE_SYNC_ALERTS_ENABLED", raising=False)
-        _alert_leave_sync_problem("Leave sync failed", ["Error: boom"])
-        mock_send.assert_not_called()
-
-    @patch("adviser_allocation.api.webhooks.send_chat_alert")
-    def test_sends_alert_when_enabled(self, mock_send, monkeypatch):
-        monkeypatch.setenv("LEAVE_SYNC_ALERTS_ENABLED", "true")
         _alert_leave_sync_problem("Leave sync failed", ["Error: boom"])
         mock_send.assert_called_once()
         payload = mock_send.call_args.args[0]
         # build_chat_card_payload wraps the summary in the card title.
         assert "Leave sync failed" in payload["cards"][0]["header"]["title"]
+
+    @patch("adviser_allocation.api.webhooks.send_chat_alert")
+    def test_suppressed_when_disabled(self, mock_send, monkeypatch):
+        # Explicit opt-out (e.g. while a known issue is worked) suppresses the Chat post.
+        monkeypatch.setenv("LEAVE_SYNC_ALERTS_ENABLED", "false")
+        _alert_leave_sync_problem("Leave sync failed", ["Error: boom"])
+        mock_send.assert_not_called()
 
     @patch("adviser_allocation.api.webhooks.send_chat_alert", side_effect=RuntimeError("down"))
     def test_swallows_alert_errors(self, _mock_send, monkeypatch):
