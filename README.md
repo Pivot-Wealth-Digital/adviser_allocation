@@ -17,9 +17,10 @@ A production Flask application that automatically allocates HubSpot deals to adv
 ### Run Locally
 
 ```bash
-pip install -r requirements.txt
-export FLASK_APP=main.py
-python main.py
+brew install uv 
+uv sync --extra dev
+uv pip install -r requirements.txt
+uv run python main.py
 # Visit http://localhost:8080
 ```
 
