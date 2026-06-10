@@ -11,14 +11,103 @@ These lock in the prevention behaviour added after the silent leave-drain bug:
 from datetime import date
 from unittest.mock import MagicMock, patch
 
+from adviser_allocation import main
 from adviser_allocation.db.repository import AdviserAllocationDB
 from adviser_allocation.main import (
     _alert_leave_sync_problem,
     _should_track_leave,
+    get_leave_requests,
     leave_sync_result_is_healthy,
 )
 
 TODAY = date(2026, 6, 2)
+
+
+def _leave(leave_id, employee_id, end_date="2026-07-28", status="Approved"):
+    return {
+        "id": leave_id,
+        "employee_id": employee_id,
+        "start_date": "2026-07-15",
+        "end_date": end_date,
+        "status": status,
+    }
+
+
+def _make_eh_response(items, total_pages):
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.json.return_value = {
+        "data": {"items": items, "total_pages": total_pages, "total_count": None}
+    }
+    return resp
+
+
+class TestLeaveSyncPagination:
+    """Lock in that the EH leave fetch uses 1-based pagination and dedupes.
+
+    Employment Hero's ``page_index`` is 1-based: requesting ``page_index=0`` returns
+    the same rows as page 1. A 0-based loop therefore duplicated the first page and
+    never fetched the final page (``page_index == total_pages``), silently dropping a
+    whole page of leave — which is how an adviser's approved leave went missing.
+    """
+
+    def _run_sync(self, pages_by_index, total_pages):
+        """Run get_leave_requests against a fake EH that maps page_index -> items.
+
+        ``page_index=0`` deliberately returns page 1's rows (EH's real clamping
+        behaviour), so a regression to a 0-based loop drops the last page and fails.
+        """
+        requested_indexes = []
+
+        def fake_get(url, headers=None, params=None, timeout=None):
+            idx = params["page_index"]
+            requested_indexes.append(idx)
+            real_page = 1 if idx == 0 else idx
+            return _make_eh_response(pages_by_index.get(real_page, []), total_pages)
+
+        db = MagicMock()
+        db.delete_stale_future_leave.return_value = 0
+        db.count_active_future_leave.return_value = 99
+
+        with (
+            patch.object(main, "get_access_token", return_value="tok"),
+            patch.object(main, "get_org_id", return_value="org-1"),
+            patch.object(main, "get_cloudsql_db", return_value=db),
+            patch.object(main, "sydney_today", return_value=TODAY),
+            patch.object(main.requests, "get", side_effect=fake_get),
+        ):
+            leave_requests, _status, _headers = get_leave_requests()
+
+        upserted_ids = [
+            call.args[0]["leave_request_id"] for call in db.upsert_leave_request_dict.call_args_list
+        ]
+        return leave_requests, requested_indexes, upserted_ids
+
+    def test_fetches_final_page_including_its_leave(self):
+        # Leave that lives only on the last page must not be dropped.
+        pages = {
+            1: [_leave("p1", "emp-1")],
+            2: [_leave("p2", "emp-2")],
+            3: [_leave("p3", "emp-3")],
+            4: [_leave("p4", "emp-4")],
+            5: [_leave("ian-leave", "emp-ian")],
+        }
+        _kept, requested_indexes, upserted_ids = self._run_sync(pages, total_pages=5)
+
+        # Iterates page_index 1..5 — never 0, and includes the final page.
+        assert requested_indexes == [1, 2, 3, 4, 5]
+        assert "ian-leave" in upserted_ids
+
+    def test_dedupes_leave_seen_on_multiple_pages(self):
+        # A leave id appearing on more than one page is upserted once.
+        pages = {
+            1: [_leave("dup", "emp-1"), _leave("p1", "emp-1")],
+            2: [_leave("dup", "emp-1"), _leave("p2", "emp-2")],
+        }
+        kept, _requested_indexes, upserted_ids = self._run_sync(pages, total_pages=2)
+
+        assert upserted_ids.count("dup") == 1
+        assert sorted(lr["leave_request_id"] for lr in kept) == ["dup", "p1", "p2"]
 
 
 class TestShouldTrackLeave:
