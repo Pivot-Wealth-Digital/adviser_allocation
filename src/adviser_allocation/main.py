@@ -390,34 +390,46 @@ def get_employees():
     """
     access_token = get_access_token()
     headers = {"Authorization": f"Bearer {access_token}"}
-    params = {
-        "item_per_page": 100,
-    }
 
     org_id = get_org_id(headers)
-    r_emps = requests.get(
-        f"{API_BASE}/api/v1/organisations/{org_id}/employees",
-        headers=headers,
-        params=params,
-        timeout=30,
-    )
-    if r_emps.status_code != 200:
-        raise RuntimeError(f"Refresh failed: {r_emps.status_code} {r_emps.text}")
-
-    employees = []
     cloudsql_db = get_cloudsql_db()
 
-    for emp in r_emps.json()["data"]["items"]:
-        item = {
-            "id": emp.get("id"),
-            "name": emp.get("full_name"),  # Using 'full_name' for 'name'
-            "company_email": emp.get("company_email"),
-            "account_email": emp.get("account_email"),
-        }
-        cloudsql_db.upsert_employee_dict(item)
-        employees.append(item)
+    employees = []
+    seen_employee_ids = set()
+    # page_index is 1-based (see the leave sync); paginate so the employee list is
+    # not silently capped at the first 100.
+    page = 1
+    total_pages = 1
+    last_status = 200
+    while page <= total_pages:
+        r_emps = requests.get(
+            f"{API_BASE}/api/v1/organisations/{org_id}/employees",
+            headers=headers,
+            params={"item_per_page": 100, "page_index": page},
+            timeout=30,
+        )
+        last_status = r_emps.status_code
+        if r_emps.status_code != 200:
+            raise RuntimeError(f"Refresh failed: {r_emps.status_code} {r_emps.text}")
 
-    return (employees, r_emps.status_code, {"Content-Type": "application/json"})
+        payload = r_emps.json()["data"]
+        total_pages = payload["total_pages"]
+        for emp in payload["items"]:
+            employee_id = emp.get("id")
+            if employee_id in seen_employee_ids:
+                continue
+            seen_employee_ids.add(employee_id)
+            item = {
+                "id": employee_id,
+                "name": emp.get("full_name"),  # Using 'full_name' for 'name'
+                "company_email": emp.get("company_email"),
+                "account_email": emp.get("account_email"),
+            }
+            cloudsql_db.upsert_employee_dict(item)
+            employees.append(item)
+        page += 1
+
+    return (employees, last_status, {"Content-Type": "application/json"})
 
 
 @main_bp.route("/get/employee_id")
@@ -512,11 +524,14 @@ def get_leave_requests():
 
     leave_requests = []
     fetched_count = 0
-    # Employment Hero's page_index is 0-based; starting at 1 skips the first page
-    # (where leave lives when there are few pages), which is why the sync drained.
-    page = 0
+    seen_leave_ids = set()
+    # Employment Hero's page_index is 1-based: requesting page_index=0 returns the
+    # same rows as page 1, so a 0-based loop both duplicates the first page AND never
+    # fetches the final page (page_index == total_pages), silently dropping a whole
+    # page of leave every sync. Iterate 1..total_pages and dedupe by id defensively.
+    page = 1
     total_pages = 1  # Seeded; replaced with the real count from the first response.
-    while page < total_pages:
+    while page <= total_pages:
         params = {
             "item_per_page": 100,
             "page_index": page,
@@ -542,10 +557,14 @@ def get_leave_requests():
             payload.get("total_count"),
         )
         for leave_request in items:
+            leave_request_id = leave_request.get("id")
+            if leave_request_id in seen_leave_ids:
+                continue
+            seen_leave_ids.add(leave_request_id)
             end_date_obj = datetime.fromisoformat(leave_request["end_date"]).date()
             if _should_track_leave(leave_request.get("status"), end_date_obj, now_date):
                 item = {
-                    "leave_request_id": leave_request.get("id"),
+                    "leave_request_id": leave_request_id,
                     "employee_id": leave_request.get("employee_id"),
                     "start_date": leave_request.get("start_date"),
                     "end_date": leave_request.get("end_date"),
