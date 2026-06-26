@@ -9,7 +9,16 @@ from pprint import pformat
 from typing import Dict, List, Optional, Tuple
 
 import requests
-from flask import Blueprint, jsonify, redirect, render_template, request, session
+from flask import (
+    Blueprint,
+    g,
+    has_request_context,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    session,
+)
 
 from adviser_allocation.api.webhooks import build_chat_card_payload, send_chat_alert
 from adviser_allocation.services import box_folder_service as box_service
@@ -118,6 +127,24 @@ def _contact_by_label(contacts: Optional[List[dict]], label: str) -> Optional[di
     return None
 
 
+def _deal_contacts(deal_id: str) -> List[dict]:
+    """``get_hubspot_deal_contacts`` memoised per Flask request, so the auto endpoint
+    (which resolves the deal in both ``_fetch_deal_metadata`` and the authoritative
+    override) makes one HubSpot round-trip instead of two."""
+    deal_id = str(deal_id or "").strip()
+    if not deal_id:
+        return []
+    if has_request_context():
+        cache = getattr(g, "_deal_contacts_cache", None)
+        if cache is None:
+            cache = {}
+            g._deal_contacts_cache = cache
+        if deal_id not in cache:
+            cache[deal_id] = box_service.get_hubspot_deal_contacts(deal_id)
+        return cache[deal_id]
+    return box_service.get_hubspot_deal_contacts(deal_id)
+
+
 def _authoritative_household_from_deal(
     deal_id: Optional[str],
 ) -> Tuple[Optional[str], Optional[str]]:
@@ -134,9 +161,20 @@ def _authoritative_household_from_deal(
     if not deal_id:
         return None, None
     try:
-        contacts = box_service.get_hubspot_deal_contacts(deal_id)
+        contacts = _deal_contacts(deal_id)
     except Exception as exc:  # noqa: BLE001 - never fail tagging on a lookup error
         logger.warning("Authoritative household lookup failed for deal %s: %s", deal_id, exc)
+        return None, None
+
+    # Distinguish "no Client among labelled contacts" (genuine) from "association data
+    # unavailable" (HubSpot v4 read failed -> contacts carry no labels). The latter would
+    # silently fall back to the possibly-swapped payload, so make it observable.
+    if contacts and not any(c.get("association_types") for c in contacts):
+        logger.warning(
+            "Deal %s contacts carry no association labels (HubSpot association read likely "
+            "failed); skipping authoritative primary/spouse override.",
+            deal_id,
+        )
         return None, None
 
     client = _contact_by_label(contacts, "Client")
@@ -175,6 +213,18 @@ def _apply_authoritative_household(metadata: dict, deal_id: Optional[str]) -> di
             )
         metadata["hs_spouse_id"] = spouse_id
         metadata["spouse_contact_link"] = _hubspot_contact_url(spouse_id) or spouse_id
+    elif primary_id and str(metadata.get("hs_spouse_id") or "").strip() == primary_id:
+        # No authoritative spouse resolved, but the surviving spouse equals the new
+        # primary (a swap where the spouse field carried the Client). Clear it rather
+        # than tag one person as both; "" makes apply_metadata_template remove the field
+        # (spouse fields aren't in REQUIRED_METADATA_TEMPLATE_FIELDS, so this is safe).
+        logger.info(
+            "Authoritative override: clearing hs_spouse_id (== primary %s) on deal %s",
+            primary_id,
+            deal_id,
+        )
+        metadata["hs_spouse_id"] = ""
+        metadata["spouse_contact_link"] = ""
     return metadata
 
 
@@ -1494,7 +1544,7 @@ def _fetch_deal_metadata(deal_id: str) -> Optional[dict]:
             return None
         resp.raise_for_status()
         props = resp.json().get("properties", {})
-        contacts = box_service.get_hubspot_deal_contacts(deal_id)
+        contacts = _deal_contacts(deal_id)
 
         associated_contact_ids: list[str] = [
             str(contact.get("id")) for contact in contacts if contact.get("id")
