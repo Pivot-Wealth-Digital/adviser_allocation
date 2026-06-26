@@ -108,6 +108,76 @@ def _resolve_deal_id(payload: dict) -> Optional[str]:
     )
 
 
+def _contact_by_label(contacts: Optional[List[dict]], label: str) -> Optional[dict]:
+    """First deal contact whose HubSpot association label matches (case-insensitive)."""
+    target = label.strip().lower()
+    for contact in contacts or []:
+        for assoc in contact.get("association_types", []):
+            if (assoc.get("label") or "").strip().lower() == target:
+                return contact
+    return None
+
+
+def _authoritative_household_from_deal(
+    deal_id: Optional[str],
+) -> Tuple[Optional[str], Optional[str]]:
+    """Resolve (primary_contact_id, spouse_contact_id) from the deal's HubSpot
+    association LABELS, which are the source of truth: "Client" (assoc type 98/99)
+    is the primary, "Client's Spouse" (100/101) the spouse.
+
+    Returns ``(None, None)`` when the deal id, its contacts, or the "Client" label
+    can't be resolved — callers then leave the existing metadata untouched rather
+    than guess. ``primary == spouse`` collapses the spouse to ``None`` so one person
+    is never tagged as both.
+    """
+    deal_id = (deal_id or "").strip()
+    if not deal_id:
+        return None, None
+    try:
+        contacts = box_service.get_hubspot_deal_contacts(deal_id)
+    except Exception as exc:  # noqa: BLE001 - never fail tagging on a lookup error
+        logger.warning("Authoritative household lookup failed for deal %s: %s", deal_id, exc)
+        return None, None
+
+    client = _contact_by_label(contacts, "Client")
+    spouse = _contact_by_label(contacts, "Client's Spouse")
+    primary_id = str(client.get("id")).strip() if client and client.get("id") else None
+    spouse_id = str(spouse.get("id")).strip() if spouse and spouse.get("id") else None
+    if primary_id and spouse_id and primary_id == spouse_id:
+        spouse_id = None
+    return primary_id, spouse_id
+
+
+def _apply_authoritative_household(metadata: dict, deal_id: Optional[str]) -> dict:
+    """Override the Primary/Spouse metadata with the deal's authoritative Client /
+    Client's-Spouse before tagging Box. Conservative: only sets what we can resolve,
+    and never clears an existing spouse when no "Client's Spouse" label is found."""
+    primary_id, spouse_id = _authoritative_household_from_deal(deal_id)
+    if primary_id:
+        current = str(metadata.get("primary_contact_id") or "").strip()
+        if current and current != primary_id:
+            logger.info(
+                "Authoritative override: primary_contact_id %s -> %s (deal %s)",
+                current,
+                primary_id,
+                deal_id,
+            )
+        metadata["primary_contact_id"] = primary_id
+        metadata["primary_contact_link"] = _hubspot_contact_url(primary_id) or primary_id
+    if spouse_id:
+        current = str(metadata.get("hs_spouse_id") or "").strip()
+        if current and current != spouse_id:
+            logger.info(
+                "Authoritative override: hs_spouse_id %s -> %s (deal %s)",
+                current,
+                spouse_id,
+                deal_id,
+            )
+        metadata["hs_spouse_id"] = spouse_id
+        metadata["spouse_contact_link"] = _hubspot_contact_url(spouse_id) or spouse_id
+    return metadata
+
+
 def _stable_bucket(value: str, slots: int) -> int:
     normalized = (value or "").strip()
     if not normalized or slots <= 1:
@@ -737,19 +807,10 @@ def _load_contact_details_with_deals(email: str) -> Tuple[Optional[dict], List[d
         try:
             deal_contacts = box_service.get_hubspot_deal_contacts(deal_id)
 
-            def _contact_by_label(label: str, contacts=deal_contacts) -> Optional[dict]:
-                target = label.strip().lower()
-                for contact_entry in contacts:
-                    for assoc in contact_entry.get("association_types", []):
-                        assoc_label = (assoc.get("label") or "").strip().lower()
-                        if assoc_label == target:
-                            return contact_entry
-                return None
-
-            primary_entry = _contact_by_label("Client") or (
+            primary_entry = _contact_by_label(deal_contacts, "Client") or (
                 deal_contacts[0] if deal_contacts else None
             )
-            spouse_entry = _contact_by_label("Client's Spouse")
+            spouse_entry = _contact_by_label(deal_contacts, "Client's Spouse")
 
             for idx, contact_entry in enumerate(deal_contacts):
                 contact_props = contact_entry.get("properties") or {}
@@ -1435,31 +1496,27 @@ def _fetch_deal_metadata(deal_id: str) -> Optional[dict]:
         props = resp.json().get("properties", {})
         contacts = box_service.get_hubspot_deal_contacts(deal_id)
 
-        def _contact_by_label(label: str) -> Optional[dict]:
-            target = label.strip().lower()
-            for contact in contacts:
-                for assoc in contact.get("association_types", []):
-                    assoc_label = (assoc.get("label") or "").strip().lower()
-                    if assoc_label == target:
-                        return contact
-            return None
-
         associated_contact_ids: list[str] = [
             str(contact.get("id")) for contact in contacts if contact.get("id")
         ]
 
-        primary_contact = _contact_by_label("Client") or (contacts[0] if contacts else None)
-        spouse_contact = _contact_by_label("Client's Spouse")
+        primary_contact = _contact_by_label(contacts, "Client") or (
+            contacts[0] if contacts else None
+        )
+        spouse_contact = _contact_by_label(contacts, "Client's Spouse")
 
+        # Association labels are authoritative; the hs_contact_id / hs_spouse_id deal
+        # properties are set upstream and can be wrong (the Primary/Spouse swap), so
+        # prefer the "Client" / "Client's Spouse" labels over the properties.
         primary_contact_id = (
-            props.get("hs_contact_id")
-            or (primary_contact.get("id") if primary_contact else None)
+            (primary_contact.get("id") if primary_contact else None)
+            or props.get("hs_contact_id")
             or (associated_contact_ids[0] if associated_contact_ids else None)
         )
         primary_contact_link = _hubspot_contact_url(primary_contact_id)
 
-        spouse_id = props.get("hs_spouse_id") or (
-            spouse_contact.get("id") if spouse_contact else None
+        spouse_id = (spouse_contact.get("id") if spouse_contact else None) or props.get(
+            "hs_spouse_id"
         )
         spouse_link = _hubspot_contact_url(spouse_id)
 
@@ -1884,6 +1941,7 @@ def box_folder_apply_metadata():
     )
     metadata = _merge_metadata(metadata_payload, metadata_override) or {}
     metadata = _ensure_required_metadata_fields(metadata, None)
+    metadata = _apply_authoritative_household(metadata, deal_id)
 
     missing_metadata = _missing_metadata_fields(metadata)
     if missing_metadata:
@@ -1983,6 +2041,9 @@ def box_folder_apply_metadata_auto():
             metadata = _merge_metadata(metadata, fetched_metadata) or fetched_metadata
             metadata_source = "payload+hubspot" if metadata_source == "payload" else "hubspot"
         missing_metadata = _missing_metadata_fields(metadata)
+
+    metadata = _apply_authoritative_household(metadata, deal_id)
+    missing_metadata = _missing_metadata_fields(metadata)
 
     if missing_metadata:
         logger.error(
