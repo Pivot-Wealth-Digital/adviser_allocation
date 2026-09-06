@@ -25,6 +25,7 @@ from flask import (
     session,
     url_for,
 )
+from sqlalchemy.exc import IntegrityError
 
 # Import skill definitions to register all skills in the system
 import adviser_allocation.skills.definitions
@@ -503,13 +504,63 @@ def _alert_leave_sync_problem(summary: str, details: list) -> None:
         logger.warning("Could not send leave-sync alert: %s", exc)
 
 
+def _alert_skipped_leave(unknown_employee_ids: list, rejected_leave_ids: list, kept: int) -> None:
+    """Alert that leave was skipped rather than persisted, and why.
+
+    Skipping keeps the sync alive where a database rejection used to abort it mid-run,
+    but skipped leave is genuinely absent from capacity — an adviser reads as available
+    while they are away — so it must be surfaced, not just logged.
+    """
+    unique_employee_ids = sorted(set(unknown_employee_ids))
+    details = [f"Kept: {kept}"]
+    if unknown_employee_ids:
+        details.append(
+            f"Skipped (employee not in aa_employees): {len(unknown_employee_ids)} "
+            f"across {len(unique_employee_ids)} employee(s)"
+        )
+        details.append(f"Employee IDs: {', '.join(unique_employee_ids[:10])}")
+        details.append(
+            "Their leave is NOT counted in capacity. Check Employment Hero returns "
+            "them from /employees, then re-run the sync."
+        )
+    if rejected_leave_ids:
+        details.append(f"Rejected by the database: {len(rejected_leave_ids)}")
+        details.append(f"Leave IDs: {', '.join(rejected_leave_ids[:10])}")
+    _alert_leave_sync_problem("Leave sync skipped records", details)
+
+
+def _refresh_known_employee_ids(cloudsql_db) -> set:
+    """Sync employees from Employment Hero, then return the ids aa_employees holds.
+
+    Leave syncs every weekday but employees only sync on Mondays, so a new starter's
+    approved leave reaches EH days before their employee row exists — and on Mondays
+    both schedulers fire in the same minute with leave first, losing the race outright.
+    Refreshing here closes both windows.
+
+    An EH failure is logged and swallowed: a stale employee list still syncs almost all
+    leave, whereas raising would abandon the run entirely.
+    """
+    try:
+        get_employees()
+    except Exception:
+        logger.exception(
+            "Employee refresh before leave sync failed; continuing with existing employee rows"
+        )
+    return cloudsql_db.get_known_employee_ids()
+
+
 @main_bp.route("/get/leave_requests")
 def get_leave_requests():
     """Fetch current and upcoming approved leave requests and persist to CloudSQL.
 
-    Pulls every page of leave from Employment Hero, keeps approved leave that has
-    not yet ended (ongoing + today + future), upserts it, then prunes records EH no
-    longer reports within that window (cancelled/moved leave).
+    Refreshes employees first so a new starter's leave has an aa_employees row to
+    reference, then pulls every page of leave from Employment Hero, keeps approved
+    leave that has not yet ended (ongoing + today + future), upserts it, and prunes
+    records EH no longer reports within that window (cancelled/moved leave).
+
+    Leave whose employee is still unknown — or that the database rejects — is skipped
+    and alerted rather than aborting the run: a foreign-key violation on one record
+    used to abandon the remaining pages and the prune with it.
 
     Returns:
         tuple: (list of leave requests, HTTP status, headers)
@@ -521,10 +572,13 @@ def get_leave_requests():
 
     org_id = get_org_id(headers)
     cloudsql_db = get_cloudsql_db()
+    known_employee_ids = _refresh_known_employee_ids(cloudsql_db)
 
     leave_requests = []
     fetched_count = 0
     seen_leave_ids = set()
+    unknown_employee_ids = []
+    rejected_leave_ids = []
     # Employment Hero's page_index is 1-based: requesting page_index=0 returns the
     # same rows as page 1, so a 0-based loop both duplicates the first page AND never
     # fetches the final page (page_index == total_pages), silently dropping a whole
@@ -563,29 +617,51 @@ def get_leave_requests():
             seen_leave_ids.add(leave_request_id)
             end_date_obj = datetime.fromisoformat(leave_request["end_date"]).date()
             if _should_track_leave(leave_request.get("status"), end_date_obj, now_date):
+                employee_id = leave_request.get("employee_id")
+                if employee_id not in known_employee_ids:
+                    # aa_leave_requests.employee_id is a foreign key: inserting an id
+                    # aa_employees has never seen raises and aborts the whole run.
+                    unknown_employee_ids.append(str(employee_id))
+                    continue
                 item = {
                     "leave_request_id": leave_request_id,
-                    "employee_id": leave_request.get("employee_id"),
+                    "employee_id": employee_id,
                     "start_date": leave_request.get("start_date"),
                     "end_date": leave_request.get("end_date"),
                     "status": "approved",
                 }
+                try:
+                    cloudsql_db.upsert_leave_request_dict(item)
+                except IntegrityError:
+                    # Last-resort net: no single malformed record may abandon the sync.
+                    logger.exception(
+                        "Leave %s rejected by the database; skipping", leave_request_id
+                    )
+                    rejected_leave_ids.append(str(leave_request_id))
+                    continue
                 leave_requests.append(item)
-                cloudsql_db.upsert_leave_request_dict(item)
 
         page += 1
 
+    if unknown_employee_ids or rejected_leave_ids:
+        _alert_skipped_leave(unknown_employee_ids, rejected_leave_ids, len(leave_requests))
+
     # Prune leave EH no longer reports within the active/future window. The repository
-    # applies safety guards so an incomplete fetch can never wipe valid leave.
+    # applies safety guards so an incomplete fetch can never wipe valid leave. Skipped
+    # records are absent from synced_ids but cannot be pruned either: the foreign key
+    # means no stored row exists for an employee aa_employees has never seen.
     synced_ids = [lr["leave_request_id"] for lr in leave_requests]
     deleted = cloudsql_db.delete_stale_future_leave(synced_ids, now_date)
     active_future_count = cloudsql_db.count_active_future_leave(now_date)
     logger.info(
         "Leave sync: fetched %d across %d page(s), kept %d active/future, "
-        "deleted %d stale, %d active/future now in DB",
+        "skipped %d unknown-employee, %d db-rejected, deleted %d stale, "
+        "%d active/future now in DB",
         fetched_count,
         total_pages,
         len(leave_requests),
+        len(unknown_employee_ids),
+        len(rejected_leave_ids),
         deleted,
         active_future_count,
     )

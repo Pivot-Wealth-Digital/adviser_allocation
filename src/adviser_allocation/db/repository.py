@@ -7,7 +7,7 @@ import json
 import logging
 import os
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
@@ -107,6 +107,18 @@ class AdviserAllocationDB:
         """Get employee ID by company email (for backwards compatibility)."""
         emp = self.get_employee_by_email(email)
         return emp.employee_id if emp else None
+
+    def get_known_employee_ids(self) -> Set[str]:
+        """Return every employee_id currently held in aa_employees.
+
+        The leave sync uses this to drop leave belonging to employees this database
+        has never seen. ``aa_leave_requests.employee_id`` is a foreign key, so a
+        single unknown id raised mid-loop and aborted the entire sync — leaving the
+        remaining pages unsynced and the stale-leave prune unrun.
+        """
+        with self.engine.connect() as conn:
+            rows = conn.execute(text("SELECT employee_id FROM aa_employees")).fetchall()
+        return {row[0] for row in rows if row[0]}
 
     def upsert_employee(self, emp: Employee) -> None:
         """Insert or update employee record."""
