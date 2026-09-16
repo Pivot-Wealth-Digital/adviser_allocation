@@ -1835,6 +1835,79 @@ def _update_hubspot_contact_property(contact_id: str, property_name: str, value:
         return False
 
 
+_BOX_FOLDER_URL_PATTERN = re.compile(r"/folder/(\d+)")
+
+
+def _folder_id_from_box_url(folder_url: str) -> Optional[str]:
+    """Pull the numeric folder id out of an app.box.com folder URL."""
+    match = _BOX_FOLDER_URL_PATTERN.search(folder_url or "")
+    return match.group(1) if match else None
+
+
+def _fetch_deal_box_folder_url(deal_id: str) -> Optional[str]:
+    """Read the Box folder URL recorded on a HubSpot deal, or None.
+
+    Fails open (returns None) when HubSpot is unreachable — a read problem must
+    never block folder creation for a new client.
+    """
+    deal_id = (deal_id or "").strip()
+    if not deal_id or not HUBSPOT_BOX_FOLDER_DEAL_PROPERTY:
+        return None
+    try:
+        resp = requests.get(
+            f"https://api.hubapi.com/crm/v3/objects/deals/{deal_id}",
+            headers=_hubspot_headers(),
+            params={"properties": [HUBSPOT_BOX_FOLDER_DEAL_PROPERTY]},
+            timeout=10,
+        )
+        if resp.status_code == 404:
+            logger.warning(
+                "HubSpot deal %s not found while reading %s",
+                deal_id,
+                HUBSPOT_BOX_FOLDER_DEAL_PROPERTY,
+            )
+            return None
+        resp.raise_for_status()
+    except requests.RequestException as exc:
+        logger.warning(
+            "Failed to read %s from deal %s: %s",
+            HUBSPOT_BOX_FOLDER_DEAL_PROPERTY,
+            deal_id,
+            exc,
+        )
+        return None
+    properties = resp.json().get("properties") or {}
+    return (properties.get(HUBSPOT_BOX_FOLDER_DEAL_PROPERTY) or "").strip() or None
+
+
+def _existing_folder_for_deal(deal_id: str, service) -> Optional[dict]:
+    """Return the Box folder already provisioned for *deal_id*, else None.
+
+    This is what makes /box/folder/create idempotent. The HubSpot workflow
+    retries the create step when a response is slow, and ensure_client_folder()
+    answers a repeat call by creating "<name> (2)" rather than returning the
+    original. The tag step then tags the newest folder, stranding the first as
+    an untagged orphan that the Box webhook reports as
+    MISSING_METADATA_TEMPLATE — 6 clients between 2026-07 and 2026-09.
+    """
+    folder_url = _fetch_deal_box_folder_url(deal_id)
+    if not folder_url:
+        return None
+    folder_id = _folder_id_from_box_url(folder_url)
+    if not folder_id:
+        logger.warning("Deal %s records an unparseable Box folder URL: %s", deal_id, folder_url)
+        return None
+    snapshot = service.get_folder_snapshot_info(folder_id)
+    if not snapshot:
+        logger.warning(
+            "Deal %s records Box folder %s which no longer exists — creating a new folder",
+            deal_id,
+            folder_id,
+        )
+        return None
+    return snapshot
+
+
 def _extract_folder_id(payload: dict) -> Optional[str]:
     folder_id = payload.get("folder_id")
     if folder_id:
@@ -1893,6 +1966,27 @@ def box_folder_create_only():
         _alert_box_failure("/box/folder/create", deal_id, "Box automation not configured", 503)
         return jsonify({"message": "Box automation not configured"}), 503
 
+    existing_folder = _existing_folder_for_deal(deal_id, service)
+    if existing_folder:
+        logger.info(
+            "Deal %s already has Box folder %s — skipping creation",
+            deal_id,
+            existing_folder.get("id"),
+        )
+        return (
+            jsonify(
+                {
+                    "deal_id": deal_id,
+                    "status": "existing",
+                    "folder": existing_folder,
+                    "contacts": [],
+                    "metadata_fields": sorted(metadata_payload.keys()),
+                    "share_email_hint": share_email,
+                }
+            ),
+            200,
+        )
+
     logger.info(
         "Create-only Box folder request for deal %s (override=%s, metadata_fields=%s)",
         deal_id,
@@ -1932,6 +2026,20 @@ def box_folder_create_only():
             ),
             500,
         )
+
+    # Record the folder on the deal NOW, not at tag time. The duplicate window is
+    # the gap between create and tag (~60s in the observed incidents); writing the
+    # property here is what lets a retried create find the folder it already made.
+    created_folder_url = (result.get("folder") or {}).get("url")
+    if created_folder_url and HUBSPOT_BOX_FOLDER_DEAL_PROPERTY:
+        if not _update_hubspot_deal_properties(
+            deal_id, {HUBSPOT_BOX_FOLDER_DEAL_PROPERTY: created_folder_url}
+        ):
+            logger.warning(
+                "Unable to record Box folder %s on deal %s — a retried create could duplicate it",
+                created_folder_url,
+                deal_id,
+            )
 
     status = result.get("status", "created")
     code = 200 if status == "created" else 202
