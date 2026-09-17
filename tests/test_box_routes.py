@@ -306,3 +306,9 @@ def test_create_records_folder_url_on_deal_immediately(
     mock_update.assert_called_once_with(
         "D1", {DEAL_FOLDER_PROPERTY: "https://app.box.com/folder/418544723688"}
     )
+
+
+def test_deal_folder_property_defaults_to_box_folder():
+    """An unset env var must not silently disable the create idempotency guard —
+    the deal property really is named box_folder in HubSpot."""
+    assert box_routes.HUBSPOT_BOX_FOLDER_DEAL_PROPERTY == "box_folder"

@@ -1364,10 +1364,14 @@ def _hubspot_headers() -> dict:
     return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
 
+# Defaults to the real HubSpot property name, matching
+# HUBSPOT_BOX_FOLDER_CONTACT_PROPERTY below. Left as "" this reads as
+# "unconfigured" and silently disables both the deal-property write and the
+# create idempotency guard that depends on it.
 HUBSPOT_BOX_FOLDER_DEAL_PROPERTY = (
     get_secret("HUBSPOT_BOX_FOLDER_DEAL_PROPERTY")
     or os.environ.get("HUBSPOT_BOX_FOLDER_DEAL_PROPERTY")
-    or ""
+    or "box_folder"
 ).strip()
 
 
