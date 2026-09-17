@@ -8,7 +8,7 @@ workflow can set wrong, producing the Primary/Spouse swap).
 
 import hashlib
 import json
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from adviser_allocation.api import box_routes
 from adviser_allocation.main import app as flask_app
@@ -185,3 +185,130 @@ def test_manual_tag_endpoint_applies_authoritative_primary(
     _folder_id, applied = service.apply_metadata_template.call_args[0]
     assert applied["primary_contact_id"] == "111"  # the Client, not the payload's 222
     assert applied["hs_spouse_id"] == "222"  # the Client's Spouse
+
+
+# --- /box/folder/create idempotency --------------------------------------------
+#
+# The HubSpot workflow retries the create step on a slow response. Because
+# ensure_client_folder() answers a repeat call with "<name> (2)" instead of the
+# original folder, every retry used to strand an untagged orphan folder.
+
+DEAL_FOLDER_PROPERTY = "box_folder_url"
+
+
+def _create_payload(**overrides):
+    payload = {
+        "hs_deal_record_id": "D1",
+        "deal_salutation": "Mei Tan & Weng Sehu",
+        "household_type": "Couple",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _post_create(payload):
+    body = json.dumps(payload)
+    url = "http://localhost/box/folder/create"
+    flask_app.config["TESTING"] = True
+    return flask_app.test_client().post(
+        "/box/folder/create",
+        data=body,
+        content_type="application/json",
+        headers={"X-HubSpot-Signature": _hubspot_sig("POST", url, body)},
+    )
+
+
+def test_folder_id_from_box_url_parses_and_rejects():
+    assert box_routes._folder_id_from_box_url("https://app.box.com/folder/418544723688") == (
+        "418544723688"
+    )
+    assert box_routes._folder_id_from_box_url("") is None
+    assert box_routes._folder_id_from_box_url("https://app.box.com/file/123") is None
+
+
+@patch.object(box_routes, "HUBSPOT_BOX_FOLDER_DEAL_PROPERTY", "")
+def test_fetch_deal_box_folder_url_skipped_when_property_unconfigured():
+    assert box_routes._fetch_deal_box_folder_url("D1") is None
+
+
+@patch.object(box_routes, "HUBSPOT_BOX_FOLDER_DEAL_PROPERTY", DEAL_FOLDER_PROPERTY)
+@patch.object(box_routes, "_fetch_deal_box_folder_url", return_value=None)
+def test_existing_folder_none_when_deal_has_no_folder_recorded(_fetch):
+    assert box_routes._existing_folder_for_deal("D1", MagicMock()) is None
+
+
+@patch.object(box_routes, "HUBSPOT_BOX_FOLDER_DEAL_PROPERTY", DEAL_FOLDER_PROPERTY)
+@patch.object(
+    box_routes, "_fetch_deal_box_folder_url", return_value="https://app.box.com/folder/999"
+)
+def test_existing_folder_none_when_recorded_folder_is_gone(_fetch):
+    """A trashed folder must not permanently block re-creation for that deal."""
+    service = MagicMock()
+    service.get_folder_snapshot_info.return_value = None
+    assert box_routes._existing_folder_for_deal("D1", service) is None
+
+
+@patch.object(box_routes, "HUBSPOT_BOX_FOLDER_DEAL_PROPERTY", DEAL_FOLDER_PROPERTY)
+@patch.object(
+    box_routes, "_fetch_deal_box_folder_url", return_value="https://app.box.com/folder/999"
+)
+def test_existing_folder_returns_live_snapshot(_fetch):
+    service = MagicMock()
+    service.get_folder_snapshot_info.return_value = {"id": "999", "name": "Mei Tan & Weng Sehu"}
+    assert box_routes._existing_folder_for_deal("D1", service)["id"] == "999"
+
+
+@patch.object(box_routes, "HUBSPOT_BOX_FOLDER_DEAL_PROPERTY", DEAL_FOLDER_PROPERTY)
+@patch.object(box_routes, "provision_box_folder")
+@patch.object(box_routes, "_existing_folder_for_deal")
+@patch.object(box_routes, "ensure_box_service")
+@patch("adviser_allocation.utils.auth.get_secret")
+def test_create_returns_existing_folder_without_provisioning(
+    mock_secret, _mock_ensure, mock_existing, mock_provision
+):
+    """The retry that used to create '<name> (2)' now returns the original folder."""
+    mock_secret.return_value = TEST_HUBSPOT_SECRET
+    mock_existing.return_value = {
+        "id": "418544723688",
+        "name": "Mei Tan & Weng Sehu",
+        "url": "https://app.box.com/folder/418544723688",
+    }
+
+    resp = _post_create(_create_payload())
+
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    assert resp.get_json()["status"] == "existing"
+    assert resp.get_json()["folder"]["id"] == "418544723688"
+    mock_provision.assert_not_called()
+
+
+@patch.object(box_routes, "HUBSPOT_BOX_FOLDER_DEAL_PROPERTY", DEAL_FOLDER_PROPERTY)
+@patch.object(box_routes, "_update_hubspot_deal_properties", return_value=True)
+@patch.object(box_routes, "provision_box_folder")
+@patch.object(box_routes, "_existing_folder_for_deal", return_value=None)
+@patch.object(box_routes, "ensure_box_service")
+@patch("adviser_allocation.utils.auth.get_secret")
+def test_create_records_folder_url_on_deal_immediately(
+    mock_secret, _mock_ensure, _mock_existing, mock_provision, mock_update
+):
+    """Recording the URL at create time (not tag time) is what closes the
+    duplicate window — a retry arriving seconds later then finds the folder."""
+    mock_secret.return_value = TEST_HUBSPOT_SECRET
+    mock_provision.return_value = {
+        "status": "created",
+        "folder": {"id": "418544723688", "url": "https://app.box.com/folder/418544723688"},
+        "contacts": [],
+    }
+
+    resp = _post_create(_create_payload())
+
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    mock_update.assert_called_once_with(
+        "D1", {DEAL_FOLDER_PROPERTY: "https://app.box.com/folder/418544723688"}
+    )
+
+
+def test_deal_folder_property_defaults_to_box_folder():
+    """An unset env var must not silently disable the create idempotency guard —
+    the deal property really is named box_folder in HubSpot."""
+    assert box_routes.HUBSPOT_BOX_FOLDER_DEAL_PROPERTY == "box_folder"
