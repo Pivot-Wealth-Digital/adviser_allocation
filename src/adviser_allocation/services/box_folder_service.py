@@ -919,11 +919,12 @@ def _load_box_jwt_config_json() -> Optional[str]:
 
 BOX_JWT_CONFIG_JSON = _load_box_jwt_config_json()
 
-# Box user to impersonate for folder operations
-BOX_IMPERSONATION_USER = (
-    get_secret("BOX_IMPERSONATION_USER")
-    or os.environ.get("BOX_IMPERSONATION_USER")
-    or "noel.pinton@pivotwealth.com.au"
+# Box user to impersonate for folder operations. Deliberately has no default:
+# a hardcoded address outlives the person, and when that Box account is
+# deactivated every call 401s while the configured secret looks correct. Unset
+# means "run as the JWT service account" — handled (and logged) below.
+BOX_IMPERSONATION_USER = get_secret("BOX_IMPERSONATION_USER") or os.environ.get(
+    "BOX_IMPERSONATION_USER"
 )
 HUBSPOT_TOKEN = get_secret("HUBSPOT_TOKEN") or os.environ.get("HUBSPOT_TOKEN")
 HUBSPOT_HEADERS = {
